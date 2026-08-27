@@ -54,6 +54,47 @@ Escreva tudo como se o pacote pudesse se perder, duplicar e chegar fora de ordem
   pode causar efeito duplo (em especial `OBJ_DESTRUIDO`).
 - Snapshot que chega atrasado (tick menor que o último aplicado) é descartado.
 
+## UM CORPO POR NOME (e o fim do sósia)
+
+Sintoma que esta seção existe para matar: *"entrei e tem dois de mim, e os dois
+andam junto"*. Ele tem **quatro origens diferentes** e todas estão fechadas:
+
+1. **`main.js` avaliado duas vezes.** Módulo ES é identificado pela **URL**, e
+   basta a mesma build ser pedida por dois endereços (`.../index-AbC.js` e
+   `.../index-AbC.js?v=xyz`) para o navegador executar o arquivo do zero de
+   novo. Resultado: duas telas iniciais empilhadas (daí o *"tem que clicar duas
+   vezes"*), dois personagens, e os dois andando juntos porque o teclado é do
+   `window`. A causa mais provável está corrigida em `carimbarVersao`
+   (`servidor/rede-ws.js`), mas *corrigido num lugar* não é *impossível*: a
+   primeira linha de `src/main.js` planta uma bandeira em `globalThis` e
+   qualquer segunda avaliação morre ali, antes de criar renderer, personagem,
+   HUD ou socket.
+2. **Clique duplo na tela inicial.** O overlay leva 380 ms de *fade* para virar
+   `pointer-events: none`; dois cliques nesse intervalo chamavam o callback
+   duas vezes. `hud.js` agora só aceita o primeiro.
+3. **`rede.conectar()` chamado duas vezes.** Abria **dois sockets**, e o
+   servidor via dois jogadores com o mesmo nome — um deles parado, porque só o
+   último transporte recebia o `MEU_ESTADO`. A segunda chamada agora devolve a
+   mesma promessa da primeira.
+4. **Reconexão com a sessão velha ainda viva.** O batimento leva até 10 s para
+   descobrir que o outro lado morreu, então todo F5 deixava um sósia parado por
+   dez segundos — segurando o NPC com quem a pessoa falava e o objeto que ela
+   carregava. **A regra agora é: quem entra com um nome que já está na sala
+   derruba a sessão anterior daquele nome** (`sala.entrar`), com `sair()`
+   completo antes de o corpo novo nascer. A conta de lotação vem **depois** do
+   corte, senão quem recarrega com a sala cheia disputaria vaga consigo mesmo.
+
+E, enquanto o `BEMVINDO` não chega, `meuId` é 0 e o cliente **não desenha
+avatar nenhum** (`rede/avatares.js`): sem saber qual dos jogadores do Map sou
+eu, o primeiro boneco desenhado seria um sósia na minha própria posição.
+
+Para abrir **duas janelas de propósito** (testar multiplayer sozinho), use
+`?nome=OutroNome` na barra de endereço — o cliente lê isso antes do
+`localStorage`.
+
+Coberto por `node tools/teste-nome-unico.mjs` (10 casos) e pelo caso
+*"nenhum jogador aparece duas vezes"* de `tools/teste-online.mjs`.
+
 ---
 
 # Protocolo binário

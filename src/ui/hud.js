@@ -86,6 +86,35 @@ const CSS = `
   background: #7fd8a0; box-shadow: 0 0 7px #7fd8a0;
 }
 #hud-fps b { font-variant-numeric: tabular-nums; font-size: 14px; }
+
+/* --- carteira: ouro e fichas do cassino --- */
+#hud-money { display: none; gap: 14px; }
+#hud-money.on { display: flex; }
+#hud-money .m { display: flex; align-items: center; gap: 6px; }
+#hud-money b { font-variant-numeric: tabular-nums; font-size: 14px; }
+#hud-money .pin {
+  width: 13px; height: 13px; border-radius: 50%;
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,.35), 0 0 6px rgba(0,0,0,.35);
+}
+#hud-money .pin.ouro {
+  background: radial-gradient(circle at 35% 30%, #ffe89a, #e0a713 62%, #a97a06);
+}
+#hud-money .pin.ficha {
+  background: radial-gradient(circle at 35% 30%, #ff8f8f, #c62c3f 60%, #7d1523);
+  border: 2px dashed rgba(255,255,255,.75);
+}
+#hud-money .sobe { animation: hudMoneyUp .5s ease; }
+@keyframes hudMoneyUp {
+  0% { transform: scale(1); color: #f2f5f8; }
+  35% { transform: scale(1.28); color: #9ff0b4; }
+  100% { transform: scale(1); color: #f2f5f8; }
+}
+#hud-money .desce { animation: hudMoneyDown .5s ease; }
+@keyframes hudMoneyDown {
+  0% { transform: scale(1); color: #f2f5f8; }
+  35% { transform: scale(1.16); color: #f09a9a; }
+  100% { transform: scale(1); color: #f2f5f8; }
+}
 #hud-debug {
   padding: 8px 11px; font-size: 12px; line-height: 1.5;
   font-family: Consolas, "Courier New", monospace;
@@ -155,6 +184,7 @@ const HELP_ROWS = [
   [['Bt.Esq'], 'Atirar, agarrar, abrir portal'],
   [['Bt.Dir'], 'Mirar (revolver) / segurar (anel)'],
   [['R'], 'Recarregar o revolver'],
+  [['C'], 'Trocar a estacao: sol / chuva / neve'],
   [['F3'], 'Painel de rede'],
   [['Tab'], 'Ajuda'],
   [['Esc'], 'Liberar mouse'],
@@ -209,6 +239,14 @@ export function createHUD() {
   fpsRow.id = 'hud-fps'
   const fpsVal = el('b', null, fpsRow, '--')
   el('span', null, fpsRow, 'FPS')
+  const money = el('div', 'row panel', status)
+  money.id = 'hud-money'
+  const ouroBox = el('div', 'm', money)
+  el('span', 'pin ouro', ouroBox)
+  const ouroVal = el('b', null, ouroBox, '0')
+  const fichaBox = el('div', 'm', money)
+  el('span', 'pin ficha', fichaBox)
+  const fichaVal = el('b', null, fichaBox, '0')
   const debug = el('div', 'panel', status)
   debug.id = 'hud-debug'
 
@@ -248,7 +286,17 @@ export function createHUD() {
     cross.classList.toggle('off', !on)
   }
 
-  function onStartClick() {
+  // UM clique, uma vez. O 'jaComecou' nao e paranoia: o overlay so ganha
+  // pointer-events: none 380 ms depois do clique (o tempo do fade), e um duplo
+  // clique nesse intervalo chamava o callback DUAS vezes -- que era o segundo
+  // "clique pra iniciar" que o jogador via. O { once: true } sozinho nao
+  // bastaria: quem quiser voltar pra tela inicial chama showStart() de novo, e
+  // ai o ouvinte precisa existir.
+  let jaComecou = false
+  function onStartClick(e) {
+    if (e) { e.preventDefault(); e.stopPropagation() }
+    if (jaComecou) return
+    jaComecou = true
     api.hideStart()
     if (startCb) { const cb = startCb; startCb = null; cb() }
   }
@@ -285,6 +333,16 @@ export function createHUD() {
   document.head.appendChild(estiloF3)
 
   let f3on = false
+
+  /** Anima o numero quando ele muda: verde subindo, vermelho descendo. */
+  function pulo(elNum, novoValor) {
+    const antes = Number(elNum.textContent) || 0
+    if (novoValor === antes) return
+    const cls = novoValor > antes ? 'sobe' : 'desce'
+    elNum.classList.remove('sobe', 'desce')
+    void elNum.offsetWidth          // reinicia a animacao CSS
+    elNum.classList.add(cls)
+  }
 
   const api = {
     root,
@@ -340,6 +398,27 @@ export function createHUD() {
       else help.classList.toggle('off', !v)
     },
 
+    /**
+     * Carteira do cassino. Passar null esconde a linha inteira (quem nunca
+     * entrou no cassino nao precisa de um contador de fichas na tela).
+     * O pulinho verde/vermelho e o unico feedback de "ganhei/perdi" que existe
+     * fora do painel do jogo, e ele importa: sem ele, ganhar 300 fichas e um
+     * numero que muda calado no canto da tela.
+     */
+    setDinheiro(ouro, fichas) {
+      if (ouro === null || ouro === undefined) { money.classList.remove('on'); return }
+      money.classList.add('on')
+      const o = Math.max(0, Math.round(ouro || 0))
+      const f = Math.max(0, Math.round(fichas || 0))
+      pulo(ouroVal, o)
+      pulo(fichaVal, f)
+      ouroVal.textContent = String(o)
+      fichaVal.textContent = String(f)
+      // fichas so aparecem depois de existir uma pela primeira vez
+      fichaBox.style.display = (f > 0 || money.dataset.viuFicha === '1') ? '' : 'none'
+      if (f > 0) money.dataset.viuFicha = '1'
+    },
+
     setFps(n) {
       const v = Math.round(n || 0)
       fpsVal.textContent = String(v)
@@ -349,6 +428,7 @@ export function createHUD() {
     /** Overlay inicial. cb roda no clique (pedir pointer lock, etc). */
     showStart(cb) {
       startCb = typeof cb === 'function' ? cb : null
+      jaComecou = false
       start.style.display = 'flex'
       requestAnimationFrame(() => start.classList.remove('off'))
     },

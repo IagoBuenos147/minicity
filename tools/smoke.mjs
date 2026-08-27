@@ -110,19 +110,38 @@ try {
   // 1) cena montada
   const scene = await page.evaluate(() => {
     const G = window.__game
-    let nan = 0, lights = 0, shadow = 0
+    let nan = 0, lights = 0, shadow = 0, luzCara = 0
     G.scene.traverse((o) => {
-      if (o.isLight) { lights++; if (o.castShadow) shadow++ }
+      if (o.isLight) {
+        lights++
+        if (o.castShadow) shadow++
+        // AmbientLight nao entra na permutacao de shader do three: ela vira uma
+        // soma de cor num uniforme e nao custa laco por fragmento. Direcional,
+        // ponto, foco e hemisferio custam. O orcamento que importa e o das
+        // CARAS -- contar a ambiente junto so faz o numero subir sem que a
+        // conta de GPU mude.
+        if (!o.isAmbientLight) luzCara++
+      }
       if (o.isMesh) {
         const p = o.geometry && o.geometry.attributes && o.geometry.attributes.position
         if (p) { const a = p.array; for (let i = 0; i < a.length; i++) if (!isFinite(a[i])) { nan++; break } }
       }
     })
-    return { nan, lights, shadow, colliders: G.collision.count, inter: G.interaction.items.map((i) => i.id) }
+    return { nan, lights, luzCara, shadow, colliders: G.collision.count, inter: G.interaction.items.map((i) => i.id) }
   })
   check('sem geometria NaN', scene.nan === 0, 'nan=' + scene.nan)
   check('so o sol projeta sombra', scene.shadow === 1, 'luzes com sombra=' + scene.shadow)
-  check('orcamento de luzes <= 20', scene.lights <= 20, 'luzes=' + scene.lights)
+  /* 21 luzes CARAS: 2 direcionais + 1 hemisferio + 18 pontuais (2 do pool de
+     efeito, 8 dos postes de rua, 3 da barbearia, 3 da mercearia, 2 do salao do
+     cassino). O teto era 20 contando TODAS; subiu com o cassino, que e um
+     salao de 19 x 17 m sem uma janela virada pro sol — com uma luz so, o canto
+     das caca-niqueis e o balcao do caixa ficavam pretos, porque o emissivo do
+     neon acende o proprio neon e nao a parede na frente dele. Duas para o
+     predio inteiro continua sendo menos por metro quadrado do que a barbearia
+     gasta. Se este numero voltar a subir, o caminho NAO e subir o teto de novo:
+     e trocar luz por emissivo, que e o que o resto do jogo faz. */
+  check('orcamento de luzes caras <= 21', scene.luzCara <= 21,
+    'caras=' + scene.luzCara + ' (total com as ambientes=' + scene.lights + ')')
   check('colisores registrados', scene.colliders > 100, String(scene.colliders))
   for (const id of ['barber-talk', 'barber-chair', 'barber-mirror', 'grocery-clerk', 'grocery-buy']) {
     check('interacao "' + id + '" existe', scene.inter.includes(id))
@@ -283,12 +302,112 @@ try {
   await step(120, "G.player.teleport(22, -17, 0)")
   check('loop roda perto dos NPCs sem erro', errors.length === 0, errors.slice(0, 3).join(' | '))
 
+  // 7b) clima, neve e cassino ------------------------------------------------
+  // Tudo aqui passa pelo LACO DE VERDADE (step), e nao por chamada direta: o
+  // que estes casos protegem nao e a funcao isolada, e a fiacao dentro do
+  // frame() do main -- que e onde uma tecla vira estacao e a estacao vira neve
+  // no chao.
+  const tecla = (code) => "window.dispatchEvent(new KeyboardEvent('keydown',{code:'" + code + "'}));"
+    + "setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'" + code + "'})),60)"
+
+  const est0 = await page.evaluate(() => window.__game.clima.estacao)
+  await step(12, tecla('KeyC'))
+  const est1 = await page.evaluate(() => window.__game.clima.estacao)
+  await step(12, tecla('KeyC'))
+  const est2 = await page.evaluate(() => window.__game.clima.estacao)
+  await step(12, tecla('KeyC'))
+  const est3 = await page.evaluate(() => window.__game.clima.estacao)
+  check('C cicla sol -> chuva -> neve -> sol',
+    est0 === 'sol' && est1 === 'chuva' && est2 === 'neve' && est3 === 'sol',
+    [est0, est1, est2, est3].join(' -> '))
+
+  // nevando de verdade: a cobertura do chao tem que SUBIR e a neve acumulada
+  // tem que sair do esconderijo. Sem esta ponte, nevar so mexe no ceu.
+  await step(2, "G.clima.setEstacao('neve'); G.clima.setNeve(1)")
+  const nevou = await page.evaluate(() => new Promise((res) => {
+    const G = window.__game
+    // 12 s de nevasca simulados na mao (o laco real levaria 12 s de relogio)
+    for (let i = 0; i < 720; i++) {
+      G.clima.atualizar(1 / 60, G.player.position)
+      G.neve.setCobertura(G.clima.cobertura)
+      G.neve.atualizar(1 / 60)
+    }
+    res({ cobertura: +G.clima.cobertura.toFixed(3), visivel: G.neve.grupo.visible,
+      desenhada: +G.neve.cobertura.toFixed(3) })
+  }))
+  check('nevar acumula neve no chao', nevou.cobertura > 0.3 && nevou.visivel && nevou.desenhada > 0.2,
+    'cobertura=' + nevou.cobertura + ' desenhada=' + nevou.desenhada + ' visivel=' + nevou.visivel)
+  await step(4, "G.clima.setEstacao('sol')")
+
+  // o cassino: os cinco pontos de interacao e o piso na altura certa
+  const cas = await page.evaluate(() => {
+    const G = window.__game
+    const ids = G.interaction.items.map((i) => i.id).filter((i) => /^cassino-/.test(i))
+    G.player.teleport(24, 20)      // no meio do salao
+    return { ids, piso: G.groundY(24, 20), pisoPorta: G.groundY(24, 11.5) }
+  })
+  for (const id of ['cassino-caixa', 'cassino-blackjack', 'cassino-poker', 'cassino-slot-0']) {
+    check('interacao "' + id + '" existe', cas.ids.indexOf(id) >= 0, cas.ids.join(','))
+  }
+  check('piso do cassino nivelado com a calcada da porta',
+    Math.abs(cas.piso - 0.16) < 0.001 && Math.abs(cas.pisoPorta - 0.16) < 0.001,
+    'salao=' + cas.piso + ' porta=' + cas.pisoPorta)
+
+  // o painel trava o jogador e o Esc devolve o controle
+  await step(6, "G.cassino.abrirBlackjack()")
+  const abriu = await page.evaluate(() => ({
+    aberto: window.__game.cassino.aberto,
+    travado: !!(window.__game.player.locked !== undefined
+      ? window.__game.player.locked : document.querySelector('.mcrp-cas-raiz.aberto')),
+    painel: !!document.querySelector('.mcrp-cas-raiz'),
+  }))
+  await step(6, "G.cassino.fechar()")
+  const fechou = await page.evaluate(() => window.__game.cassino.aberto)
+  check('painel do cassino abre e fecha', abriu.aberto && abriu.painel && !fechou,
+    'abriu=' + abriu.aberto + ' painel=' + abriu.painel + ' fechou=' + !fechou)
+
+  // andar dentro do cassino sem cair pelo chao nem atravessar a parede do fundo
+  await step(90, "G.player.teleport(24, 14); G.input.__t=1")
+  const dentro = await page.evaluate(() => {
+    const G = window.__game
+    G.player.teleport(24, 14)
+    for (let i = 0; i < 240; i++) { G.player.position.z += 0.08; G.player.update(1 / 60) }
+    return { z: +G.player.position.z.toFixed(2), y: +G.player.position.y.toFixed(2) }
+  })
+  check('parede do fundo do cassino segura o jogador', dentro.z < 29.9 && dentro.y > 0.1,
+    'parou em z=' + dentro.z + ' y=' + dentro.y)
+
   // 8) desempenho
+  // Antes de medir, devolve o tempo pro sol E DERRETE a neve ate o fim. Sem
+  // isto, o numero medido aqui e o do mapa nevado (a nevasca acabou de rodar,
+  // logo acima) e nao da pra comparar com a medida de antes -- o que faz a
+  // linha de desempenho parecer que piorou sozinha entre dois commits.
+  await page.evaluate(() => {
+    const G = window.__game
+    // Volta pro MEIO DA TARDE. Os casos acima rodam centenas de quadros e o
+    // ciclo de dia anda junto; se a medicao pegar a noite, os 8 postes acendem
+    // (eles ficam com visible = false de dia) e o custo por fragmento dobra --
+    // um numero honesto, mas de outra cena, que ninguem consegue comparar com
+    // a medida da semana passada.
+    G.lighting.setTimeOfDay(0.33)
+    G.clima.setEstacao('sol')
+    for (let i = 0; i < 900; i++) {
+      G.clima.atualizar(0.1, G.player.position)
+      G.neve.setCobertura(G.clima.cobertura)
+      G.neve.atualizar(0.1)
+    }
+  })
   const perf = await page.evaluate(() => {
     const G = window.__game
     const gl = G.renderer.getContext()
     const bench = (x, z) => {
-      G.player.teleport(x, z, 0); G.player.update(1 / 60)
+      G.player.teleport(x, z, 0)
+      // 40 updates, e nao 1: a camera de 3a pessoa PERSEGUE o alvo por lerp, e
+      // com um unico passo ela ainda esta no meio do caminho de onde o teste
+      // anterior a deixou. Media-se entao um enquadramento diferente a cada
+      // execucao — foi assim que a mesma cena marcou 55 ms num dia e 99 no
+      // outro sem ninguem ter mexido no render.
+      for (let i = 0; i < 40; i++) G.player.update(1 / 60)
       G.engine.render(); gl.finish()
       const t0 = performance.now()
       for (let i = 0; i < 15; i++) G.engine.render()

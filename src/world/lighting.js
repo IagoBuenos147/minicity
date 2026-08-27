@@ -402,6 +402,26 @@ export function createLighting(scene, renderer) {
     sunMul: 0.30, fillMul: 0.72, fogMul: 2.3, expMul: 0.80,
   }
 
+  // NEVANDO: 0..1, irmao do 'nublado' e pelo mesmo motivo (o ciclo de dia
+  // reescreve ceu, sol e fog todo quadro, entao o clima nao pode escrever por
+  // fora). E uma paleta SEPARADA e nao um tom do nublado porque dia de neve nao
+  // e dia de chuva escurecido: e o contrario, e mais CLARO que o normal. A neve
+  // no chao devolve quase toda a luz que recebe, entao o que muda e:
+  //   - o contraste cai quase a zero (sombra some, tudo fica leitoso);
+  //   - a luz que vem DE BAIXO (hemiGnd) fica quase branca — e esse detalhe,
+  //     mais do que o ceu, que faz o olho ler "tem neve no chao";
+  //   - a exposicao SOBE em vez de cair.
+  let nevando = 0
+
+  const NEVANDO = {
+    zen: 0x9fb0c4, hor: 0xd9e2ea, glow: 0xc9d6e2, glowI: 0.22,
+    // limiar do fbm: menor = mais nuvem (ver o comentario em NUBLADO)
+    cBright: 0xf2f6fa, cDark: 0x9aa8ba, cCover: 0.26,
+    hemiSky: 0xd4e2f2, hemiGnd: 0xe8eef4, hemiI: 1.05,
+    amb: 0xd8e2ee, ambI: 0.72,
+    sunMul: 0.42, fillMul: 1.15, fogMul: 2.0, expMul: 1.06,
+  }
+
   let targetDirty = false
 
   function apply() {
@@ -521,6 +541,40 @@ export function createLighting(scene, renderer) {
       if (renderer) renderer.toneMappingExposure *= THREE.MathUtils.lerp(1, NUBLADO.expMul, n)
     }
 
+    // --- ceu de nevasca ------------------------------------------------------
+    // Entra DEPOIS do nublado: as duas coisas nao acontecem juntas na pratica
+    // (o clima so liga uma), mas se ligassem, a neve e a que manda — quem esta
+    // vendo floco cair espera o ceu de neve.
+    if (nevando > 0.001) {
+      const n = nevando
+      sun.intensity *= THREE.MathUtils.lerp(1, NEVANDO.sunMul, n)
+      sun.castShadow = sun.intensity > 0.05
+      fill.intensity *= THREE.MathUtils.lerp(1, NEVANDO.fillMul, n)
+
+      cA.setHex(NEVANDO.hemiSky); hemi.color.lerp(cA, n)
+      cA.setHex(NEVANDO.hemiGnd); hemi.groundColor.lerp(cA, n)
+      hemi.intensity = THREE.MathUtils.lerp(hemi.intensity, NEVANDO.hemiI, n)
+      cA.setHex(NEVANDO.amb); ambient.color.lerp(cA, n)
+      ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, NEVANDO.ambI, n)
+
+      cA.setHex(NEVANDO.zen); uniforms.uZenith.value.lerp(cA, n)
+      cA.setHex(NEVANDO.hor); uniforms.uHorizon.value.lerp(cA, n)
+      cA.setHex(NEVANDO.glow); uniforms.uGlow.value.lerp(cA, n)
+      uniforms.uGlowI.value = THREE.MathUtils.lerp(uniforms.uGlowI.value, NEVANDO.glowI, n)
+      cA.setHex(NEVANDO.cBright); uniforms.uCloudBright.value.lerp(cA, n)
+      cA.setHex(NEVANDO.cDark); uniforms.uCloudDark.value.lerp(cA, n)
+      uniforms.uCloudCover.value = THREE.MathUtils.lerp(uniforms.uCloudCover.value, NEVANDO.cCover, n)
+      uniforms.uSunColor.value.copy(sun.color)
+
+      // a nevoa de nevasca e BRANCA e fecha rapido: e ela que da a sensacao de
+      // frio e de que a cidade some a 60 m
+      fogColor.copy(uniforms.uHorizon.value).lerp(uniforms.uZenith.value, 0.18)
+      cA.setHex(0xeff4f9); fogColor.lerp(cA, 0.45 * n)
+      fog.color.copy(fogColor)
+      fog.density *= THREE.MathUtils.lerp(1, NEVANDO.fogMul, n)
+      if (renderer) renderer.toneMappingExposure *= THREE.MathUtils.lerp(1, NEVANDO.expMul, n)
+    }
+
     // vira "noite" quando o sol some: main liga os postes por aqui
     const nowNight = sunDir.y < 0.02
     if (nowNight !== isNight) {
@@ -556,6 +610,17 @@ export function createLighting(scene, renderer) {
       nublado = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0
     },
     get nublado() { return nublado },
+
+    /**
+     * Ceu de nevasca, 0..1. Mesmo contrato do setNublado: quem chama e
+     * src/world/clima.js, uma vez por quadro. Ligar os dois ao mesmo tempo nao
+     * quebra nada (a neve entra por ultimo e ganha), mas o clima liga um so.
+     */
+    setNevando(v) {
+      const n = Number(v)
+      nevando = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0
+    },
+    get nevando() { return nevando },
 
     /** Alvo das sombras: o main passa a posicao do jogador todo frame. */
     setTarget(v) {

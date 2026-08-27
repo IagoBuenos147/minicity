@@ -10,6 +10,9 @@
     "shot": "node tools/shot.mjs",
     "shots": "node tools/shots.mjs",
     "smoke": "node tools/smoke.mjs",
+    "teste-cassino": "node tools/teste-cassino.mjs",
+    "teste-nome-unico": "node tools/teste-nome-unico.mjs",
+    "shot-clima": "node tools/shot-clima.mjs",
     "online": "npm run build && node servidor.js",
     "servidor": "node servidor.js",
     "teste-online": "node tools/teste-online.mjs"

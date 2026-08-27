@@ -1,3 +1,35 @@
+// ---------------------------------------------------------------------------
+// TRAVA DE INSTANCIA UNICA — o fim do "entrei e tem dois de mim".
+//
+// Sintoma que isto mata: a tela inicial pedia DOIS cliques (um por instancia
+// empilhada), nasciam DOIS personagens e as duas copias andavam juntas, porque
+// o teclado e do window e as duas escutavam. Online ainda entravam dois
+// jogadores com o mesmo nome na sala.
+//
+// A causa e sempre a mesma: este modulo foi AVALIADO DUAS VEZES. Modulo ES e
+// identificado pela URL, entao basta a mesma build ser pedida por dois
+// enderecos diferentes (".../index-AbC123.js" e ".../index-AbC123.js?v=xyz",
+// um <script> duplicado, um import dinamico com caminho diferente) para o
+// navegador executar o arquivo de novo, do zero. Ver o comentario de
+// carimbarVersao em servidor/rede-ws.js: la a causa mais provavel foi
+// corrigida, mas "corrigido em um lugar" nao e o mesmo que "impossivel".
+//
+// Aqui a garantia e estrutural e vale para QUALQUER causa: o primeiro que
+// chega planta uma bandeira em globalThis (que e o MESMO objeto para as duas
+// copias, mesmo sendo modulos diferentes) e qualquer avaliacao seguinte morre
+// na primeira linha, antes de criar renderer, personagem, HUD ou socket.
+// Lancar e de proposito: um modulo que joga na avaliacao para ali mesmo e nao
+// contamina o que ja estava rodando.
+// ---------------------------------------------------------------------------
+if (globalThis.__MINI_CITY_RP__) {
+  console.warn(
+    '[mini-city-rp] main.js foi avaliado duas vezes; esta segunda copia foi ' +
+    'abortada de proposito (senao haveria dois jogadores nesta tela).',
+  )
+  throw new Error('mini-city-rp: instancia duplicada abortada')
+}
+globalThis.__MINI_CITY_RP__ = { iniciadoEm: Date.now() }
+
 import * as THREE from 'three'
 import { PLAYER, CAMERA } from './config.js'
 import { createEngine } from './core/engine.js'
@@ -10,7 +42,7 @@ import { buildCity } from './world/city.js'
 import { buildBarbershop } from './world/barbershop.js'
 import { buildGrocery } from './world/grocery.js'
 import { bakeStatic } from './world/bake.js'
-import { BARBER, GROCERY, FILLERS, WALL_T } from './world/layout.js'
+import { BARBER, GROCERY, CASINO, FILLERS, WALL_T } from './world/layout.js'
 import { createCharacter } from './player/character.js'
 import { defaultAppearance } from './player/appearance.js'
 import { createPlayerController } from './player/controller.js'
@@ -23,6 +55,10 @@ import { criarPortalGun } from './poder/portalgun.js'
 import { criarVeiculos } from './veiculos/veiculos.js'
 import { criarHotbar } from './ui/hotbar.js'
 import { criarClima } from './world/clima.js'
+import { criarNeve } from './world/neve.js'
+import { buildCasino } from './world/casino.js'
+import { criarCarteira } from './cassino/carteira.js'
+import { criarCassinoUI } from './ui/cassino-ui.js'
 import { criarRevolver } from './armas/revolver.js'
 import { criarZumbi } from './npc/zumbi.js'
 import { ITEM_PORTAL_GUN, ITENS_PORTAL_GUN } from './comum/protocolo.js'
@@ -112,6 +148,14 @@ game.customizer = customizer
 // meu corpo. Se o servidor nao responder, o jogo continua jogavel sozinho.
 // ===========================================================================
 const meuNome = (() => {
+  // ?nome=Fulano ganha de tudo: e assim que da pra abrir DUAS janelas na mesma
+  // maquina pra testar o multiplayer sozinho. Sem isso as duas leem o mesmo
+  // localStorage, entram com o mesmo nome, e o servidor (que so aceita um
+  // corpo por nome) derruba uma pela outra sem parar.
+  try {
+    const q = new URLSearchParams(location.search).get('nome')
+    if (q && q.trim()) return q.trim().slice(0, 16)
+  } catch (err) { void err }
   let n = null
   try { n = localStorage.getItem('mcrp-nome') } catch (err) { void err }
   if (!n) {
@@ -130,6 +174,13 @@ const avatares = criarAvatares(scene)
 const NPC_DA_INTERACAO = { 'barber-talk': 1000, 'grocery-clerk': 1002 }
 
 // Como cada veiculo aparece no prompt do E. Sem isto sai "Entrar no moto".
+// O que o toast diz quando a tecla C troca a estacao.
+const NOME_ESTACAO = {
+  sol: 'Ceu limpo',
+  chuva: 'Comecou a chover',
+  neve: 'Comecou a nevar',
+}
+
 const NOME_VEICULO = {
   carro: 'no carro',
   moto: 'na moto',
@@ -224,6 +275,9 @@ function mount(result, name) {
 
 const city = buildCity(game)
 mount(city, 'city')
+// exposto pra depuracao (window.__game.city): e por aqui que se pergunta ao
+// mundo ja construido onde ficaram as arvores, os postes e as luzes
+game.city = city
 
 // Os interiores sao visiveis da rua pelas vitrines, entao o culling nao ajuda:
 // funde os moveis estaticos por material (NPCs e props animados ficam de fora).
@@ -231,8 +285,23 @@ const barber = buildBarbershop(game)
 mount(barber, 'barbershop')
 const grocery = buildGrocery(game)
 mount(grocery, 'grocery')
+
+// O cassino traz a PROPRIA casca (fachada, telhado, neon) alem do miolo: a
+// fachada dele olha pra -Z, e o buildShell de city.js so sabe desenhar vitrine
+// virada pra +Z. Por isso ele nao aparece na lista de lojas de city.js.
+const casino = buildCasino(game)
+mount(casino, 'casino')
+// exposto pra depuracao e pros testes: e por 'casinoMundo' que se pergunta ao
+// predio pra girar um rolete ou piscar as luzes de premio sem passar pela UI
+game.casinoMundo = casino
+if (casino && Array.isArray(casino.occluders)) {
+  for (const o of casino.occluders) {
+    collision.addOccluder(o.minX, o.minY, o.minZ, o.maxX, o.maxY, o.maxZ, o.tag || 'cassino')
+  }
+}
 if (barber && barber.group) console.info('barbearia:', bakeStatic(barber.group))
 if (grocery && grocery.group) console.info('mercearia:', bakeStatic(grocery.group))
+if (casino && casino.group) console.info('cassino:', bakeStatic(casino.group))
 
 // Altura do chao: calcada (0.16), parque, beco e piso das lojas. Sem isso o
 // personagem anda com os pes enterrados no concreto.
@@ -281,9 +350,27 @@ game.veiculos = veiculos
 scene.add(veiculos.grupo)
 
 // --- chuva, revolver e o NPC que vira zumbi --------------------------------
-const clima = criarClima({ scene, camera, renderer, lighting, groundY: (x, z) => game.groundY(x, z), inicial: 0.45 })
+// Comeca no SOL: a cidade se ve inteira, e a tecla C (documentada no painel de
+// ajuda) leva pra chuva e pra neve. Comecar chovendo escondia metade do mapa de
+// quem abria o jogo pela primeira vez.
+const clima = criarClima({
+  scene, camera, renderer, lighting,
+  groundY: (x, z) => game.groundY(x, z),
+  inicial: 'sol',
+})
 game.clima = clima
 if (clima.grupo) scene.add(clima.grupo)
+
+// A NEVE PARADA (no chao, nos telhados, nas arvores) e outro modulo: o clima
+// cuida do floco caindo, este cuida do que ja caiu. Quem liga os dois e o laco
+// principal, passando clima.cobertura pra neve.setCobertura — assim a cobertura
+// cresce enquanto neva e derrete quando para, sem os dois modulos se conhecerem.
+const neve = criarNeve({
+  groundY: (x, z) => game.groundY(x, z),
+  ancoras: (city && city.neveAncoras) || null,
+})
+game.neve = neve
+if (neve.grupo) scene.add(neve.grupo)
 
 const revolver = criarRevolver({
   scene, camera, player, character, collision, rede, hud,
@@ -322,6 +409,19 @@ const hotbar = criarHotbar({
   },
 })
 game.hotbar = hotbar
+
+// --- dinheiro e as mesas do cassino ----------------------------------------
+// A carteira e local (localStorage): o protocolo de rede nao tem pacote de
+// dinheiro e inventar um significaria mexer no servidor e no contrato. Mesma
+// regra da chuva: efeito e saldo sao de cada maquina.
+const carteira = criarCarteira({ hud })
+game.carteira = carteira
+
+const cassinoUI = criarCassinoUI({ game, carteira, mundo: casino })
+// E por 'game.cassino' que os pontos de interacao dentro do cassino chamam a
+// interface: world/casino.js nao importa a UI, so pede ao game.
+game.cassino = cassinoUI
+
 hotbar.marcarDisponivel(1, false)
 hotbar.marcarDisponivel(2, false)
 hotbar.marcarDisponivel(3, false)   // revolver: so depois de achar no beco
@@ -530,9 +630,17 @@ hud.showStart(() => {
   hud.showHelp(true)
 })
 
+/** Ha alguma janela de UI por cima do jogo? Enquanto houver, o mouse fica
+ *  LIVRE e o mundo nao escuta clique nenhum. Uma funcao so pra os tres lugares
+ *  que perguntam isso -- antes eram tres condicoes escritas na mao, e o painel
+ *  do cassino teria entrado em duas e faltado na terceira. */
+function uiAberta() {
+  return customizer.isOpen() || preview.active || (cassinoUI && cassinoUI.aberto)
+}
+
 renderer.domElement.addEventListener('click', () => {
   if (!started) return
-  if (customizer.isOpen() || preview.active) return
+  if (uiAberta()) return
   input.requestLock()
 })
 
@@ -540,7 +648,7 @@ renderer.domElement.addEventListener('click', () => {
 // porque quem sabe se ela esta selecionada na barra e o main.
 window.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return
-  if (!started || customizer.isOpen() || preview.active) return
+  if (!started || uiAberta()) return
   if (!input.isLocked()) return          // so com o ponteiro travado
   if (portalgun.equipado) portalgun.atirar()
 })
@@ -560,10 +668,19 @@ function frame() {
   // ajuda (Tab)
   if (input.wasPressed('Tab')) hud.showHelp(helpOn = !helpOn)
   if (input.wasPressed('F3')) hud.toggleF3()
-  if (input.wasPressed('Digit1')) hotbar.selecionar(0)
-  if (input.wasPressed('Digit2')) hotbar.selecionar(1)
-  if (input.wasPressed('Digit3')) hotbar.selecionar(2)
-  if (input.wasPressed('Digit4')) hotbar.selecionar(3)
+  // C = clima. Sol -> chuva -> neve -> sol. Uma tecla so, como foi pedido: com
+  // tres teclas separadas o jogador teria que decorar qual e qual.
+  if (input.wasPressed('KeyC') && !uiAberta()) {
+    const nova = clima.proximaEstacao()
+    hud.toast(NOME_ESTACAO[nova] || nova)
+  }
+  // trocar de item no meio de uma mao de blackjack sacaria o revolver na mesa
+  if (!uiAberta()) {
+    if (input.wasPressed('Digit1')) hotbar.selecionar(0)
+    if (input.wasPressed('Digit2')) hotbar.selecionar(1)
+    if (input.wasPressed('Digit3')) hotbar.selecionar(2)
+    if (input.wasPressed('Digit4')) hotbar.selecionar(3)
+  }
 
   if (!preview.active) {
     player.update(dt)
@@ -574,7 +691,7 @@ function frame() {
   }
 
   // interacao
-  if (!preview.active && !customizer.isOpen()) {
+  if (!uiAberta()) {
     // Veiculo antes de tudo: dirigindo, o E sai do carro; a pe, ele entra no
     // que estiver perto. Quem desenha o prompt de dentro do veiculo (velocidade
     // + "E para sair") e o proprio sistema, la no atualizar().
@@ -643,6 +760,11 @@ function frame() {
   revolver.atualizar(dt)
   zumbi.atualizar(dt)
   clima.atualizar(dt, player.position)
+  // A neve acumulada segue a cobertura que o clima calculou neste quadro: quem
+  // decide quanto ja caiu e o clima, quem desenha o resultado e a neve.
+  neve.setCobertura(clima.cobertura)
+  neve.atualizar(dt)
+  if (cassinoUI && typeof cassinoUI.atualizar === 'function') cassinoUI.atualizar(dt)
   dialogo.atualizar(player.position)
 
   // DEPOIS de todo mundo escrever nas suas "luzes": o pool escolhe as duas mais

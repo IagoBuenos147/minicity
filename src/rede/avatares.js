@@ -222,7 +222,12 @@ export function criarAvatares(scene) {
     const passo = dt > 0 ? dt : 0.0001
     const vistos = new Set()
 
-    if (mapaDeJogadores) {
+    // SEM IDENTIDADE, SEM BONECO. Enquanto o BEMVINDO nao chega, meuId e 0 e
+    // eu nao sei qual dos jogadores do Map sou EU. Desenhar nessa janela e
+    // exatamente como nasce o sosia que anda junto com voce: um boneco remoto
+    // com a minha propria posicao, 100 ms atras do meu corpo. Esperar custa
+    // um punhado de quadros e o BEMVINDO vem antes do primeiro snapshot.
+    if (mapaDeJogadores && (meuId | 0)) {
       for (const j of mapaDeJogadores.values()) {
         const id = j.id | 0
         if (!id || id === meuId) continue

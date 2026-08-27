@@ -22,6 +22,8 @@ Abra `http://localhost:5173` e clique na tela para travar o mouse.
 | `Mouse` | Olhar |
 | `E` | Interagir |
 | `V` | Alternar 1ª / 3ª pessoa (estilo GTA) |
+| `1 2 3 4` | Mãos / anel / arma de portal / revólver |
+| `C` | Trocar a estação: **sol → chuva → neve → sol** |
 | `Tab` | Mostrar/ocultar ajuda |
 | `Esc` | Liberar o mouse |
 
@@ -33,9 +35,30 @@ Abra `http://localhost:5173` e clique na tela para travar o mouse.
   Olhe no **espelho** para trocar também olhos, sobrancelhas e boca.
 - **Mercearia** (noroeste): gôndolas com produtos, geladeiras, balcão de caixa
   e a atendente NPC.
+- **Cassino Estrela** (sudeste, na esquina do cruzamento central): dá para
+  entrar. Fachada com marquise de lâmpadas correndo, neon e tapete vermelho.
+  Dentro: **mesa de blackjack** com a crupiê (aposta **ouro**), **mesa de poker
+  cabeça a cabeça de duas cartas** contra o Dom Sebastião, o ricaço de chapéu
+  (aposta **fichas**), **três caça-níqueis** (fichas) e o **caixa**, que troca
+  ouro por ficha 1 por 1. Você começa com 1.500 de ouro; se zerar, o caixa
+  adianta uma cortesia.
 - **Praça** (sudoeste): fonte, bancos, árvores e caminhos.
 - Ruas em grade com calçadas, meio-fio, faixas de pedestre, postes, semáforos e
   mobiliário urbano. Sem carros circulando (por decisão de escopo).
+
+## As três estações
+
+A tecla `C` cicla entre **sol**, **chuva** e **neve**, com transição suave.
+
+- **Chuva**: risco fino com cor por gota (as da frente mais claras que as do
+  fundo), vento em rajada que inclina a chuva junto, anéis pequenos e macios no
+  chão com uma coroa de pingos saltando do impacto, e relâmpago de vez em
+  quando quando a tempestade aperta. Não chove dentro das lojas nem do cassino.
+- **Neve**: flocos caindo devagar em espiral, céu de nevasca (mais **claro** que
+  o normal — a neve devolve quase toda a luz que recebe) e a cidade sendo
+  **coberta**: manto contínuo no chão, telhados, copas das árvores, arbustos,
+  bancos, postes, lixeiras e pingentes de gelo na beirada dos telhados. A
+  cobertura sobe em ~25 s de nevasca e derrete devagar quando para.
 
 ## Customização do personagem
 
@@ -66,7 +89,11 @@ Ver `ARCHITECTURE.md` para o contrato entre módulos.
 Com o dev server rodando (`npm run dev`), em outro terminal:
 
 ```bash
-npm run smoke
+npm run smoke            # o jogo inteiro rodando no navegador (38 casos)
+npm run teste-cassino    # as regras dos jogos, sem navegador (84 casos)
+npm run teste-nome-unico # um corpo por nome no servidor (10 casos)
+npm run teste-online     # dois navegadores de verdade na mesma sala (37 casos)
+npm run shot-clima       # fotos do cassino, da chuva e da neve em shots/
 ```
 
 Teste de ponta a ponta num navegador headless: movimento, colisão, altura do chão,

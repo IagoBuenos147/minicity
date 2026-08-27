@@ -87,13 +87,64 @@ game = {
 | `src/ui/customizer.js` | `createCustomizer(game)` | 19 abas: 10 de rosto (barbeiro) + 9 de roupa (provador) |
 | `src/ui/hotbar.js` | `criarHotbar(opts)` | barra de 4 itens: mãos, anel, arma de portal, revólver |
 | `src/render/luzes-efeito.js` | `criarPoolDeEfeito(scene, n, camera)` | 2 PointLight compartilhadas por TODOS os efeitos; ver a armadilha do recompile de shader no cabecalho do arquivo |
-| `src/world/clima.js` | `criarClima(opts)` | chuva (1 LineSegments) + respingos (1 InstancedMesh) + escurecida |
+| `src/world/clima.js` | `criarClima(opts)` | as tres estacoes: sol, chuva e neve. Gotas (1 LineSegments com cor por vertice), respingos + coroa (2 InstancedMesh), flocos (1 Points), rajada de vento, relampago. Nao acumula nada no chao — quem faz isso e `neve.js`, que le `clima.cobertura` |
+| `src/world/neve.js` | `criarNeve({groundY, ancoras})` | a neve PARADA: manto do chao, telhados, copas, arbustos, postes, lixeiras, bancos e pingentes de gelo. 5 InstancedMesh, construidas uma vez e reveladas por `setCobertura(0..1)` |
+| `src/world/casino.js` | `buildCasino(game)` | o cassino inteiro (casca + miolo): fachada com neon e marquise, salao, mesa de blackjack, mesa de poker, 3 caca-niqueis, caixa e os 3 NPCs. Devolve tambem `girarMaquina(i, simbolos, aoTerminar)` e `festa(i)` |
+| `src/cassino/carteira.js` | `criarCarteira({hud})` | ouro e fichas, em `localStorage`. Nao passa pela rede |
+| `src/cassino/baralho.js` | `criarBaralho(n, rng)` | baralho de n x 52 com corte e reembaralho |
+| `src/cassino/blackjack.js` | `criarBlackjack(opts)` | regras do blackjack (maquina de estados PURA: nao toca em dinheiro) |
+| `src/cassino/poker.js` | `criarPoker(opts)`, `forcaDaMao(a,b)` | heads-up de 2 cartas contra a IA do ricaco (tambem pura) |
+| `src/cassino/slots.js` | `criarSlots({rng})` | 3 roletes, tabela de pagamentos, RTP calculado (92%) |
+| `src/ui/cassino-ui.js` | `criarCassinoUI(opts)` | os 4 paineis (caixa, blackjack, poker, caca-niquel). E quem DEBITA e CREDITA a carteira |
 | `src/world/agarraveis.js` | `buildAgarraveis()` | os objetos que o anel verde levita, cada um com id estável |
 | `src/armas/revolver.js` | `criarRevolver(opts)` | revólver de 6 balas, mira, recarga tambor a tambor, `aoAcerto` |
 | `src/npc/zumbi.js` | `criarZumbi(opts)` | NPC 1004 da porta da mercearia: são → adoecendo (10 s) → zumbi → morto → sumido. Online quem decide é o servidor; este arquivo só desenha |
 | `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
 | `src/poder/anel.js` | `criarAnel(opts)` | telecinese do anel verde + montagem do helicóptero |
 | `src/poder/portalgun.js` | `criarPortalGun(opts)` | arma de portal: abre portal verde que leva à barbearia |
+
+## As tres estacoes (tecla `C`)
+
+`main.js` liga tres modulos que nao se conhecem:
+
+```
+tecla C -> clima.proximaEstacao()      sol -> chuva -> neve -> sol
+clima   -> lighting.setNublado(chuva)  ceu fechado de chuva
+clima   -> lighting.setNevando(neve)   ceu de nevasca (mais CLARO que o normal)
+clima   -> clima.cobertura             0..1 de neve ja acumulada no chao
+main    -> neve.setCobertura(clima.cobertura)
+```
+
+Regras que o desenho respeita:
+
+1. **Um dono por valor.** Ceu, sol, fog e exposicao sao do `lighting`. O clima
+   so pede (`setNublado` / `setNevando`); ele mesmo nunca escreve em `scene.fog`
+   quando ha `lighting` — dois donos do mesmo valor acabam em escuridao dobrada.
+2. **Particula e acumulo sao modulos diferentes.** `clima.js` cuida do que esta
+   caindo; `neve.js` do que ja caiu. A unica ponte e o numero `cobertura`.
+3. **A neve acumulada e construida UMA vez**, no carregamento, e depois so
+   aparece/derrete por opacidade e escala. Nevar nao remonta mundo nenhum.
+4. **Nada disso passa pela rede** (REDE.md nao tem pacote de clima). Cada
+   maquina desenha o proprio tempo, como ja acontecia com a chuva.
+
+## Dinheiro e cassino
+
+Duas moedas, e a diferenca entre elas e a regra do lugar:
+
+| Moeda | Onde vale | Quem aposta |
+|---|---|---|
+| **Ouro** | na rua e na mesa da atendente | blackjack |
+| **Ficha** | so dentro do cassino | poker e caca-niquel |
+
+O caixa troca 1 por 1 nos dois sentidos. A carteira mora em `localStorage` e
+**nao passa pela rede**: o protocolo (outro dono) nao tem pacote de dinheiro.
+
+A separacao que importa: `src/cassino/*.js` sao **regras puras** — sem DOM, sem
+three.js, sem `localStorage`, sem saber que dinheiro existe. Eles recebem uma
+aposta e devolvem um `retorno`. Quem debita e credita e `src/ui/cassino-ui.js`.
+E isso que permite `node tools/teste-cassino.mjs` provar as 84 regras do jogo
+(contagem de As, 3:2 do blackjack, ordem das maos de poker, RTP do caca-niquel)
+sem abrir navegador nenhum.
 
 ## Assinaturas exatas
 

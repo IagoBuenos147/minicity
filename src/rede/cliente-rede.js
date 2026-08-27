@@ -259,7 +259,15 @@ export function criarRede({ url, nome, aparencia } = {}) {
     return est.t.enviar(buf, !!confiavel) !== false
   }
 
+  // Promessa da conexao em curso. Chamar conectar() duas vezes abriria DOIS
+  // sockets, e o servidor veria dois jogadores com o mesmo nome — um deles
+  // parado, porque so o ultimo est.t recebe o meu estado. E exatamente o
+  // "tem dois de mim na sala". Aqui a segunda chamada devolve a MESMA
+  // promessa da primeira, em vez de comecar tudo de novo.
+  let promessaDeConexao = null
+
   rede.conectar = function conectar() {
+    if (promessaDeConexao) return promessaDeConexao
     const T = Transporte
     if (!T) return Promise.reject(new Error('transporte.js nao carregou'))
 
@@ -271,13 +279,20 @@ export function criarRede({ url, nome, aparencia } = {}) {
       // parados pra sempre no meio da rua. E zero a sessao INTEIRA, nao so
       // os Maps: se o servidor reiniciar, o tick volta a 1 (ver resetarSessao).
       rede.conectado = false
+      promessaDeConexao = null
       resetarSessao(true)
     }
 
-    return est.t.conectar(montarUrl(est.urlPedida)).then(() => {
+    promessaDeConexao = est.t.conectar(montarUrl(est.urlPedida)).then(() => {
       // entrar na sala e evento raro e importante: canal CONFIAVEL
       mandar(Proto.escreverEntrar(est.nome, est.aparencia), true)
+    }).catch((e) => {
+      // falhou: solta a trava, senao uma tentativa perdida impede pra sempre
+      // qualquer nova tentativa de conectar nesta sessao
+      promessaDeConexao = null
+      throw e
     })
+    return promessaDeConexao
   }
 
   /** Espiada no estado interno, pro painel F3 e pra diagnostico. */

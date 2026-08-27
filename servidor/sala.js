@@ -528,6 +528,34 @@ export function criarSala(opcoes = {}) {
       if (con.fechar) con.fechar()
       return null
     }
+    const nome = limparNome(d.nome)
+
+    /* UM CORPO POR NOME. Quem entra com um nome que ja esta na sala DERRUBA a
+       sessao anterior daquele nome.
+
+       Sem isto, todo F5 deixa um sosia: o TCP da conexao velha ainda nao caiu
+       (o batimento leva ate 10 s pra perceber que o outro lado morreu), entao
+       por dez segundos existem DOIS bonecos com o seu nome no mundo de todo
+       mundo — um parado, segurando o NPC com quem voce falava e o objeto que
+       voce carregava. Do lado de quem ve, e indistinguivel de "o jogo criou
+       dois personagens meus".
+
+       O corte e imediato e completo: sair() devolve o NPC, solta o objeto e
+       avisa a sala, e so depois o novo corpo nasce. Pra abrir DUAS janelas de
+       proposito (testar multiplayer sozinho), use ?nome=OutroNome — o cliente
+       le isso da barra de endereco. */
+    for (const velho of jogadores.values()) {
+      if (velho.nome !== nome) continue
+      log('nome repetido: derrubando #' + velho.id + ' ' + nome)
+      const conVelha = velho.con
+      sair(velho)
+      if (conVelha && conVelha !== con && typeof conVelha.fechar === 'function') conVelha.fechar()
+    }
+
+    /* A conta de lotacao vem DEPOIS de derrubar o homonimo, e nao antes: quem
+       recarregou a pagina com a sala cheia estaria disputando vaga consigo
+       mesmo e levaria "cheio" na cara, pra sempre, ate a conexao velha morrer
+       de batimento. Agora ele ocupa a vaga que acabou de liberar. */
     if (jogadores.size >= MAX_JOGADORES) {
       con.enviar(Proto.escreverRecusa(RECUSA_CHEIO), true)
       if (con.fechar) con.fechar()
@@ -540,7 +568,6 @@ export function criarSala(opcoes = {}) {
       return null
     }
 
-    const nome = limparNome(d.nome)
     /* A aparencia guardada GANHA da que veio no pacote: quem volta encontra o
        cabelo que escolheu, mesmo tendo recarregado a pagina no meio. Trocar
        depois e um MINHA_APARENCIA, que grava por cima. */

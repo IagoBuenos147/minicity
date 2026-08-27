@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { WORLD, LEVELS } from '../config.js'
-import { BARBER, GROCERY, FILLERS, PARK, WALL_T } from './layout.js'
+import { BARBER, GROCERY, FILLERS, PARK, WALL_T, LOTES, apronOf } from './layout.js'
 import * as Props from './props.js'
 import {
   PALETTE, solid, stdMat, emissive, glass, box, cyl, sphere, plane,
@@ -896,6 +896,13 @@ export function buildCity() {
 
   // posicoes coletadas pro "juice" de rua (folhas caidas, fios entre postes)
   const treePos = []
+  // Os objetos de arvore, guardados so ate o forno de geometria rodar: e deles
+  // que sai a caixa (altura e raio da copa) que world/neve.js usa pra por neve
+  // em cima. Depois do bake() as arvores nao existem mais como objeto separado,
+  // entao esta medida TEM que ser tirada antes.
+  const treeObjs = []
+  const bushPos = []
+  const benchPos = []
   const lampPos = []
   const trashPos = []
   const seatTmp = new THREE.Vector3()
@@ -1047,9 +1054,11 @@ export function buildCity() {
   ]
   // Piso das lojas: lote + avental. O miolo (interior) fica no mesmo nivel,
   // construido por barbershop.js / grocery.js.
-  const SHOP_PADS = [BARBER, GROCERY].map((b) => ({
-    x0: b.x0 - SHOP_PAD, x1: b.x1 + SHOP_PAD, z0: b.z0 - SHOP_PAD, z1: b.z1,
-  }))
+  // LOTES (e nao [BARBER, GROCERY] na mao): o cassino tem a fachada virada pro
+  // outro lado, e apronOf sabe disso. Com a lista escrita na mao, o cassino
+  // ficaria com o piso do lote no nivel da RUA e o jogador andaria enterrado
+  // 16 cm no proprio carpete.
+  const SHOP_PADS = LOTES.map((b) => apronOf(b, SHOP_PAD))
 
   // Recorte em bezier da esquina arredondada: com u,v = distancia da quina
   // normalizada pelo raio, a curva e sqrt(u) + sqrt(v) = 1. Dentro dela e rua.
@@ -3063,6 +3072,12 @@ export function buildCity() {
       m.rotation.set(rndBush() * 3, rndBush() * 6, rndBush() * 3)
       m.castShadow = true; m.receiveShadow = true
       add(m)
+      // bolota por bolota: a neve por cima de um arbusto tem que seguir o
+      // aglomerado, senao vira uma bola branca boiando no meio da moita
+      bushPos.push({
+        x: x + Math.cos(a) * rr, y: PARK_Y + d * 0.36 * flat, z: z + Math.sin(a) * rr,
+        r: d * 0.5, alt: d * flat * 0.5,
+      })
     }
   }
 
@@ -3223,8 +3238,11 @@ export function buildCity() {
     harvest(o, undefined, wantLight === true)
     // lente do poste: material emissivo que o ciclo dia/noite controla
     if (name === 'makeStreetLight') { claimLampMats(o); lampPos.push({ x, z, y: gy }) }
-    if (name === 'makeTree') treePos.push({ x, z, y: gy })
+    if (name === 'makeTree') { treePos.push({ x, z, y: gy }); treeObjs.push(o) }
     if (name === 'makeTrashCan') trashPos.push({ x, z, y: gy })
+    // banco guarda tambem o GIRO: a neve deitada em cima do assento tem que
+    // acompanhar o banco, e sem o angulo ela ficaria atravessada nele
+    if (name === 'makeBench') benchPos.push({ x, z, y: gy, ry: ry || 0 })
 
     // --- assentos (contrato com props.js) ----------------------------------
     // props.js pode ainda nao expor userData.seats: Array.isArray protege.
@@ -3363,7 +3381,10 @@ export function buildCity() {
   // --- arvores de rua nos canteiros da calcada -----------------------------
   const streetTrees = [
     [LAMP_OFF, -8 - 34, 0], [LAMP_OFF, 42, 0], [-LAMP_OFF, -44, 0], [-LAMP_OFF, 22, 0],
-    [22, LAMP_OFF, 0], [-34, -LAMP_OFF, 0], [46, -LAMP_OFF, 0], [-46, LAMP_OFF, 0],
+    // 44 e nao 22: em 22 a copa (2.4 m de raio) tapava METADE da porta do
+    // cassino e o comeco do letreiro. A fachada mais chamativa do mapa nao pode
+    // nascer com um pinheiro na frente.
+    [44, LAMP_OFF, 0], [-34, -LAMP_OFF, 0], [46, -LAMP_OFF, 0], [-46, LAMP_OFF, 0],
     [LAMP_OFF, -26, 0], [-LAMP_OFF, -28, 0], [38, LAMP_OFF, 0], [-18, -LAMP_OFF, 0],
   ]
   streetTrees.forEach((t, i) => {
@@ -3685,6 +3706,28 @@ export function buildCity() {
   // -------------------------------------------------------------------------
   // UPDATE (animacoes leves do modulo)
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // ANCORAS DE NEVE (medidas ANTES do forno)
+  // -------------------------------------------------------------------------
+  // Depois de bake() as arvores viram pedacos de um mesh gigante e nao da mais
+  // pra perguntar "onde termina a copa desta arvore". Entao a medida sai daqui,
+  // enquanto cada arvore ainda e um objeto: caixa envolvente -> centro, raio e
+  // altura da copa. world/neve.js empilha os discos brancos em cima disso.
+  const caixaTmp = new THREE.Box3()
+  const neveArvores = []
+  for (const o of treeObjs) {
+    if (!o || !o.parent) continue
+    o.updateMatrixWorld(true)
+    caixaTmp.setFromObject(o)
+    if (!isFinite(caixaTmp.min.y) || !isFinite(caixaTmp.max.y)) continue
+    neveArvores.push({
+      x: o.position.x, z: o.position.z,
+      base: caixaTmp.min.y, topo: caixaTmp.max.y,
+      raio: Math.max(caixaTmp.max.x - caixaTmp.min.x, caixaTmp.max.z - caixaTmp.min.z) * 0.5,
+    })
+  }
+  treeObjs.length = 0
+
   // funde tudo que e estatico -> derruba drasticamente os draw calls.
   // Objetos com userData.update / setPhase saem do forno inteiros.
   bake()
@@ -3783,5 +3826,14 @@ export function buildCity() {
     groundY,
     lampLights,
     lampMaterials: Array.from(lampMatSet),
+    /* Onde a neve pode se acumular. Medido aqui porque so aqui as arvores e os
+       arbustos ainda existem como objetos separados (ver ANCORAS DE NEVE). */
+    neveAncoras: {
+      arvores: neveArvores,
+      arbustos: bushPos,
+      postes: lampPos.slice(),
+      lixeiras: trashPos.slice(),
+      bancos: benchPos.slice(),
+    },
   }
 }
