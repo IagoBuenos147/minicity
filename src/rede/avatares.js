@@ -24,46 +24,88 @@
 import * as THREE from 'three'
 import { createCharacter } from '../player/character.js'
 import { createAnimator } from '../player/animation.js'
-import { defaultAppearance, SKIN_DEFAULT } from '../player/appearance.js'
+import * as Ap from '../player/appearance.js'
+import { CAMPOS_APARENCIA } from '../comum/protocolo.js'
 
-// A rede manda a pele como INDICE (u8), nao como cor: 6 bytes de aparencia sao
-// o contrato, e uma cor RGB nao cabe num byte. A tabela mora aqui porque e o
-// unico lugar que precisa traduzir indice -> cor. O indice 0 e a pele padrao
-// do jogo, entao quem nunca escolheu nada nasce igual ao single player.
-const TONS_PELE = [
-  SKIN_DEFAULT, // 0 bege quente (padrao)
-  0xf6d7c0,     // 1 claro rosado
-  0xe8b48c,     // 2 medio
-  0xc98d5c,     // 3 dourado
-  0x9a6238,     // 4 castanho
-  0x6b421f,     // 5 escuro
-]
+const defaultAppearance = Ap.defaultAppearance
+
+// A rede manda a pele como INDICE (u8), nao como cor: os 20 bytes da aparencia
+// sao todos indices de catalogo, e uma cor RGB nao cabe num byte.
+//
+// A tabela de tons e do appearance.js quando ele a expoe (SKIN_TONES), e so cai
+// nesta copia local quando nao. Duas listas de tom de pele que divergem fazem o
+// MESMO indice desenhar peles diferentes no boneco local e no remoto — o tipo de
+// bug que ninguem ve num teste e todo mundo ve na tela.
+const TONS_PELE = Array.isArray(Ap.SKIN_TONES) && Ap.SKIN_TONES.length
+  ? Ap.SKIN_TONES
+  : [
+    Ap.SKIN_DEFAULT, // 0 bege quente (padrao)
+    0xf6d7c0,        // 1 claro rosado
+    0xe8b48c,        // 2 medio
+    0xc98d5c,        // 3 dourado
+    0x9a6238,        // 4 castanho
+    0x6b421f,        // 5 escuro
+  ]
 
 function corDaPele(i) {
   const n = i | 0
   // valor maior que um byte so pode ser uma cor ja pronta (o preview local
   // usa hex direto); aceitar os dois evita um ramo especial no chamador
   if (n > 255) return n
-  return TONS_PELE[((n % TONS_PELE.length) + TONS_PELE.length) % TONS_PELE.length]
+  const t = TONS_PELE[((n % TONS_PELE.length) + TONS_PELE.length) % TONS_PELE.length]
+  // a tabela pode vir como [{hex}] se o appearance.js seguir o padrao das
+  // HAIR_COLORS; aceito as duas formas em vez de exigir uma
+  return (t && typeof t === 'object') ? (t.hex | 0) : (t | 0)
 }
 
-/** Aparencia da rede (6 bytes) -> aparencia que createCharacter entende. */
+/* Como cada campo do contrato se chamava quando a aparencia tinha 6 bytes.
+   character.js e appearance.js podem estar em qualquer um dos dois nomes
+   enquanto a reforma acontece em varios arquivos ao mesmo tempo, entao mando os
+   DOIS. Chave desconhecida em setAppearance e inofensiva (Object.assign a
+   ignora na hora de reconstruir os slots); chave FALTANDO deixaria o boneco
+   remoto com o cabelo do vizinho. */
+const APELIDOS_ANTIGOS = {
+  cabelo: 'hair',
+  olhos: 'eyes',
+  sobrancelha: 'brows',
+  boca: 'mouth',
+  corCabelo: 'hairColor',
+}
+
+/**
+ * Aparencia da rede (20 indices) -> aparencia que createCharacter entende.
+ *
+ * Vai TUDO: rosto e roupa. Os slots novos (chapeu, blusa, calca, calcado,
+ * colar, anel, tatuagem, relogio, jaqueta) sao indices de catalogo que
+ * character.js le pelo nome do contrato — enquanto ele ainda nao os conhecer,
+ * eles ficam parados dentro do objeto de aparencia sem quebrar nada, e passam
+ * a valer no instante em que o outro lado ganhar os slots.
+ */
 function paraAparencia(ap) {
   const base = defaultAppearance()
   if (!ap) return base
-  base.hair = ap.hair | 0
-  base.eyes = ap.eyes | 0
-  base.brows = ap.brows | 0
-  base.mouth = ap.mouth | 0
-  base.hairColor = ap.hairColor | 0
-  base.skin = corDaPele(ap.skin)
+  for (const k of CAMPOS_APARENCIA) {
+    const v = ap[k] | 0
+    base[k] = v
+    const velho = APELIDOS_ANTIGOS[k]
+    if (velho !== undefined) base[velho] = v
+  }
+  // 'skin' e o unico campo que o personagem quer como COR e nao como indice:
+  // e ela que pinta cabeca, pescoco e maos. 'pele' (o indice) continua no
+  // objeto pra quem preferir resolver a tabela sozinho.
+  base.skin = corDaPele(ap.pele)
   return base
 }
 
+/** Duas aparencias da REDE sao iguais? Compara os 20 campos do contrato, e nao
+ *  uma lista escrita na mao: um campo esquecido aqui significa uma roupa que
+ *  troca no dono e nao troca em mais ninguem, sem erro nenhum. */
 function mesmaAparencia(a, b) {
   if (!a || !b) return false
-  return a.hair === b.hair && a.eyes === b.eyes && a.brows === b.brows
-    && a.mouth === b.mouth && a.hairColor === b.hairColor && a.skin === b.skin
+  for (const k of CAMPOS_APARENCIA) {
+    if ((a[k] | 0) !== (b[k] | 0)) return false
+  }
+  return true
 }
 
 // --- placa com o nome -------------------------------------------------------
@@ -185,10 +227,18 @@ export function criarAvatares(scene) {
         let a = avatares.get(id)
         if (!a) a = nascer(id, j)
 
-        // aparencia so e reconstruida quando muda de verdade: setAppearance
-        // remonta os slots do rosto, e fazer isso por frame seria absurdo
+        // Aparencia so e reconstruida quando muda de verdade: setAppearance
+        // remonta os slots do rosto e da roupa, e fazer isso por frame seria
+        // absurdo. Mas quando muda, muda NA HORA — este e o fim do caminho que
+        // comeca no barbeiro/provador do outro jogador (MINHA_APARENCIA ->
+        // servidor -> APARENCIA -> perfil -> aqui).
         if (!mesmaAparencia(a.apDesenhada, j.aparencia) && j.aparencia) {
-          a.personagem.setAppearance(paraAparencia(j.aparencia))
+          // typeof: character.js esta sendo reformado em paralelo. Se um dia a
+          // API mudar de nome, o avatar fica com o visual velho em vez de o
+          // laco de render inteiro morrer num TypeError por frame.
+          if (typeof a.personagem.setAppearance === 'function') {
+            a.personagem.setAppearance(paraAparencia(j.aparencia))
+          }
           a.apDesenhada = j.aparencia
         }
         // idem pro nome: canvas novo so quando o texto muda

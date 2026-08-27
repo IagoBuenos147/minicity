@@ -6,7 +6,7 @@ import { createNPC, POSES } from '../npc/npc.js'
 import { HIPS_Y as HIPS_REF } from '../player/character.js'
 import {
   PALETTE, stdMat, solid, emissive, glass, box, cyl, sphere, plane, roundedBox,
-  tex, woodTex, tileTex, plasterTex, paintingMat,
+  tex, woodTex, tileTex, plasterTex, paintingMat, textPlaneMat,
 } from './materials.js'
 
 // ---------------------------------------------------------------------------
@@ -1389,6 +1389,379 @@ function makeCapeRail(M, n = 4) {
 }
 
 // ---------------------------------------------------------------------------
+// CANTO DO PROVADOR
+// A barbearia cuida do ROSTO (barbeiro) e da ROUPA (a Rosa, NPC 1003). Este
+// bloco e a mobilia do canto dela: arara de roupas, prateleira de chapeus e
+// tenis, espelho de corpo inteiro, pufe e a cabine com cortina.
+// Convencao dos props daqui: origem no CHAO, no centro da peca, frente = +Z.
+// ---------------------------------------------------------------------------
+
+/** Tecido colorido: e a cor das pecas que da vida ao canto. */
+function pano(hex, rough = 0.9) { return solid(hex, rough, 0.0) }
+
+/** Mesma cor, mais escura (costura, gola, sombra da peca). */
+function tomEscuro(hex, k = 0.68) {
+  return new THREE.Color(hex).multiplyScalar(k).getHex()
+}
+
+// Paleta das roupas penduradas. Cores bem separadas entre si: de longe o que
+// se le de uma arara e a listra de cores, nao o corte de cada peca.
+const CORES_ROUPA = [
+  0xb8434a, 0x2f6bb8, 0xd7a33a, 0x35784f,
+  0x8d5bb0, 0x2b3b4a, 0xd06a3c, 0xe4e0d6,
+]
+
+/**
+ * Peca num cabide. Origem no GANCHO: a peca desce a partir dela, entao basta
+ * pousar a origem na barra da arara. jaqueta = true poe gola, ziper e manga
+ * comprida; false e camisa de manga curta com botoes.
+ */
+function makeHangerPiece(M, color, jaqueta) {
+  const g = new THREE.Group()
+  const tecido = pano(color)
+  const debrum = pano(tomEscuro(color))
+
+  // cabide de arame: gancho + travessa + os dois diagonais do ombro
+  const hook = new THREE.Mesh(
+    new THREE.TorusGeometry(0.026, 0.005, 6, 12, Math.PI * 1.45), M.chromeDim)
+  hook.position.y = 0.026
+  hook.rotation.z = Math.PI * 0.15
+  g.add(hook)
+  g.add(box(0.30, 0.010, 0.010, M.chromeDim, 0, -0.082, 0))
+  for (const sx of [-1, 1]) {
+    const diag = box(0.19, 0.009, 0.009, M.chromeDim, sx * 0.083, -0.046, 0)
+    diag.rotation.z = sx * 0.43
+    g.add(diag)
+  }
+
+  // corpo da peca
+  const alt = jaqueta ? 0.50 : 0.44
+  const corpo = roundedBox(0.33, alt, 0.10, 0.045, tecido)
+  corpo.position.y = -0.10 - alt / 2
+  g.add(corpo)
+  g.add(box(0.36, 0.055, 0.10, tecido, 0, -0.085, 0))          // linha do ombro
+  g.add(box(0.115, 0.045, 0.095, debrum, 0, -0.055, 0.004))    // gola
+
+  // mangas: curtas na camisa, compridas na jaqueta
+  const mL = jaqueta ? 0.30 : 0.13
+  for (const sx of [-1, 1]) {
+    const manga = roundedBox(0.085, mL, 0.085, 0.035, tecido)
+    manga.position.set(sx * 0.185, -0.10 - mL / 2, 0)
+    manga.rotation.z = sx * 0.16
+    g.add(manga)
+    if (jaqueta) {
+      const punho = box(0.088, 0.045, 0.088, debrum, sx * 0.20, -0.10 - mL, 0)
+      punho.rotation.z = sx * 0.16
+      g.add(punho)
+    }
+  }
+
+  if (jaqueta) {
+    g.add(box(0.018, alt - 0.05, 0.012, M.chromeDim, 0, -0.12 - alt / 2, 0.053))
+    for (const sx of [-1, 1]) {
+      const lapela = box(0.075, 0.15, 0.014, debrum, sx * 0.058, -0.135, 0.052)
+      lapela.rotation.z = sx * 0.22
+      g.add(lapela)
+    }
+  } else {
+    g.add(box(0.03, alt - 0.06, 0.012, debrum, 0, -0.11 - alt / 2, 0.053))
+    for (let i = 0; i < 3; i++) {
+      const bt = cyl(0.008, 0.008, 0.006, M.paper, 8)
+      bt.rotation.x = Math.PI / 2
+      bt.position.set(0, -0.19 - i * 0.10, 0.058)
+      g.add(bt)
+    }
+  }
+  return shadowOn(g)
+}
+
+/**
+ * Arara de loja: barra alta com pecas penduradas e travessa baixa. A barra
+ * corre no X local, entao girar o grupo em Y decide se ela fica ao longo da
+ * parede ou atravessada.
+ */
+function makeClothesRack(M, len = 1.5, n = 7) {
+  const g = new THREE.Group()
+  const H = 1.60
+  const half = len / 2
+  for (const sx of [-1, 1]) {
+    const px = sx * (half - 0.07)
+    g.add(box(0.06, 0.045, 0.46, M.darkMetal, px, 0.055, 0))   // pe
+    const poste = cyl(0.020, 0.026, H, M.chromeDim, 12)
+    poste.position.set(px, H / 2, 0)
+    g.add(poste)
+    for (const sz of [-1, 1]) {
+      const roda = sphere(0.028, M.black, 8)
+      roda.position.set(px, 0.028, sz * 0.20)
+      g.add(roda)
+    }
+  }
+  const bar = cyl(0.019, 0.019, len, M.chrome, 12)
+  bar.rotation.z = Math.PI / 2
+  bar.position.y = H
+  g.add(bar)
+  const trav = cyl(0.015, 0.015, len - 0.18, M.chromeDim, 10)
+  trav.rotation.z = Math.PI / 2
+  trav.position.y = 0.26
+  g.add(trav)
+
+  const passo = n > 1 ? (len - 0.30) / (n - 1) : 0
+  for (let i = 0; i < n; i++) {
+    // a cada tres pecas uma e jaqueta: a arara nao pode ser sete camisas iguais
+    const peca = makeHangerPiece(M, CORES_ROUPA[i % CORES_ROUPA.length], i % 3 === 0)
+    peca.position.set(-half + 0.15 + i * passo, H - 0.012, 0)
+    peca.rotation.y = (i % 2 ? 0.07 : -0.06)
+    g.add(peca)
+  }
+  return shadowOn(g)
+}
+
+/** Chapeu de vitrine. kind: 0 chapeu de aba, 1 bone, 2 gorro. */
+function makeHat(M, kind, color) {
+  const g = new THREE.Group()
+  const c = pano(color, 0.94)
+  const d = pano(tomEscuro(color), 0.94)
+  if (kind === 1) {
+    // bone: copa mais alta que meia esfera (achatada demais virava mancha) e
+    // aba larga o bastante para se ler de longe
+    const copa = sphere(0.10, c, 14)
+    copa.scale.set(1, 0.95, 1.05)
+    copa.position.y = 0.046
+    // a aba nao pode ser MAIOR que a copa, senao o bone vira frigideira
+    const aba = cyl(0.118, 0.118, 0.015, d, 18)
+    aba.position.set(0, 0.042, 0.086)
+    aba.rotation.x = -0.18
+    aba.scale.set(1.0, 1, 0.62)
+    const bt = sphere(0.017, d, 8); bt.position.y = 0.138
+    g.add(copa, aba, bt)
+  } else if (kind === 2) {
+    const copa = cyl(0.098, 0.104, 0.16, c, 16); copa.position.y = 0.08
+    const dobra = cyl(0.119, 0.119, 0.058, d, 16); dobra.position.y = 0.029
+    const pom = sphere(0.045, d, 10); pom.position.y = 0.185
+    g.add(copa, dobra, pom)
+  } else {
+    const copa = cyl(0.092, 0.102, 0.135, c, 18); copa.position.y = 0.088
+    const vinco = box(0.03, 0.05, 0.16, d, 0, 0.148, 0)
+    const aba = cyl(0.185, 0.185, 0.013, c, 22); aba.position.y = 0.026
+    const fita = cyl(0.106, 0.106, 0.038, d, 18); fita.position.y = 0.042
+    g.add(copa, vinco, aba, fita)
+  }
+  return shadowOn(g)
+}
+
+/** Par de tenis lado a lado, virado para +Z. */
+function makeShoePair(M, color) {
+  const g = new THREE.Group()
+  const c = pano(color, 0.82)
+  const sola = pano(0xf1efe7, 0.86)
+  for (const sx of [-1, 1]) {
+    const px = sx * 0.062
+    const corpo = roundedBox(0.098, 0.072, 0.24, 0.03, c)
+    corpo.position.set(px, 0.062, 0)
+    g.add(corpo)
+    g.add(box(0.104, 0.028, 0.245, sola, px, 0.016, 0))
+    g.add(box(0.086, 0.05, 0.055, sola, px, 0.086, -0.075))   // lingua/cano
+    const cad = box(0.05, 0.008, 0.10, sola, px, 0.098, 0.02)
+    cad.rotation.x = -0.12
+    g.add(cad)
+  }
+  return shadowOn(g)
+}
+
+/** Pilha de roupa dobrada (enche prateleira sem custar geometria). */
+function makeFoldedPile(M, n = 3, w = 0.32, d = 0.24) {
+  const g = new THREE.Group()
+  for (let i = 0; i < n; i++) {
+    const c = CORES_ROUPA[(i * 3 + 1) % CORES_ROUPA.length]
+    const p = box(w, 0.052, d, pano(c, 0.94), (i % 2 ? 0.012 : -0.01), 0.026 + i * 0.055, 0)
+    p.rotation.y = (i % 2 ? 0.05 : -0.04)
+    g.add(p)
+  }
+  return shadowOn(g)
+}
+
+/** Caixa de chapeu redonda, empilhavel. */
+function makeHatBox(M, r, color) {
+  const g = new THREE.Group()
+  const c = pano(color, 0.95)
+  g.add(cyl(r, r, 0.19, c, 18))
+  const tampa = cyl(r + 0.012, r + 0.012, 0.05, pano(tomEscuro(color, 0.8), 0.95), 18)
+  tampa.position.y = 0.11
+  g.add(tampa)
+  const fita = cyl(r + 0.014, r + 0.014, 0.02, pano(0xe6dcc4, 0.95), 18)
+  fita.position.y = -0.02
+  g.add(fita)
+  g.children.forEach((m) => { m.position.y += 0.095 })
+  return shadowOn(g)
+}
+
+/**
+ * Prateleira de vitrine: chapeus em cima, tenis no meio, roupa dobrada
+ * embaixo. Frente = +Z, origem no chao.
+ */
+function makeClothesShelf(M, w = 2.2, h = 1.05, d = 0.42) {
+  const g = new THREE.Group()
+  const t = 0.05
+  g.add(box(w, 0.10, d, M.woodDark, 0, 0.05, 0))                          // base
+  g.add(box(w, h - 0.14, 0.03, M.woodDark, 0, 0.10 + (h - 0.14) / 2, -d / 2 + 0.015))
+  for (const sx of [-1, 1]) g.add(box(t, h - 0.10, d, M.wood, sx * (w / 2 - t / 2), 0.10 + (h - 0.10) / 2, 0))
+  const yPrat = [0.44, 0.76]
+  for (const y of yPrat) g.add(box(w - t * 2, 0.035, d - 0.05, M.wood, 0, y, 0.012))
+  // divisorias verticais: sem elas a prateleira longa vira uma tabua solta
+  const nDiv = Math.max(1, Math.round(w / 0.75) - 1)
+  for (let i = 1; i <= nDiv; i++) {
+    const x = -w / 2 + (w / (nDiv + 1)) * i
+    g.add(box(0.028, h - 0.16, d - 0.06, M.woodDark, x, 0.10 + (h - 0.16) / 2, 0.012))
+  }
+  g.add(box(w + 0.07, 0.05, d + 0.06, M.counterTop, 0, h - 0.025, 0))     // tampo
+
+  // chapeus em cima do tampo. Quantos cabem depende da LARGURA: cinco chapeus
+  // numa prateleira de 1 m viram uma pilha unica.
+  const TODOS_CHAPEUS = [[0, 0xb8434a], [1, 0x2b3b4a], [2, 0xd7a33a], [0, 0x35784f], [1, 0xe4e0d6]]
+  const nCh = Math.max(2, Math.min(TODOS_CHAPEUS.length, Math.round(w / 0.42)))
+  const chapeus = TODOS_CHAPEUS.slice(0, nCh)
+  const passoC = chapeus.length > 1 ? (w - 0.52) / (chapeus.length - 1) : 0
+  chapeus.forEach((hc, i) => {
+    const hat = makeHat(M, hc[0], hc[1])
+    hat.position.set(-w / 2 + 0.26 + i * passoC, h, 0.012)
+    hat.rotation.y = i * 0.8
+    g.add(hat)
+  })
+  // tenis na prateleira do meio, roupa dobrada na de baixo
+  const nPar = Math.max(2, Math.round(w / 0.62))
+  for (let i = 0; i < nPar; i++) {
+    const x = -w / 2 + (w / (nPar + 1)) * (i + 1)
+    const par = makeShoePair(M, CORES_ROUPA[(i * 2) % CORES_ROUPA.length])
+    par.position.set(x, 0.778, 0.03)
+    par.rotation.y = (i % 2 ? 0.16 : -0.13)
+    g.add(par)
+    const pilha = makeFoldedPile(M, 2 + (i % 3), 0.30, 0.23)
+    pilha.position.set(x, 0.462, 0.02)
+    g.add(pilha)
+    // vao de baixo: caixas de sapato empilhadas (vazio ali fica buraco preto)
+    for (let k = 0; k < 2; k++) {
+      const cx = box(0.30, 0.115, 0.26, pano(k ? 0xd8d2c4 : 0xb9b2a2, 0.96),
+        x + (k ? 0.015 : -0.012), 0.165 + k * 0.125, 0.015)
+      cx.rotation.y = (k ? 0.05 : -0.04)
+      const tampa = box(0.312, 0.028, 0.272, pano(k ? 0x9a4a4a : 0x3f5a72, 0.96),
+        x + (k ? 0.015 : -0.012), 0.165 + k * 0.125 + 0.058, 0.015)
+      tampa.rotation.y = cx.rotation.y
+      g.add(cx, tampa)
+    }
+  }
+  return shadowOn(g)
+}
+
+/**
+ * Cabine de provador: quatro postes, forro, painel lateral e de fundo, e a
+ * cortina na frente (+Z) meio aberta. Dentro: banquinho e ganchos.
+ * As paredes reais da loja ficam do lado de fora dos paineis, entao a cabine
+ * fecha sozinha em qualquer canto.
+ */
+function makeFittingBooth(M, w = 1.08, d = 1.46, h = 2.24) {
+  const g = new THREE.Group()
+  const poste = M.woodDark
+  const painel = stdMat('bb-cabine-painel', {
+    map: woodTex(3, '#7a4f2c'), roughness: 0.8, metalness: 0.02,
+  })
+  const hw = w / 2, hd = d / 2, pr = 0.045
+
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      g.add(box(pr * 2, h, pr * 2, poste, sx * (hw - pr), h / 2, sz * (hd - pr)))
+    }
+  }
+  // forro + travessas de topo
+  g.add(box(w + 0.06, 0.07, d + 0.06, poste, 0, h - 0.035, 0))
+  g.add(box(w - 0.04, 0.02, d - 0.04, M.ceiling, 0, h - 0.075, 0))
+  // painel de fundo (-Z) e lateral (-X); o outro lado encosta na parede da loja
+  g.add(box(w - 0.02, h - 0.16, 0.05, painel, 0, 0.10 + (h - 0.16) / 2, -hd + 0.03))
+  g.add(box(0.05, h - 0.16, d - 0.02, painel, -hw + 0.03, 0.10 + (h - 0.16) / 2, 0))
+  g.add(box(w - 0.02, 0.12, 0.055, M.wood, 0, 0.06, -hd + 0.03))
+  g.add(box(0.055, 0.12, d - 0.02, M.wood, -hw + 0.03, 0.06, 0))
+
+  // trilho e cortina meio aberta (as pregas sao barras finas, nao um pano so)
+  const trilho = cyl(0.016, 0.016, w, M.chromeDim, 10)
+  trilho.rotation.z = Math.PI / 2
+  trilho.position.set(0, h - 0.14, hd - 0.045)
+  g.add(trilho)
+  const cortina = pano(0x7d2b3c, 0.95)
+  const cortinaEsc = pano(tomEscuro(0x7d2b3c, 0.74), 0.95)
+  const nPrega = 11
+  for (let i = 0; i < nPrega; i++) {
+    // amontoadas do lado -X: a cabine fica ABERTA, dando pra ver o banquinho
+    const x = -hw + 0.06 + i * (w * 0.55 / nPrega)
+    const larg = 0.062 + (i % 2) * 0.012
+    const p = box(larg, h - 0.34, 0.05, i % 2 ? cortina : cortinaEsc,
+      x, (h - 0.34) / 2 + 0.16, hd - 0.045 + (i % 2 ? 0.014 : -0.014))
+    p.rotation.y = (i % 2 ? 0.10 : -0.10)
+    g.add(p)
+    const arg = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.004, 6, 10), M.chromeDim)
+    arg.rotation.y = Math.PI / 2
+    arg.position.set(x, h - 0.14, hd - 0.045)
+    g.add(arg)
+  }
+
+  // dentro: banquinho, ganchos e um tapetinho
+  const banco = box(0.42, 0.05, 0.28, M.wood, 0.10, 0.42, -hd + 0.20)
+  g.add(banco)
+  for (const sx of [-1, 1]) {
+    g.add(box(0.05, 0.42, 0.05, M.woodDark, 0.10 + sx * 0.16, 0.21, -hd + 0.20))
+  }
+  for (let i = 0; i < 3; i++) {
+    const gancho = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.007, 6, 12, Math.PI), M.chromeDim)
+    gancho.rotation.y = Math.PI / 2
+    gancho.position.set(-hw + 0.09, 1.62, -0.34 + i * 0.34)
+    g.add(gancho)
+  }
+  const tapete = box(w - 0.24, 0.014, d - 0.34, pano(0x3d4a5c, 0.98), 0, 0.007, 0.06)
+  tapete.castShadow = false
+  g.add(tapete)
+
+  // placa PROVADOR no alto, virada pra loja
+  const placa = box(0.66, 0.20, 0.05, M.woodDark, 0, h + 0.13, hd - 0.04)
+  g.add(placa)
+  const letras = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.58, 0.13),
+    textPlaneMat('PROVADOR', {
+      color: '#ffe6b0', glow: '#ffb44a', font: 'bold 130px "Trebuchet MS", sans-serif',
+      emissiveIntensity: 0.85,
+    }),
+  )
+  letras.position.set(0, h + 0.13, hd - 0.008)
+  g.add(letras)
+  return shadowOn(g)
+}
+
+/** Pufe redondo de estofado, pra sentar e experimentar o calcado. */
+function makePouf(M, r = 0.32, h = 0.40, color = 0x3f5a72) {
+  const g = new THREE.Group()
+  const c = pano(color, 0.92)
+  const corpo = cyl(r, r * 0.94, h - 0.06, c, 20)
+  corpo.position.y = (h - 0.06) / 2 + 0.03
+  g.add(corpo)
+  const topo = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), c)
+  topo.scale.y = 0.34
+  topo.position.y = h - 0.06
+  topo.castShadow = true; topo.receiveShadow = true
+  g.add(topo)
+  const cinta = new THREE.Mesh(new THREE.TorusGeometry(r * 0.99, 0.018, 8, 24), pano(tomEscuro(color, 0.72), 0.92))
+  cinta.rotation.x = Math.PI / 2
+  cinta.position.y = h * 0.55
+  g.add(cinta)
+  const bt = sphere(0.026, pano(tomEscuro(color, 0.6), 0.9), 10)
+  bt.position.y = h - 0.055
+  g.add(bt)
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4
+    const pe = cyl(0.018, 0.014, 0.06, M.woodDark, 8)
+    pe.position.set(Math.cos(a) * r * 0.7, 0.03, Math.sin(a) * r * 0.7)
+    g.add(pe)
+  }
+  return shadowOn(g)
+}
+
+// ---------------------------------------------------------------------------
 // NPCs (createNPC ainda pode nao existir com essa assinatura -> fallback)
 // ---------------------------------------------------------------------------
 function spawnNPC(opts, M) {
@@ -1672,15 +2045,17 @@ export function buildBarbershop(game) {
   const DIV_FRONT = DIV_Z + DIV_T / 2 + 0.03   // cara da divisoria virada pro salao
   const pics = [
     // galeria de 3 sobre o sofa da espera (parede direita)
-    { x: RIGHT_X, y: 1.74, z: -18.2, rot: -Math.PI / 2, w: 1.3, h: 0.95, kind: 'barber', seed: 3, gold: true },
-    { x: RIGHT_X, y: 1.74, z: -16.6, rot: -Math.PI / 2, w: 0.84, h: 0.64, kind: 'abstract', seed: 11 },
-    { x: RIGHT_X, y: 1.74, z: -19.8, rot: -Math.PI / 2, w: 0.84, h: 0.64, kind: 'abstract', seed: 17 },
+    // (subiram junto com o sofa; a de baixo para de encostar na cabine)
+    { x: RIGHT_X, y: 1.74, z: -17.8, rot: -Math.PI / 2, w: 1.3, h: 0.95, kind: 'barber', seed: 3, gold: true },
+    { x: RIGHT_X, y: 1.74, z: -16.3, rot: -Math.PI / 2, w: 0.84, h: 0.64, kind: 'abstract', seed: 11 },
+    { x: RIGHT_X, y: 1.74, z: -19.35, rot: -Math.PI / 2, w: 0.84, h: 0.64, kind: 'abstract', seed: 17 },
     // quadrao sozinho no pano cheio da divisoria: e o que se ve da porta
     { x: 16.3, y: 1.75, z: DIV_FRONT, rot: 0, w: 1.4, h: 1.05, kind: 'barber', seed: 5, gold: true },
-    // galeria de 3 sobre o armario de toalhas
-    { x: 26.55, y: 1.72, z: DIV_FRONT, rot: 0, w: 0.85, h: 0.66, kind: 'abstract', seed: 23 },
-    { x: 27.8, y: 1.72, z: DIV_FRONT, rot: 0, w: 1.25, h: 0.95, kind: 'barber', seed: 8, gold: true },
-    { x: 29.05, y: 1.72, z: DIV_FRONT, rot: 0, w: 0.85, h: 0.66, kind: 'abstract', seed: 31 },
+    // dupla sobre a prateleira do provador. Subiram para 1.82 (a prateleira e
+    // os chapeus em cima dela chegam a 1.25) e a terceira saiu: aquele pedaco
+    // de parede e a cabine, que tem 2.24 m de altura.
+    { x: 26.5, y: 2.0, z: DIV_FRONT, rot: 0, w: 0.85, h: 0.66, kind: 'abstract', seed: 23 },
+    { x: 27.8, y: 1.82, z: DIV_FRONT, rot: 0, w: 1.25, h: 0.95, kind: 'barber', seed: 8, gold: true },
     // area de servico: dupla sobre a bancada de apoio
     { x: 21.5, y: 1.7, z: BACK_Z, rot: 0, w: 0.95, h: 0.72, kind: 'abstract', seed: 41 },
     { x: 22.9, y: 1.7, z: BACK_Z, rot: 0, w: 0.95, h: 0.72, kind: 'barber', seed: 47 },
@@ -1751,10 +2126,13 @@ export function buildBarbershop(game) {
     t2.rotation.y = (tx % 1) * 0.4
     group.add(t2)
   }
-  // armario de toalhas encostado na divisoria, do lado do salao
-  const towelCab = makeTowelCabinet(M, 2.6, 1.1)
-  towelCab.position.set(27.8, 0, DIV_Z + DIV_HALF + 0.22)
+  // Armario de toalhas: passou para o lado da AREA DE SERVICO. A cara do
+  // salao nesta divisoria e agora a prateleira do provador.
+  const towelCab = makeTowelCabinet(M, 2.2, 1.1)
+  towelCab.position.set(28.4, 0, DIV_Z - DIV_HALF - 0.24)
+  towelCab.rotation.y = Math.PI
   group.add(towelCab)
+  colliders.push(collider(27.25, 29.55, -22.25, -21.68, 'armario-toalhas'))
   // cabideiro com capas de corte, do lado da area de servico
   const capes = makeCapeRail(M, 4)
   capes.position.set(16.4, 1.95, DIV_Z - DIV_HALF - 0.05)
@@ -1762,17 +2140,21 @@ export function buildBarbershop(game) {
   group.add(capes)
 
   // ======================= SALA DE ESPERA =======================
-  const rug = makeRug(0x7a2f34, 0xd9c9a8, 2.6, 3.6)
-  rug.position.set(28.0, 0, -18.2)
+  // A espera subiu ~0.7 m para o norte (e o sofa encolheu de 2.6 para 2.0):
+  // a faixa de z < -19.1 desta parede virou o CANTO DO PROVADOR. Sem isso a
+  // Rosa (NPC 1003, fixa em 27.4 / -19.2 no mundo.js) nasceria dentro da
+  // poltrona e o provador nao teria onde caber.
+  const rug = makeRug(0x7a2f34, 0xd9c9a8, 2.6, 2.8)
+  rug.position.set(28.1, 0, -17.5)
   group.add(rug)
 
-  const sofa = makeSofa(M, 2.6)
-  sofa.position.set(IN.x1 - 0.48, 0, -18.2)
+  const sofa = makeSofa(M, 2.0)
+  sofa.position.set(IN.x1 - 0.48, 0, -17.9)
   sofa.rotation.y = -Math.PI / 2
   group.add(sofa)
-  colliders.push(collider(IN.x1 - 0.96, IN.x1, -19.55, -16.85, 'sofa'))
+  colliders.push(collider(IN.x1 - 0.96, IN.x1, -18.95, -16.85, 'sofa'))
 
-  for (const az of [-16.9, -19.5]) {
+  for (const az of [-16.75, -18.0]) {
     const chairW = makeSofa(M, 0.95)   // mesma familia: poltrona de um lugar
     chairW.position.set(26.5, 0, az)
     chairW.rotation.y = -Math.PI / 2 + (az > -18 ? 0.3 : -0.3)
@@ -1781,16 +2163,17 @@ export function buildBarbershop(game) {
   }
 
   const table = makeMagazineTable(M)
-  table.position.set(27.6, 0, -18.2)
+  table.position.set(27.7, 0, -17.6)
   table.rotation.y = Math.PI / 2
   group.add(table)
-  colliders.push(colAt(27.6, -18.2, 0.32, 0.52, 'mesinha'))
+  colliders.push(colAt(27.7, -17.6, 0.32, 0.52, 'mesinha'))
 
+  // Bebedouro ao lado do balcao de atendimento: o lugar dele na parede da
+  // espera virou a cabine do provador.
   const cooler = makeWaterCooler(M)
-  cooler.position.set(IN.x1 - 0.35, 0, -20.5)
-  cooler.rotation.y = -Math.PI / 2
+  cooler.position.set(25.15, 0, -14.35)
   group.add(cooler)
-  colliders.push(colAt(IN.x1 - 0.35, -20.5, 0.3, 0.28, 'bebedouro'))
+  colliders.push(colAt(25.15, -14.35, 0.3, 0.3, 'bebedouro'))
 
   const magRack = makeMagRack(M)
   magRack.position.set(IN.x1 - 0.24, 0, -16.3)
@@ -2047,6 +2430,63 @@ export function buildBarbershop(game) {
   tufts.receiveShadow = true
   group.add(tufts)
 
+  // ======================= CANTO DO PROVADOR =======================
+  // Canto sudeste do salao, entre a espera e a divisoria. A Rosa (NPC 1003)
+  // tem posicao FIXA no mundo.js (27.4 / -19.2, yaw -PI/2), entao o canto foi
+  // desenhado em volta dela e nao o contrario. Ela fica na boca do canto,
+  // virada para -X (o salao), e atras dela ficam a arara, a prateleira, o
+  // espelho de corpo inteiro, o pufe e a cabine.
+  const PROV_WALL_Z = DIV_Z + DIV_HALF          // -21.48: cara da divisoria
+  const ROSA = { x: 27.4, z: -19.2 }
+
+  // TUDO o que e movel encosta na divisoria. O colisor dela ja empurra o
+  // jogador para z > -20.56 (raio 0.38), entao movel nessa faixa nao custa
+  // passagem nenhuma — e sobra um corredor limpo entre a divisoria e a Rosa,
+  // que e por onde se entra no canto (pelo lado oeste, vindo do salao).
+  const provRack = makeClothesRack(M, 1.25, 5)
+  provRack.position.set(26.53, 0, PROV_WALL_Z + 0.32)
+  group.add(provRack)
+  colliders.push(collider(25.88, 27.18, -21.41, -20.91, 'arara-provador'))
+
+  // prateleira de chapeus e tenis, ao lado da arara
+  const provShelf = makeClothesShelf(M, 1.15, 1.05, 0.42)
+  provShelf.position.set(27.83, 0, PROV_WALL_Z + 0.26)
+  group.add(provShelf)
+
+  // cabine com cortina, encaixada entre a divisoria e a parede da direita
+  const booth = makeFittingBooth(M, 1.08, 1.46, 2.24)
+  booth.position.set(29.05, 0, -20.67)
+  group.add(booth)
+  // so o painel lateral vira colisor: a cabine e para ENTRAR, e a boca dela
+  // (norte) fica livre. O fundo e a lateral direita ja sao parede da loja.
+  colliders.push(collider(28.49, 28.60, -21.42, -19.90, 'cabine-provador'))
+
+  // espelho de corpo inteiro na lateral da cabine, virado para o salao (-X):
+  // quem esta na frente dele tem 1.6 m de piso livre para se ver inteiro.
+  const provMirror = makeFullMirror(M, 0.9, 2.0)
+  provMirror.position.set(28.47, 1.15, -20.72)
+  provMirror.rotation.y = -Math.PI / 2
+  group.add(provMirror)
+
+  const provRug = makeRug(0x2f3b52, 0xd9c9a8, 2.0, 1.5)
+  provRug.position.set(27.4, 0, -20.2)
+  group.add(provRug)
+
+  // pufe na boca do canto, entre a Rosa e o sofa: fora do corredor que leva
+  // ao espelho (foi por isso que ele saiu do meio do canto)
+  const pouf = makePouf(M, 0.28, 0.38, 0x3f5a72)
+  pouf.position.set(28.2, 0, -19.42)
+  group.add(pouf)
+  colliders.push(colAt(28.2, -19.42, 0.30, 0.30, 'pufe'))
+
+  // caixas de chapeu dentro da cabine, aparecendo pela cortina aberta
+  const hatBoxA = makeHatBox(M, 0.19, 0xb8434a)
+  hatBoxA.position.set(29.12, 0, -20.95)
+  const hatBoxB = makeHatBox(M, 0.165, 0xe4e0d6)
+  hatBoxB.position.set(29.12, 0.30, -20.95)
+  hatBoxB.rotation.y = 0.5
+  group.add(hatBoxA, hatBoxB)
+
   // ======================= NPCs =======================
   // Encenacao: o cliente SENTADO na cadeira da estacao 0 e o barbeiro EM PE
   // ao lado dele, virado para o cliente. Os dois na MESMA estacao.
@@ -2067,7 +2507,15 @@ export function buildBarbershop(game) {
     shirt: 0x486a8c,
     pants: 0x3a3f46,
     shoes: 0xe8e6e0,
-    appearance: { hair: 0, hairColor: 2, eyes: 1, brows: 2, mouth: 0 },
+    // Aparencia nos 20 campos do contrato (PERSONAGEM.md secao 1). Cabeca
+    // comprida, olhos semicerrados e barba por fazer: e o freguês do meio da
+    // tarde, e nao se parece com nenhum dos outros dois.
+    appearance: {
+      cabeca: 2, olhos: 1, pupila: 2, nariz: 3, boca: 3, barba: 4,
+      cabelo: 0, pele: 1, corCabelo: 1, sobrancelha: 2,
+      chapeu: 0, calcado: 1, blusa: 1, calca: 0, colar: 2,
+      anelAcess: 0, tatuagem: 0, relogio: 1, jaqueta: 0,
+    },
   }, M)
   group.add(client.root)
   // capa presa no pescoco: no espaco do root do NPC, o pescoco fica em
@@ -2092,7 +2540,15 @@ export function buildBarbershop(game) {
     shirt: 0x24272e,
     pants: 0x1d1f24,
     shoes: 0x141416,
-    appearance: { hair: 1, eyes: 0, brows: 0, mouth: 2 }, // mouth 2 = bigode
+    // O bigode agora e campo proprio: barba 2 (o antigo 'mouth 2' virou boca
+    // seria + barba de bigode). Cabeca quadrada de maxilar largo, cabelo
+    // raspado, grisalho, pele escura e roupa social escura: o dono da loja.
+    appearance: {
+      cabeca: 3, olhos: 4, pupila: 0, nariz: 1, boca: 2, barba: 2,
+      cabelo: 3, pele: 4, corCabelo: 4, sobrancelha: 0,
+      chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 0,
+      anelAcess: 3, tatuagem: 1, relogio: 2, jaqueta: 0,
+    },
   }, M)
   group.add(barber.root)
   // Avental preso ao TRONCO (nao ao root) pra acompanhar respiracao e balanco.
@@ -2107,6 +2563,44 @@ export function buildBarbershop(game) {
   apronHost.add(apron)
   shadowOn(barber.root)
   colliders.push(colAt(barberPos.x, barberPos.z, 0.36, 0.36, 'barbeiro'))
+
+  // --- Rosa, a vendedora do provador ----------------------------------------
+  // Posicao e yaw sao os do mundo.js (NPC 1003): x 27.4, z -19.2, yaw -PI/2.
+  // Ela e a unica da loja de roupa arrumada: camisa social, colete, calca e
+  // sapato social, corrente com pingente, relogio dourado e anel de pedra.
+  const rosaPos = new THREE.Vector3(ROSA.x, 0, ROSA.z)
+  const rosa = spawnNPC({
+    id: 'rosa',
+    name: 'Rosa',
+    pose: 'work',
+    position: rosaPos,
+    yaw: -Math.PI / 2,
+    shirt: 0xe7e2d6,      // camisa clara
+    pants: 0x2c3140,      // calca social escura
+    shoes: 0x241c17,
+    appearance: {
+      cabeca: 1, olhos: 0, pupila: 3, nariz: 4, boca: 0, barba: 0,
+      cabelo: 2, pele: 2, corCabelo: 2, sobrancelha: 1,
+      chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 5,
+      anelAcess: 2, tatuagem: 0, relogio: 3, jaqueta: 5,
+    },
+  }, M)
+  group.add(rosa.root)
+  shadowOn(rosa.root)
+  colliders.push(colAt(rosaPos.x, rosaPos.z, 0.34, 0.34, 'rosa'))
+  // fita metrica no pescoco: e o que diz "aqui se prova roupa" a distancia
+  const fitaHost = (rosa.character && rosa.character.parts && rosa.character.parts.chest) || rosa.root
+  const fita = new THREE.Group()
+  const fitaMat = solid(0xd9b64a, 0.85)
+  // no espaco do 'chest' o pescoco fica em +0.165: a fita sai dali e desce
+  for (const sx of [-1, 1]) {
+    const tira = box(0.026, 0.34, 0.012, fitaMat, sx * 0.075, 0.02, 0.072)
+    tira.rotation.z = sx * 0.18
+    fita.add(tira)
+  }
+  fita.add(box(0.17, 0.024, 0.012, fitaMat, 0, 0.185, 0.055))
+  fita.position.y = fitaHost === rosa.root ? 1.14 : 0
+  fitaHost.add(fita)
 
   // ======================= INTERACOES =======================
   // Posicoes sao ABSOLUTAS no mundo (ficam fora do group), entao somam FLOOR_Y.
@@ -2134,12 +2628,30 @@ export function buildBarbershop(game) {
     label: 'Se olhar no espelho',
     onInteract: (g) => g.openCustomizer('all'),
   })
+  // O provador: o barbeiro cuida do rosto, a Rosa cuida da roupa.
+  interactables.push({
+    id: 'provador-roupa',
+    position: new THREE.Vector3(rosaPos.x, FLOOR_Y + 1.35, rosaPos.z),
+    radius: 2.4,
+    label: 'Provar roupa',
+    onInteract: (game) => game.openCustomizer('roupa'),
+  })
+  interactables.push({
+    // no espelho de corpo inteiro do canto, mesma acao: quem entrou pelo lado
+    // da cabine nao precisa voltar ate a Rosa para trocar de roupa
+    id: 'provador-espelho',
+    position: new THREE.Vector3(28.1, FLOOR_Y + 1.3, -20.72),
+    radius: 2.0,
+    label: 'Provar roupa',
+    onInteract: (game) => game.openCustomizer('roupa'),
+  })
 
   // ======================= UPDATE =======================
   let lookBound = false
   const update = (dt, g) => {
     if (barber.update) barber.update(dt, g)
     if (client.update) client.update(dt, g)
+    if (rosa.update) rosa.update(dt, g)
     // o barbeiro acompanha o jogador com o olhar.
     // lookTarget PRECISA ser um Object3D (npc.js le target.matrixWorld);
     // um Vector3 nao tem matrixWorld e a cabeca travaria.
@@ -2149,6 +2661,7 @@ export function buildBarbershop(game) {
       if (target && target.isObject3D) {
         barber.lookTarget = target
         client.lookTarget = target
+        rosa.lookTarget = target
         lookBound = true
       }
     }

@@ -16,7 +16,15 @@
 // 2: o BEMVINDO ganhou o byte de itens (a arma de portal). Um cliente velho
 // leria as listas de NPC/objeto no offset errado e montaria um mundo torto sem
 // dar erro nenhum — entao a versao sobe e o servidor recusa quem estiver velho.
-export const VERSAO_PROTOCOLO = 2
+//
+// 3: a aparencia passou de 6 para 20 bytes (o contrato do personagem: cabeca,
+// olhos, pupila, nariz, boca, barba, cabelo, pele, cor do cabelo, sobrancelha e
+// as nove pecas de roupa). Ela viaja em CINCO pacotes — ENTRAR, MINHA_APARENCIA,
+// APARENCIA, ENTROU e BEMVINDO — e no BEMVINDO ela fica no MEIO, antes das
+// listas de NPC e objeto. Um cliente da versao 2 leria 14 bytes a menos e
+// montaria o mundo inteiro deslocado, calado. Por isso a versao sobe: e melhor
+// o servidor recusar e pedir pra recarregar do que rodar torto.
+export const VERSAO_PROTOCOLO = 3
 export const TICK_HZ = 15
 export const ATRASO_INTERP = 0.1      // segundos: o remoto e desenhado 100 ms atras
 export const MAX_JOGADORES = 20
@@ -46,6 +54,19 @@ export const NPCS = [
     pose: 'sit', local: 'barbearia',
     falas: ['Ta quase, ja ja e sua vez.'],
     opcoes: ['Beleza'],
+  },
+  {
+    // Provador de roupa: fica na barbearia, do lado oposto ao barbeiro, junto a
+    // parede leste. O barbeiro cuida do ROSTO; este cuida da ROUPA.
+    id: 1003, chave: 'provador', nome: 'Rosa',
+    x: 27.4, y: 0.16, z: -19.2, yaw: -1.5707963,
+    pose: 'work', local: 'barbearia',
+    falas: [
+      'Quer trocar de roupa? Chegou coisa nova.',
+      'Prova ai, fica a vontade.',
+      'Ficou bom em voce!',
+    ],
+    opcoes: ['Quero trocar de roupa', 'So olhando', 'Tchau'],
   },
   {
     id: 1002, chave: 'atendente', nome: 'Mara',

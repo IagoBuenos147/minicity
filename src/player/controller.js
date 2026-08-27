@@ -30,6 +30,25 @@ function dampAngle(cur, tgt, lambda, dt) {
 }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v }
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v }
+function mix(a, b, t) { return a + (b - a) * t }
+
+// --- 1a pessoa: bob pequeno e FILTRADO ---------------------------------------
+// O que embrulhava o estomago nao era so a amplitude. Eram tres coisas juntas:
+// a camera colava no osso da cabeca (que carrega a chacoalhada inteira da
+// animacao), pulava direto pra senoide do bob a cada quadro, e trocava de
+// amplitude de um quadro pro outro ao soltar o Shift. Agora ela sai de um ponto
+// RIGIDO sobre os pes, PERSEGUE o alvo do bob com filtro, e a troca
+// andar<->correr entra por rampa.
+const FP = {
+  AMP_WALK: 0.006,    // era 0.018 (um terco)
+  AMP_RUN: 0.011,     // era 0.035 (um terco)
+  LATERAL: 0.30,      // fracao da amplitude vertical que vai pro lado
+  FOLLOW: 14,         // lambda do filtro que persegue o alvo do bob
+  AMT: 6,             // lambda do "esta andando?" (era 9)
+  ROLL_STRAFE: 0.006, // era 0.028
+  ROLL_STEP: 0.0015,  // era 0.008
+  RAMP: 3.2,          // lambda da rampa andar<->correr
+}
 
 export function createPlayerController({ camera, character, input, collision, scene }) {
   const position = new THREE.Vector3(0, 0, 0)     // pes do personagem
@@ -73,6 +92,11 @@ export function createPlayerController({ camera, character, input, collision, sc
   // camera 1a pessoa
   let bobPhase = 0
   let bobAmt = 0
+  let bobY = 0        // deslocamento vertical JA filtrado (nao e a senoide crua)
+  let bobX = 0        // idem, no eixo lateral da camera
+  let fpRun = 0       // rampa andar->correr da amplitude do bob
+  let eyeOffsetY = PLAYER.EYE_HEIGHT  // altura dos olhos medida no boneco
+  let stillT = 0      // ha quanto tempo esta parado (pra remedir os olhos)
   let rollCur = 0
   let fovCur = mode === 'first' ? CAMERA.FOV_FP : CAMERA.FOV_TP
 
@@ -120,6 +144,24 @@ export function createPlayerController({ camera, character, input, collision, sc
     const t = collision.segmentHit(from, to, 0.24)
     if (t >= 1) return want
     return clamp(want * t, CAMERA.TP_MIN_DISTANCE, want)
+  }
+
+  // Altura dos olhos em POSE DE REPOUSO. Sobe a corrente do fpAnchor ate o root
+  // somando so os offsets locais: rotacao nenhuma entra na conta, entao o valor
+  // e o mesmo esteja o boneco olhando pra onde estiver. E a camera de 1a pessoa
+  // usa esta constante em vez de ler o anchor todo quadro — o anchor viaja com a
+  // pose, e era ele quem chacoalhava a tela. So se remede com o corpo PARADO
+  // (andando, a passada desloca o quadril de verdade, em position.y).
+  function medirAlturaDosOlhos() {
+    const a = character && character.fpAnchor
+    const root = character && character.root
+    if (!a || !root) return
+    let h = 0
+    let o = a
+    for (let i = 0; i < 24 && o && o !== root; i++) { h += o.position.y; o = o.parent }
+    if (o !== root) return       // anchor pendurado fora do boneco: nao mexe
+    h *= root.scale.y || 1
+    if (isFinite(h) && h > 1.0 && h < 2.2) eyeOffsetY = h
   }
 
   function setMode(m) {
@@ -360,30 +402,45 @@ export function createPlayerController({ camera, character, input, collision, sc
   }
 
   function updateFirstPerson(dt, runBlend, strafe) {
-    // segue a posicao do anchor dos olhos
-    if (character && character.fpAnchor) {
-      character.fpAnchor.getWorldPosition(_tmp)
-    } else {
-      _tmp.set(position.x, position.y + PLAYER.EYE_HEIGHT, position.z)
-    }
+    // 1) ponto de olho RIGIDO, tirado do corpo do jogador e nao do osso da
+    // cabeca. Parado ha mais de meio segundo, remede a altura: se o jogador
+    // trocou de cabeca no barbeiro, os olhos mudaram de lugar.
+    stillT = animSpeed === 0 && grounded && !seat ? stillT + dt : 0
+    if (stillT > 0.6) medirAlturaDosOlhos()
+    _tmp.set(position.x, position.y + eyeOffsetY, position.z)
 
-    // head bob: 2 batidas por ciclo de passada
-    const hz = Math.min(animSpeed, 9) / 1.6
+    // 2) rampa andar<->correr. Sem ela, soltar o Shift trocava a amplitude do
+    // bob de um quadro pro outro (runBlend cai de *1 pra *0.4 na hora).
+    fpRun = damp(fpRun, clamp01(runBlend), FP.RAMP, dt)
+
+    // 3) alvo do bob: 2 batidas por ciclo de passada. A cadencia e a MESMA
+    // formula da animacao (animation.js): com o proporcional puro que havia
+    // aqui, correndo a camera batia a 7.8 Hz enquanto os pes pisavam a 4.3 Hz —
+    // duas batidas fora de fase, e a tela virava um zumbido.
+    const sp = Math.min(animSpeed, 9)
+    const hz = Math.min(sp / 1.6, 1.35 + sp * 0.13)
     bobPhase += TAU * hz * dt
     if (bobPhase > TAU) bobPhase -= TAU * Math.floor(bobPhase / TAU)
     const moveAmt = clamp01(animSpeed / 2.2) * (grounded ? 1 : 0)
-    bobAmt = damp(bobAmt, moveAmt, 9, dt)
-    const amp = (0.018 + 0.017 * runBlend) * bobAmt
-    _tmp.y += Math.sin(bobPhase * 2) * amp
-    // balanco lateral no eixo direito da camera
+    bobAmt = damp(bobAmt, moveAmt, FP.AMT, dt)
+    const amp = mix(FP.AMP_WALK, FP.AMP_RUN, fpRun) * bobAmt
+    const tgtY = Math.sin(bobPhase * 2) * amp
+    const tgtX = Math.sin(bobPhase) * amp * FP.LATERAL
+
+    // 4) o filtro. A camera PERSEGUE o alvo em vez de pousar nele: qualquer
+    // salto de fase, de frequencia ou de estado vira uma curva, e a variacao de
+    // altura por quadro cai junto.
+    bobY = damp(bobY, tgtY, FP.FOLLOW, dt)
+    bobX = damp(bobX, tgtX, FP.FOLLOW, dt)
+    _tmp.y += bobY
     _right.set(Math.cos(yaw), 0, -Math.sin(yaw))
-    _tmp.addScaledVector(_right, Math.sin(bobPhase) * amp * 0.8)
+    _tmp.addScaledVector(_right, bobX)
 
     camera.position.copy(_tmp)
 
-    // roll: leve inclinacao andando de lado + micro roll do passo
-    const rollT = -strafe * 0.028 * bobAmt + Math.sin(bobPhase) * 0.008 * bobAmt
-    rollCur = damp(rollCur, rollT, 7, dt)
+    // 5) roll: quase nada. Inclinar o horizonte e o que mais enjoa.
+    const rollT = -strafe * FP.ROLL_STRAFE * bobAmt + Math.sin(bobPhase) * FP.ROLL_STEP * bobAmt
+    rollCur = damp(rollCur, rollT, 5, dt)
     camera.rotation.order = 'YXZ'
     camera.rotation.set(pitch, yaw, rollCur)
   }
@@ -505,6 +562,7 @@ export function createPlayerController({ camera, character, input, collision, sc
     character.root.position.copy(position)
     character.root.rotation.y = bodyYaw
   }
+  medirAlturaDosOlhos()   // pose de repouso: a medida boa e agora
 
   const player = {
     position,

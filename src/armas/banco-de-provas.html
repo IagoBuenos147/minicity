@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Banco de provas — revolver</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0b0d12; }
+  body { font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; color:#fff; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; width:100%; height:100%; }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    // Banco de provas do revolver: o jogo inteiro + o revolver montado por
+    // fora. Existe so pra tirar as fotos de conferencia sem precisar mexer no
+    // main.js enquanto o revolver ainda nao esta na barra de itens.
+    import { criarRevolver } from '/src/armas/revolver.js'
+    import '/src/main.js'
+
+    const G = window.__game
+    const revolver = criarRevolver({
+      scene: G.scene, camera: G.camera, player: G.player, character: G.character,
+      collision: G.collision, rede: G.rede, hud: G.hud,
+      groundY: (x, z) => G.groundY(x, z), interaction: G.interaction,
+    })
+    G.revolver = revolver
+    G.scene.add(revolver.grupoNoMundo)
+    G.interaction.add(revolver.interactable)
+    revolver.aoAcerto = (info) => { G.ultimoAcerto = info }
+
+    // O laco do main e fechado; aqui o revolver anda no proprio rAF, que roda
+    // logo depois do quadro do jogo (o main re-registra o dele no comeco de
+    // frame(), entao esta ordem e estavel).
+    let ultimo = performance.now()
+    function passo(agora) {
+      requestAnimationFrame(passo)
+      const dt = Math.min((agora - ultimo) / 1000, 0.05)
+      ultimo = agora
+      revolver.atualizar(dt)
+      // Redesenha DEPOIS do revolver, que e a ordem que o main.js usa com o
+      // anel e a arma de portal. Sem isto o FOV da mira (escrito por cima do
+      // controller) so valeria no quadro seguinte.
+      G.engine.render()
+    }
+    requestAnimationFrame(passo)
+  </script>
+</body>
+</html>

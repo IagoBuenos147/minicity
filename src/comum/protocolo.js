@@ -172,11 +172,76 @@ export function bitDoItem(item) {
   return (item | 0) === ITEM_PORTAL_GUN ? ITENS_PORTAL_GUN : 0
 }
 
+// --- aparencia --------------------------------------------------------------
+// A ORDEM DESTA LISTA E O PROTOCOLO. Um byte por campo, todos INDICES de
+// catalogo (nunca cor crua): cor RGB nao cabe num byte e a paleta muda com o
+// tempo, o indice nao. Mexer na ordem daqui e mudar o significado de todos os
+// bytes que ja estao no ar — por isso VERSAO_PROTOCOLO subiu pra 3 quando ela
+// passou de 6 para 20 campos.
+//
+// O campo 19 ('reservado') existe de proposito e vale sempre 0 hoje: e a folga
+// pra um acessorio novo entrar sem mudar o TAMANHO do pacote de novo, que e o
+// que obriga a subir a versao e recusar todo cliente velho.
+export const CAMPOS_APARENCIA = [
+  'cabeca',      //  0  formato do cranio
+  'olhos',       //  1  formato/abertura da palpebra
+  'pupila',      //  2  tamanho, cor e forma da iris
+  'nariz',       //  3
+  'boca',        //  4
+  'barba',       //  5  0 = sem barba
+  'cabelo',      //  6
+  'pele',        //  7  tom
+  'corCabelo',   //  8
+  'sobrancelha', //  9
+  'chapeu',      // 10  0 = nenhum
+  'calcado',     // 11  0 = descalco
+  'blusa',       // 12  0 = nenhuma
+  'calca',       // 13
+  'colar',       // 14  0 = nenhum
+  'anelAcess',   // 15  0 = nenhum
+  'tatuagem',    // 16  0 = nenhuma
+  'relogio',     // 17  0 = nenhum
+  'jaqueta',     // 18  0 = nenhuma
+  'reservado',   // 19  folga: ver o comentario acima
+]
+
+/**
+ * Quantas opcoes cada campo tem, na MESMA ordem da lista acima. Mora aqui, e
+ * nao no catalogo de render, porque o servidor e o Node nao importam THREE:
+ * quem precisa cortar um indice fora da faixa (cliente-rede.js) tem que poder
+ * fazer isso sem carregar meio motor grafico. 0 = sem limite conhecido (o
+ * campo reservado aceita qualquer byte).
+ */
+export const APARENCIA_OPCOES = [
+  8, 5, 5, 5, 5, 5, 5, 5, 6, 5,
+  6, 6, 6, 6, 6, 6, 6, 6, 6, 0,
+]
+
+/**
+ * O que um jogador que nunca escolheu nada usa. Nao e tudo zero: 0 quer dizer
+ * "nenhum" em blusa e calcado, entao um padrao todo zerado nasceria pelado e
+ * descalco. Cabelo/rosto ficam no primeiro item do catalogo mesmo.
+ */
+const APARENCIA_DEFAULT = [
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+]
+
 // --- tamanhos fixos ---------------------------------------------------------
-export const APARENCIA_BYTES = 6      // hair, eyes, brows, mouth, hairColor, skin
+// 20 bytes: um por campo de CAMPOS_APARENCIA. Derivado da lista de proposito —
+// escrever "20" na mao aqui e um jeito garantido de o dia em que a lista mudar
+// o pacote sair com um byte a mais ou a menos e ninguem notar.
+export const APARENCIA_BYTES = CAMPOS_APARENCIA.length
 const REG_JOGADOR = 18                // u16 id, f32 x,y,z, i16 yaw, u8 anim, u8 flags
 const REG_NPC = 15                    // u16 id, f32 x,z, i16 yaw, u8 estado, u16 falandoCom
 const REG_OBJ = 19                    // u16 id, f32 x,y,z, i16 rotY, u16 dono, u8 estado
+
+// Cabecalho do BEMVINDO ate o fim do byte de itens: 1 tipo + u16 meuId +
+// u16 versao + u8 tickHz + aparencia + u8 itens. Sai de APARENCIA_BYTES porque
+// a aparencia fica NO MEIO do pacote: com o numero escrito na mao, crescer a
+// aparencia jogaria as listas de NPC e objeto pra um offset errado e o mundo
+// seria montado torto, sem nenhum erro aparecer.
+const BEMVINDO_CABECA = 1 + 2 + 2 + 1 + APARENCIA_BYTES + 1
 
 // Nome cabe em u8 de tamanho; 32 bytes ja e mais do que qualquer nome de tela
 // precisa e mantem o ENTROU pequeno o bastante pra nunca fragmentar.
@@ -316,38 +381,45 @@ function lerNome(dv, off, n) {
 }
 
 /**
- * Aparencia sao 6 bytes crus: hair, eyes, brows, mouth, hairColor, skin.
- * Sao INDICES de catalogo, nunca cores. Cor de cabelo e tom de pele mudam de
- * paleta com o tempo; indice sobrevive a isso e cabe em 1 byte.
+ * Aparencia: APARENCIA_BYTES bytes crus, um por campo de CAMPOS_APARENCIA e na
+ * ORDEM dela. Sao INDICES de catalogo, nunca cores — cor RGB nao cabe num byte
+ * e a paleta muda com o tempo, o indice sobrevive.
  *
- * O 6o campo se chama "skin" e nao "skinIdx" porque esse e o nome que
- * src/player/appearance.js usa. Dois nomes para o mesmo byte fazia o tom de
- * pele ser escrito como 0 e nunca chegar do outro lado, sem erro nenhum.
+ * Escrever e ler pelo MESMO array e o que garante que os dois lados nunca
+ * discordem de qual byte e qual campo. Quando isso era escrito na mao, campo a
+ * campo, bastava um nome trocado (skin/skinIdx) pra o tom de pele viajar como
+ * 0 pra sempre, sem erro nenhum no console.
+ *
+ * Campo ausente no objeto vira 0, e todo valor e cortado em 0..255: byte nao
+ * tem sinal e 256 viraria 0 em silencio no meio do pacote.
  */
 function escreverAparenciaEm(dv, off, ap) {
   const a = ap || {}
-  dv.setUint8(off + 0, a.hair | 0)
-  dv.setUint8(off + 1, a.eyes | 0)
-  dv.setUint8(off + 2, a.brows | 0)
-  dv.setUint8(off + 3, a.mouth | 0)
-  dv.setUint8(off + 4, a.hairColor | 0)
-  dv.setUint8(off + 5, a.skin | 0)
-}
-
-function lerAparenciaEm(dv, off) {
-  return {
-    hair: dv.getUint8(off + 0),
-    eyes: dv.getUint8(off + 1),
-    brows: dv.getUint8(off + 2),
-    mouth: dv.getUint8(off + 3),
-    hairColor: dv.getUint8(off + 4),
-    skin: dv.getUint8(off + 5),
+  for (let i = 0; i < CAMPOS_APARENCIA.length; i++) {
+    const n = a[CAMPOS_APARENCIA[i]] | 0
+    dv.setUint8(off + i, n < 0 ? 0 : (n > 255 ? 255 : n))
   }
 }
 
-/** Aparencia zerada, pro caso de nao conhecer o jogador ainda. */
+function lerAparenciaEm(dv, off) {
+  const saida = {}
+  for (let i = 0; i < CAMPOS_APARENCIA.length; i++) {
+    saida[CAMPOS_APARENCIA[i]] = dv.getUint8(off + i)
+  }
+  return saida
+}
+
+/**
+ * A aparencia de quem ainda nao escolheu nada — os 20 campos com o default do
+ * contrato. Nao e tudo zero: em blusa e calcado o indice 0 significa "nenhuma"
+ * e "descalco", entao zerar tudo faria o jogador nascer sem roupa.
+ */
 export function aparenciaPadrao() {
-  return { hair: 0, eyes: 0, brows: 0, mouth: 0, hairColor: 0, skin: 0 }
+  const saida = {}
+  for (let i = 0; i < CAMPOS_APARENCIA.length; i++) {
+    saida[CAMPOS_APARENCIA[i]] = APARENCIA_DEFAULT[i] | 0
+  }
+  return saida
 }
 
 // f32 nao aceita NaN vindo de conta errada: NaN atravessa a rede e vira
@@ -358,7 +430,7 @@ function f(v) { return Number.isFinite(v) ? v : 0 }
 // CLIENTE -> SERVIDOR
 // ---------------------------------------------------------------------------
 
-/** 1 ENTRAR (confiavel): u16 versao, u8 nomeLen, nome utf8, aparencia 6xu8. */
+/** 1 ENTRAR (confiavel): u16 versao, u8 nomeLen, nome utf8, aparencia 20xu8. */
 export function escreverEntrar(nome, aparencia) {
   const nb = nomeParaBytes(nome)
   const { buf, dv } = novo(P.ENTRAR, 1 + 2 + 1 + nb.length + APARENCIA_BYTES)
@@ -411,7 +483,7 @@ export function lerMeuEstado(dvBruto) {
   }
 }
 
-/** 3 MINHA_APARENCIA (confiavel): 6xu8. */
+/** 3 MINHA_APARENCIA (confiavel): 20xu8, na ordem de CAMPOS_APARENCIA. */
 export function escreverMinhaAparencia(aparencia) {
   const { buf, dv } = novo(P.MINHA_APARENCIA, 1 + APARENCIA_BYTES)
   escreverAparenciaEm(dv, 1, aparencia)
@@ -833,7 +905,7 @@ function limitar(lista) {
 
 /**
  * 128 BEMVINDO (confiavel): u16 meuId, u16 versao, u8 tickHz,
- * aparencia salva (6xu8), u8 itens, u8 nNpc + NPCs, u8 nObj + objetos.
+ * aparencia salva (20xu8), u8 itens, u8 nNpc + NPCs, u8 nObj + objetos.
  *
  * Vai o mundo INTEIRO (todos os NPCs e todos os objetos, inclusive os em
  * repouso), porque o SNAPSHOT so manda o que se mexe. Sem este pacote o
@@ -854,14 +926,14 @@ function limitar(lista) {
 export function escreverBemvindo(meuId, aparencia, npcs, objs, itens) {
   const ln = limitar(npcs)
   const lo = limitar(objs)
-  const tam = 13 + 1 + ln.length * REG_NPC + 1 + lo.length * REG_OBJ
+  const tam = BEMVINDO_CABECA + 1 + ln.length * REG_NPC + 1 + lo.length * REG_OBJ
   const { buf, dv } = novo(P.BEMVINDO, tam)
   dv.setUint16(1, meuId & 0xffff, true)
   dv.setUint16(3, VERSAO_PROTOCOLO, true)
   dv.setUint8(5, TICK_HZ)
   escreverAparenciaEm(dv, 6, aparencia)
-  dv.setUint8(12, itens | 0)
-  let off = 13
+  dv.setUint8(6 + APARENCIA_BYTES, itens | 0)
+  let off = BEMVINDO_CABECA
   dv.setUint8(off, ln.length); off += 1
   for (const n of ln) { escreverRegNpc(dv, off, n); off += REG_NPC }
   dv.setUint8(off, lo.length); off += 1
@@ -870,14 +942,14 @@ export function escreverBemvindo(meuId, aparencia, npcs, objs, itens) {
 }
 
 export function lerBemvindo(dvBruto) {
-  const dv = cabe(dvBruto, P.BEMVINDO, 14)
+  const dv = cabe(dvBruto, P.BEMVINDO, BEMVINDO_CABECA + 1)
   if (!dv) return null
   const meuId = dv.getUint16(1, true)
   const versao = dv.getUint16(3, true)
   const tickHz = dv.getUint8(5)
   const aparencia = lerAparenciaEm(dv, 6)
-  const itens = dv.getUint8(12)
-  let off = 13
+  const itens = dv.getUint8(6 + APARENCIA_BYTES)
+  let off = BEMVINDO_CABECA
   const nNpc = dv.getUint8(off); off += 1
   if (dv.byteLength < off + nNpc * REG_NPC + 1) return null
   const npcs = []
@@ -955,7 +1027,7 @@ export function lerSnapshot(dvBruto) {
 }
 
 /**
- * 131 ENTROU (confiavel): u16 id, u8 nomeLen, nome utf8, aparencia 6xu8.
+ * 131 ENTROU (confiavel): u16 id, u8 nomeLen, nome utf8, aparencia 20xu8.
  * O servidor manda um destes por jogador ja presente logo depois do
  * BEMVINDO, e depois um a cada novo que chega. Receber duas vezes o mesmo
  * id so tem que sobrescrever.
@@ -992,7 +1064,9 @@ export function lerSaiu(dvBruto) {
   return { id: dv.getUint16(1, true) }
 }
 
-/** 133 APARENCIA (confiavel): u16 id, 6xu8. Cabelo novo aparece na hora. */
+/** 133 APARENCIA (confiavel): u16 id, 20xu8. Visual novo aparece na hora na
+ *  tela de todo mundo — e o unico caminho por onde a troca do barbeiro e do
+ *  provador chega nos outros jogadores. */
 export function escreverAparencia(id, aparencia) {
   const { buf, dv } = novo(P.APARENCIA, 3 + APARENCIA_BYTES)
   dv.setUint16(1, id & 0xffff, true)

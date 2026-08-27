@@ -358,6 +358,534 @@ function puddleTex() {
 }
 
 // ---------------------------------------------------------------------------
+// GRAFITE DO MURO
+// O muro e comprido e baixo (14 x 3 m), entao a textura precisa ser deitada --
+// cityTex() so faz canvas quadrado, e esticar um quadrado em 4.4:1 borraria as
+// letras justamente onde a arte precisa ser nitida.
+// ---------------------------------------------------------------------------
+function cityTexWH(key, w, h, drawFn) {
+  if (_cityTex.has(key)) return _cityTex.get(key)
+  const c = document.createElement('canvas')
+  c.width = w; c.height = h
+  drawFn(c.getContext('2d'), w, h)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 8
+  _cityTex.set(key, t)
+  return t
+}
+
+// Paleta do grafite: 5 tintas que conversam. Quente (amarelo->laranja) nas
+// letras, frio (turquesa) no fundo -- complementares, entao a peca "salta" do
+// muro sem precisar de contraste de luminancia. O magenta so aparece como
+// halo, e o roxo escuro e a linha que amarra tudo.
+const GRAF = {
+  linha: '#1c0f2b',    // contorno, quase preto arroxeado (nunca preto puro)
+  bloco: '#7b2bd6',    // extrusao 3D das letras
+  fillA: '#ffe24a',    // topo do degrade
+  fillM: '#ffab2e',
+  fillB: '#ff671e',    // base do degrade
+  fundo: '#15bdb0',    // nuvem turquesa atras da peca
+  fundoE: '#0a7370',   // borda da nuvem
+  neon: '#ff2f9a',     // halo magenta
+  pele: '#f3d9bd',     // o personagem usa a pele da cidade
+}
+
+/** Contorno organico fechado (nuvem/borrao). wob = quanto foge do circulo. */
+function grafBlob(g, cx, cy, rx, ry, wob, seed) {
+  const n = 40
+  g.beginPath()
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2
+    const r = 1 + Math.sin(a * 3 + seed) * wob + Math.sin(a * 5.3 + seed * 2.1) * wob * 0.55
+      + Math.sin(a * 8.7 + seed * 0.7) * wob * 0.25
+    const x = cx + Math.cos(a) * rx * r
+    const y = cy + Math.sin(a) * ry * r
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y)
+  }
+  g.closePath()
+}
+
+/** Escorrido de tinta: haste + gota na ponta. E o que denuncia spray de verdade. */
+function grafPingo(g, x, y, len, w, cor) {
+  g.beginPath()
+  g.moveTo(x - w / 2, y)
+  g.lineTo(x - w / 2, y + len)
+  g.quadraticCurveTo(x - w / 2, y + len + w, x, y + len + w)
+  g.quadraticCurveTo(x + w / 2, y + len + w, x + w / 2, y + len)
+  g.lineTo(x + w / 2, y)
+  g.closePath()
+  g.fillStyle = cor
+  g.fill()
+  g.strokeStyle = GRAF.linha
+  g.lineWidth = w * 0.34
+  g.stroke()
+}
+
+/** Respingo: mancha central + satelites. Sem os satelites parece adesivo. */
+function grafRespingo(g, x, y, r, cor, rnd) {
+  g.fillStyle = cor
+  grafBlob(g, x, y, r, r * 0.9, 0.32, rnd() * 6)
+  g.fill()
+  const n = 5 + Math.floor(rnd() * 6)
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * 6.28, d = r * (1.2 + rnd() * 2.4)
+    g.beginPath()
+    g.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, r * (0.08 + rnd() * 0.22), 0, 7)
+    g.fill()
+  }
+}
+
+/**
+ * Uma letra do wildstyle. As camadas sao empilhadas na ordem em que um writer
+ * pinta de verdade: bloco 3D atras, contorno grosso, fio branco, miolo em
+ * degrade e por fim o brilho. Cada camada e o MESMO glifo redesenhado com
+ * deslocamento -- e por isso que o contorno acompanha a letra perfeitamente.
+ */
+function grafLetra(g, ch, x, y, alt, rot) {
+  g.save()
+  g.translate(x, y)
+  g.rotate(rot)
+  g.transform(1, 0, -0.17, 1, 0, 0)   // inclinacao: nenhuma letra fica a prumo
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.lineJoin = 'round'
+  g.lineCap = 'round'
+
+  // 1) bloco 3D indo pra baixo/direita. O contorno escuro sai so na copia mais
+  // funda; as de cima cobrem o resto e sobra a silhueta certinha.
+  for (let k = 14; k >= 1; k--) {
+    const o = k * alt * 0.014
+    if (k === 14) {
+      g.strokeStyle = GRAF.linha
+      g.lineWidth = alt * 0.16
+      g.strokeText(ch, o, o * 1.35)
+    }
+    g.strokeStyle = GRAF.bloco
+    g.lineWidth = alt * 0.09
+    g.strokeText(ch, o, o * 1.35)
+    g.fillStyle = GRAF.bloco
+    g.fillText(ch, o, o * 1.35)
+  }
+
+  // 2) halo magenta: uma passada SO e com pouco desfoque. O contorno e fino de
+  // proposito -- em Impact os vazios do "E" tem ~15% da altura, e um traco
+  // grosso os fecha e a letra vira mancha.
+  g.shadowColor = GRAF.neon
+  g.shadowBlur = alt * 0.17
+  g.strokeStyle = GRAF.linha
+  g.lineWidth = alt * 0.125
+  g.strokeText(ch, 0, 0)
+  g.shadowBlur = 0
+  g.strokeText(ch, 0, 0)
+
+  // 3) fio branco entre o contorno e o miolo
+  g.strokeStyle = '#ffffff'
+  g.lineWidth = alt * 0.05
+  g.strokeText(ch, 0, 0)
+
+  // 4) miolo em degrade quente
+  const grd = g.createLinearGradient(0, -alt * 0.58, 0, alt * 0.58)
+  grd.addColorStop(0, GRAF.fillA)
+  grd.addColorStop(0.5, GRAF.fillM)
+  grd.addColorStop(1, GRAF.fillB)
+  g.fillStyle = grd
+  g.fillText(ch, 0, 0)
+
+  // 5) brilho: o MESMO glifo repintado dentro de uma faixa. Canvas nao recorta
+  // por texto, mas redesenhar a letra dentro de um clip retangular da o mesmo
+  // resultado e nunca vaza pra fora do contorno.
+  g.save()
+  g.beginPath(); g.rect(-alt * 1.2, -alt * 0.60, alt * 2.4, alt * 0.26); g.clip()
+  g.fillStyle = 'rgba(255,255,255,0.5)'
+  g.fillText(ch, 0, 0)
+  g.restore()
+  g.save()
+  g.beginPath(); g.rect(-alt * 1.2, alt * 0.30, alt * 2.4, alt * 0.16); g.clip()
+  g.fillStyle = 'rgba(255,120,40,0.35)'
+  g.fillText(ch, 0, 0)
+  g.restore()
+
+  g.restore()
+}
+
+/** A peca inteira: mede as letras, encaixa uma na outra e desenha. */
+function grafPeca(g, texto, cx, cy, alt, hs, fam) {
+  g.save()
+  g.translate(cx, cy)
+  g.scale(hs, 1)                      // esticar aqui tambem inclina as letras
+  g.font = '900 ' + alt + 'px ' + fam
+  const chars = texto.split('')
+  const larg = []
+  let total = 0
+  for (const c of chars) { const w = g.measureText(c).width; larg.push(w); total += w }
+  const over = alt * 0.05             // letras se invadem: e o que faz wildstyle
+  total -= over * (chars.length - 1)
+  let x = -total / 2
+  const rots = [-0.11, 0.08, -0.06, 0.10, -0.08]
+  for (let i = 0; i < chars.length; i++) {
+    grafLetra(g, chars[i], x + larg[i] / 2, (i % 2 ? 1 : -1) * alt * 0.045, alt, rots[i % rots.length])
+    x += larg[i] - over
+  }
+  g.restore()
+  return total * hs
+}
+
+/** Seta chanfrada, elemento classico preso na peca. */
+function grafSeta(g, x, y, s, rot) {
+  g.save()
+  g.translate(x, y)
+  g.rotate(rot)
+  g.beginPath()
+  g.moveTo(0, -s)
+  g.lineTo(s * 1.5, 0)
+  g.lineTo(0, s)
+  g.lineTo(0, s * 0.42)
+  g.lineTo(-s * 1.35, s * 0.42)
+  g.lineTo(-s * 1.35, -s * 0.42)
+  g.lineTo(0, -s * 0.42)
+  g.closePath()
+  const grd = g.createLinearGradient(0, -s, 0, s)
+  grd.addColorStop(0, GRAF.fillA)
+  grd.addColorStop(1, GRAF.fillB)
+  g.fillStyle = grd
+  g.fill()
+  g.strokeStyle = GRAF.linha
+  g.lineWidth = s * 0.3
+  g.lineJoin = 'round'
+  g.stroke()
+  g.restore()
+}
+
+/** Coroa de 3 pontas em cima da peca (marca de writer). */
+function grafCoroa(g, x, y, s) {
+  g.beginPath()
+  g.moveTo(x - s, y + s * 0.55)
+  g.lineTo(x - s * 1.05, y - s * 0.7)
+  g.lineTo(x - s * 0.5, y - s * 0.05)
+  g.lineTo(x, y - s * 0.95)
+  g.lineTo(x + s * 0.5, y - s * 0.05)
+  g.lineTo(x + s * 1.05, y - s * 0.7)
+  g.lineTo(x + s, y + s * 0.55)
+  g.closePath()
+  g.fillStyle = GRAF.fillA
+  g.fill()
+  g.strokeStyle = GRAF.linha
+  g.lineWidth = s * 0.28
+  g.lineJoin = 'round'
+  g.stroke()
+}
+
+/**
+ * O personagem ao lado da peca: cabeca de ovo, olhos esbugalhados e bone --
+ * o mesmo boneco do jogo, so que pintado. Desenhado com contorno grosso e cor
+ * chapada, que e como personagem de grafite se le a 15 m de distancia.
+ */
+function grafPersonagem(g, cx, cy, s) {
+  const LW = s * 0.11
+  g.lineJoin = 'round'
+  g.lineCap = 'round'
+  const traco = () => { g.strokeStyle = GRAF.linha; g.lineWidth = LW; g.stroke() }
+
+  // --- tronco (camiseta) ----------------------------------------------------
+  g.beginPath()
+  g.moveTo(cx - s * 0.62, cy + s * 1.02)
+  g.lineTo(cx - s * 1.02, cy + s * 1.5)
+  g.lineTo(cx - s * 0.94, cy + s * 2.6)
+  g.lineTo(cx + s * 0.94, cy + s * 2.6)
+  g.lineTo(cx + s * 1.02, cy + s * 1.5)
+  g.lineTo(cx + s * 0.62, cy + s * 1.02)
+  g.closePath()
+  g.fillStyle = GRAF.bloco
+  g.fill(); traco()
+  // dobra de luz na camiseta
+  g.beginPath()
+  g.moveTo(cx - s * 0.86, cy + s * 1.5)
+  g.lineTo(cx - s * 0.5, cy + s * 1.42)
+  g.lineTo(cx - s * 0.58, cy + s * 2.55)
+  g.lineTo(cx - s * 0.9, cy + s * 2.55)
+  g.closePath()
+  g.fillStyle = 'rgba(255,255,255,0.22)'; g.fill()
+
+  // --- braco levantado segurando a lata ------------------------------------
+  // manga primeiro, antebraco depois: sem a manga o braco vira um graveto
+  g.beginPath()
+  g.moveTo(cx + s * 0.86, cy + s * 1.3)
+  g.lineTo(cx + s * 1.34, cy + s * 0.82)
+  g.lineWidth = s * 0.5
+  g.strokeStyle = GRAF.bloco
+  g.stroke()
+  g.lineWidth = LW * 0.9
+  g.strokeStyle = GRAF.linha
+  g.stroke()
+  g.beginPath()
+  g.moveTo(cx + s * 1.3, cy + s * 0.86)
+  g.lineTo(cx + s * 1.82, cy + s * 0.3)
+  g.lineWidth = s * 0.42
+  g.strokeStyle = GRAF.pele
+  g.stroke()
+  g.lineWidth = LW * 0.9
+  g.strokeStyle = GRAF.linha
+  g.stroke()
+  // mao fechada na lata
+  g.beginPath(); g.arc(cx + s * 1.9, cy + s * 0.2, s * 0.26, 0, 7)
+  g.fillStyle = GRAF.pele; g.fill(); traco()
+  // lata de spray: corpo, faixa de rotulo, tampa e valvula
+  g.beginPath()
+  g.rect(cx + s * 1.6, cy - s * 0.62, s * 0.6, s * 0.95)
+  g.fillStyle = GRAF.neon; g.fill(); traco()
+  g.beginPath()
+  g.rect(cx + s * 1.6, cy - s * 0.3, s * 0.6, s * 0.22)
+  g.fillStyle = '#f2f0ea'; g.fill()
+  g.beginPath()
+  g.rect(cx + s * 1.66, cy - s * 0.86, s * 0.48, s * 0.26)
+  g.fillStyle = '#d9d9de'; g.fill(); traco()
+  g.beginPath()
+  g.rect(cx + s * 1.82, cy - s * 1.0, s * 0.16, s * 0.16)
+  g.fillStyle = '#8e8e96'; g.fill(); traco()
+  // jato: leque de tinta saindo da valvula, subindo pra direita
+  g.strokeStyle = GRAF.fundoE
+  g.lineWidth = s * 0.1
+  g.lineCap = 'round'
+  for (let i = 0; i < 3; i++) {
+    g.beginPath()
+    g.arc(cx + s * 1.9, cy - s * 1.06, s * (0.3 + i * 0.24), Math.PI * 1.08, Math.PI * 1.75)
+    g.stroke()
+  }
+  g.fillStyle = GRAF.fundoE
+  for (let i = 0; i < 5; i++) {
+    const a = Math.PI * (1.1 + i * 0.16)
+    const d = s * 1.15
+    g.beginPath()
+    g.arc(cx + s * 1.9 + Math.cos(a) * d, cy - s * 1.06 + Math.sin(a) * d, s * 0.06, 0, 7)
+    g.fill()
+  }
+
+  // --- cabeca de ovo --------------------------------------------------------
+  g.beginPath()
+  g.ellipse(cx, cy, s * 0.98, s * 1.22, 0, 0, 7)
+  g.fillStyle = GRAF.pele
+  g.fill(); traco()
+  // sombra lateral da cabeca (cel shading de uma camada so)
+  g.save()
+  g.beginPath(); g.ellipse(cx, cy, s * 0.98, s * 1.22, 0, 0, 7); g.clip()
+  g.fillStyle = 'rgba(120,70,50,0.22)'
+  g.fillRect(cx + s * 0.42, cy - s * 1.3, s * 1.2, s * 2.6)
+  g.restore()
+
+  // --- olhos esbugalhados ---------------------------------------------------
+  for (const sx of [-1, 1]) {
+    g.beginPath()
+    g.ellipse(cx + sx * s * 0.4, cy - s * 0.12, s * 0.35, s * 0.4, sx * 0.1, 0, 7)
+    g.fillStyle = '#ffffff'; g.fill(); traco()
+    g.beginPath()
+    g.arc(cx + sx * s * 0.44, cy - s * 0.06, s * 0.15, 0, 7)
+    g.fillStyle = GRAF.linha; g.fill()
+    g.beginPath()
+    g.arc(cx + sx * s * 0.38, cy - s * 0.14, s * 0.055, 0, 7)
+    g.fillStyle = '#ffffff'; g.fill()
+  }
+  // sobrancelhas grossas e retas
+  for (const sx of [-1, 1]) {
+    g.beginPath()
+    g.moveTo(cx + sx * s * 0.15, cy - s * 0.58)
+    g.lineTo(cx + sx * s * 0.74, cy - s * 0.5)
+    g.lineWidth = s * 0.16
+    g.strokeStyle = GRAF.linha
+    g.stroke()
+  }
+
+  // --- sorriso aberto -------------------------------------------------------
+  g.beginPath()
+  g.moveTo(cx - s * 0.46, cy + s * 0.5)
+  g.quadraticCurveTo(cx, cy + s * 1.02, cx + s * 0.46, cy + s * 0.5)
+  g.quadraticCurveTo(cx, cy + s * 0.66, cx - s * 0.46, cy + s * 0.5)
+  g.closePath()
+  g.fillStyle = GRAF.linha; g.fill()
+  g.beginPath()
+  g.moveTo(cx - s * 0.4, cy + s * 0.53)
+  g.lineTo(cx + s * 0.4, cy + s * 0.53)
+  g.lineWidth = s * 0.1
+  g.strokeStyle = '#ffffff'
+  g.stroke()
+
+  // --- bone virado pra tras -------------------------------------------------
+  // amarelo/laranja de proposito: o bone fica em cima da nuvem turquesa, e um
+  // bone turquesa sumiria dentro dela
+  g.beginPath()
+  g.moveTo(cx - s * 1.0, cy - s * 0.62)
+  g.quadraticCurveTo(cx, cy - s * 1.75, cx + s * 1.0, cy - s * 0.62)
+  g.closePath()
+  g.fillStyle = GRAF.fillA; g.fill(); traco()
+  g.beginPath()
+  g.moveTo(cx - s * 1.02, cy - s * 0.62)
+  g.lineTo(cx - s * 1.85, cy - s * 0.44)
+  g.lineTo(cx - s * 1.8, cy - s * 0.76)
+  g.lineTo(cx - s * 1.0, cy - s * 0.88)
+  g.closePath()
+  g.fillStyle = GRAF.fillB; g.fill(); traco()
+}
+
+/**
+ * Rabisco de tag: assinatura de marcador. Sobe reto, desce reto e fecha em
+ * laco -- e esse vai-e-vem anguloso que le como caligrafia de rua; curva pura
+ * saia parecendo onda de agua.
+ */
+function grafTag(g, x, y, w, h, cor, lw, rnd) {
+  g.save()
+  g.strokeStyle = cor
+  g.lineWidth = lw
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+  const n = 4
+  g.beginPath()
+  g.moveTo(x, y + h * 0.7)
+  for (let i = 0; i < n; i++) {
+    const a = x + (i / n) * w
+    const b = x + ((i + 0.45) / n) * w
+    const c = x + ((i + 1) / n) * w
+    g.lineTo(b + (rnd() - 0.5) * lw, y - h * (0.9 + rnd() * 0.4))
+    g.lineTo(b + w * 0.06, y + h * (0.5 + rnd() * 0.4))
+    g.quadraticCurveTo(c + w * 0.05, y + h * 1.2, c, y - h * 0.1)
+    void a
+  }
+  g.stroke()
+  // rabo comprido cortando a tag: e o que toda assinatura tem no fim
+  g.beginPath()
+  g.moveTo(x - w * 0.14, y + h * 1.1)
+  g.lineTo(x + w * 1.22, y - h * 1.2)
+  g.lineWidth = lw * 0.7
+  g.stroke()
+  g.restore()
+}
+
+/**
+ * O grafite do muro do beco/lateral: concreto sujo + peca wildstyle "ZEZO"
+ * (o barbeiro da cidade) + personagem + throw-up + tags e respingos.
+ * 2048 x 468 = a mesma proporcao do muro (14 x 3.2 m), entao nada estica.
+ */
+function grafiteTex() {
+  return cityTexWH('grafite-muro', 2048, 468, (g, W, H) => {
+    const rnd = mulberry32(90210)
+    const fam = '"Impact", "Arial Black", "Trebuchet MS", sans-serif'
+
+    // ---- concreto de base ------------------------------------------------
+    g.fillStyle = '#b0aba1'; g.fillRect(0, 0, W, H)
+    for (let i = 0; i < 4200; i++) {
+      const v = 150 + rnd() * 45
+      g.fillStyle = 'rgba(' + v + ',' + (v - 3) + ',' + (v - 10) + ',' + (rnd() * 0.5) + ')'
+      g.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 3, 1 + rnd() * 3)
+    }
+    // juntas verticais das placas (a cada ~2 m de muro)
+    g.strokeStyle = 'rgba(120,116,108,0.5)'; g.lineWidth = 3
+    for (let x = 292; x < W; x += 292) {
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke()
+    }
+    // escorridos de chuva descendo do topo
+    for (let i = 0; i < 30; i++) {
+      const x = rnd() * W
+      g.fillStyle = 'rgba(96,92,86,' + (0.05 + rnd() * 0.10) + ')'
+      g.fillRect(x, 0, 3 + rnd() * 16, H * (0.2 + rnd() * 0.75))
+    }
+    // barra suja embaixo (respingo de rua)
+    const sujo = g.createLinearGradient(0, H * 0.62, 0, H)
+    sujo.addColorStop(0, 'rgba(84,78,68,0)')
+    sujo.addColorStop(1, 'rgba(70,64,54,0.55)')
+    g.fillStyle = sujo; g.fillRect(0, H * 0.62, W, H * 0.38)
+
+    // ---- nuvem turquesa atras da peca ------------------------------------
+    g.save()
+    g.globalAlpha = 0.95
+    g.fillStyle = GRAF.fundoE
+    grafBlob(g, 1130, 226, 610, 200, 0.13, 1.7); g.fill()
+    g.fillStyle = GRAF.fundo
+    grafBlob(g, 1122, 218, 585, 188, 0.13, 1.7); g.fill()
+    g.restore()
+    // riscos claros dentro da nuvem: da textura e evita fundo chapado
+    g.save()
+    grafBlob(g, 1122, 218, 585, 188, 0.13, 1.7); g.clip()
+    g.strokeStyle = 'rgba(255,255,255,0.13)'
+    g.lineWidth = 16
+    for (let i = -6; i < 22; i++) {
+      g.beginPath(); g.moveTo(i * 70, 460); g.lineTo(i * 70 + 240, -40); g.stroke()
+    }
+    g.restore()
+
+    // respingos no fundo, antes das letras (ficam por baixo, como na parede)
+    for (let i = 0; i < 9; i++) {
+      grafRespingo(g, 560 + rnd() * 1150, 40 + rnd() * 380,
+        7 + rnd() * 13, i % 2 ? GRAF.neon : GRAF.fundoE, rnd)
+    }
+
+    // ---- peca principal ---------------------------------------------------
+    grafSeta(g, 660, 92, 40, -0.45)
+    grafSeta(g, 1660, 330, 44, 2.85)
+    grafPeca(g, 'ZEZO', 1140, 214, 268, 1.72, fam)
+    grafCoroa(g, 742, 66, 48)
+
+    // escorridos saindo da base do BLOCO 3D (nao das letras): a tinta que
+    // escorre e a da ultima demao, e a ultima demao aqui e o roxo do bloco
+    for (const d of [[812, 398, 42], [1006, 412, 26], [1198, 404, 54],
+      [1372, 396, 34], [1470, 386, 46]]) {
+      grafPingo(g, d[0], d[1], d[2], 15, GRAF.bloco)
+    }
+    for (const d of [[660, 372, 30], [1596, 350, 38]]) {
+      grafPingo(g, d[0], d[1], d[2], 13, GRAF.fundoE)
+    }
+
+    // ---- throw-up de bolha a direita -------------------------------------
+    g.save()
+    g.translate(1830, 208)
+    g.font = '900 210px ' + fam
+    g.textAlign = 'center'; g.textBaseline = 'middle'
+    g.lineJoin = 'round'
+    g.transform(1, 0, -0.1, 1, 0, 0)
+    g.strokeStyle = GRAF.linha; g.lineWidth = 52
+    g.strokeText('RP', 0, 0)
+    g.strokeStyle = '#f2f0ea'; g.lineWidth = 30
+    g.strokeText('RP', 0, 0)
+    g.fillStyle = '#f2f0ea'
+    g.fillText('RP', 0, 0)
+    g.strokeStyle = GRAF.neon; g.lineWidth = 8
+    g.strokeText('RP', 0, 0)
+    g.restore()
+    grafPingo(g, 1780, 300, 40, 12, '#f2f0ea')
+    grafPingo(g, 1888, 312, 26, 11, '#f2f0ea')
+
+    // ---- personagem -------------------------------------------------------
+    // nuvem propria atras do boneco, na MESMA familia de cor da peca: separa
+    // ele do concreto e amarra os dois blocos da composicao
+    g.fillStyle = GRAF.fundoE
+    grafBlob(g, 300, 236, 232, 208, 0.15, 4.2); g.fill()
+    g.fillStyle = GRAF.fundo
+    grafBlob(g, 294, 230, 214, 194, 0.15, 4.2); g.fill()
+    grafPersonagem(g, 292, 196, 82)
+
+    // ---- tags menores em volta -------------------------------------------
+    grafTag(g, 84, 384, 210, 34, GRAF.linha, 9, rnd)
+    grafTag(g, 556, 74, 140, 24, '#f2f0ea', 7, rnd)
+    grafTag(g, 1706, 100, 150, 26, GRAF.linha, 8, rnd)
+    grafTag(g, 1580, 406, 180, 22, '#2b2b30', 7, rnd)
+    g.save()
+    g.font = 'bold 28px "Trebuchet MS", sans-serif'
+    g.fillStyle = 'rgba(30,26,36,0.7)'
+    g.fillText('MINI CITY  //  2026', 74, 444)
+    g.restore()
+
+    // ---- respingos por cima de tudo (a tinta que caiu depois) -------------
+    for (let i = 0; i < 7; i++) {
+      grafRespingo(g, rnd() * W, 60 + rnd() * 340, 5 + rnd() * 9,
+        i % 3 === 0 ? GRAF.fillA : (i % 3 === 1 ? GRAF.neon : GRAF.fundo), rnd)
+    }
+    // poeira do concreto por cima, pra tinta nao ficar "adesivada"
+    g.fillStyle = 'rgba(176,171,161,0.10)'
+    for (let i = 0; i < 900; i++) {
+      g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 7, 1 + rnd() * 3)
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 
 export function buildCity() {
   const group = new THREE.Group()
@@ -3095,6 +3623,55 @@ export function buildCity() {
   }
   alleyLamp(18.0, 30.06, true)
   alleyLamp(38.0, 28.06, false)
+
+  // -------------------------------------------------------------------------
+  // 9. MURO COM GRAFITE (lateral leste da mercearia, de frente pra avenida)
+  // -------------------------------------------------------------------------
+  // Por que aqui: a parede leste da mercearia e a unica superficie grande e
+  // LISA da cidade virada pra uma rua -- e, como o sol nasce sempre do lado
+  // +X neste ciclo, ela e a unica que fica iluminada o dia inteiro. Grafite em
+  // parede na sombra nao se le.
+  const MURO = {
+    x: -13.55,        // centro da espessura; frente (pintada) olhando pra +X
+    z0: -30, z1: -16, // 14 m de comprimento
+    h: 3.0,
+    esp: 0.30,
+    base: SHOP_Y,     // o lote da mercearia esta no nivel da calcada
+  }
+  {
+    const mz = (MURO.z0 + MURO.z1) / 2
+    const comp = MURO.z1 - MURO.z0
+    const concreto = stdMat('city:muro-concreto', {
+      map: tiled(concreteTex(1), 4, 1.1), color: 0x9f9b93, roughness: 0.97,
+    })
+    // corpo
+    add(box(MURO.esp, MURO.h, comp, concreto, MURO.x, MURO.base + MURO.h / 2, mz))
+    // capa do topo: transborda 7 cm de cada lado, e o que faz ler como MURO
+    // (uma caixa sem capa le como bloco de concreto solto no chao)
+    add(box(MURO.esp + 0.14, 0.16, comp + 0.2, solid(0x8b877f, 0.9),
+      MURO.x, MURO.base + MURO.h + 0.08, mz))
+    // rodape saliente e mais escuro: a sujeira que sobe do chao por capilaridade
+    add(box(MURO.esp + 0.10, 0.28, comp, solid(0x6d6a63, 0.98),
+      MURO.x, MURO.base + 0.14, mz))
+
+    // A pintura e um plano na frente do corpo, nao a textura da caixa: a caixa
+    // usaria a MESMA imagem nas 6 faces e o grafite apareceria no topo e nos
+    // fundos. 4 cm de folga + polygonOffset matam qualquer chapisco.
+    const pintura = new THREE.Mesh(
+      new THREE.PlaneGeometry(comp, MURO.h),
+      stdMat('city:muro-grafite', Object.assign({
+        map: grafiteTex(), roughness: 0.9,
+      }, DECAL_OFF)),
+    )
+    pintura.rotation.y = Math.PI / 2   // normal pra +X (a rua)
+    pintura.position.set(MURO.x + MURO.esp / 2 + 0.04, MURO.base + MURO.h / 2, mz)
+    pintura.castShadow = false
+    pintura.receiveShadow = true
+    add(pintura)
+
+    col(MURO.x - 0.3, MURO.x + 0.3, MURO.z0 - 0.15, MURO.z1 + 0.15, 'muro')
+    occBox(MURO.x, mz, 0.6, comp + 0.3, MURO.base + MURO.h + 0.16, 'muro')
+  }
 
   // -------------------------------------------------------------------------
   // COLISORES DE BORDA (o jogador nao sai do mapa)

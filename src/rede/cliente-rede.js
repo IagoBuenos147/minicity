@@ -87,23 +87,62 @@ function anguloCurto(a, b, t) {
 
 function trava01(v) { return v < 0 ? 0 : v > 1 ? 1 : v }
 
-/** Aparencia sempre com os 6 campos, sempre em byte. O que vem torto vira 0.
- *  O sexto campo tem DOIS nomes na casa: o jogo chama de 'skin', o protocolo
- *  grava e le 'skinIdx'. Aceito os dois na entrada e devolvo os dois na
- *  saida, sempre com o mesmo valor — assim nem o tom de pele se perde ao
- *  virar pacote, nem quem desenha precisa saber do nome do outro lado. */
-function normalizarAparencia(ap) {
+/* Os nomes que o jogo usava quando a aparencia tinha 6 bytes. A UI e o
+   personagem foram escritos com eles, e nada obriga os dois a trocarem no
+   mesmo commit — entao aceito os dois na ENTRADA. Sem isto, um customizer que
+   ainda mandasse { hair: 2 } veria o cabelo virar 0 no pacote, calado.
+   Na SAIDA quem manda e o nome do contrato (CAMPOS_APARENCIA), porque e ele
+   que o protocolo grava byte a byte. */
+const APELIDOS_ANTIGOS = {
+  cabelo: 'hair',
+  olhos: 'eyes',
+  sobrancelha: 'brows',
+  boca: 'mouth',
+  corCabelo: 'hairColor',
+  pele: 'skinIdx',   // 'skin' tambem e aceito; ver o comentario da pele abaixo
+}
+
+/**
+ * Aparencia sempre com os 20 campos do contrato, sempre em byte, e cada um
+ * CORTADO no numero de opcoes daquele campo (Proto.APARENCIA_OPCOES).
+ *
+ * O corte e por campo e nao um 0..255 geral de proposito: indice fora do
+ * catalogo nao da erro no cliente que o recebe, ele so cai num
+ * `catalogo[i] === undefined` la no fundo do render, no meio de um frame, e o
+ * boneco some. Cortar aqui, na fronteira, e o unico lugar onde ainda da pra
+ * saber que numero era esse. O resto (0) e um visual valido em todo campo.
+ *
+ * A PELE tem historia: o jogo chama de 'skin' o valor que ele desenha (que as
+ * vezes e uma COR pronta, do preview local) e 'skinIdx' o indice. Aqui so
+ * indice viaja, entao 'skin' so e aceito quando cabe num byte de catalogo —
+ * cor crua (numero grande) e ignorada em vez de virar um tom sorteado.
+ */
+export function normalizarAparencia(ap) {
   const a = ap || {}
-  const b = (v) => {
-    const n = v | 0
-    return n < 0 ? 0 : n > 255 ? 255 : n
+  const campos = Proto.CAMPOS_APARENCIA
+  const opcoes = Proto.APARENCIA_OPCOES
+  const saida = {}
+  for (let i = 0; i < campos.length; i++) {
+    const k = campos[i]
+    let v = a[k]
+    if (v === undefined) {
+      const velho = APELIDOS_ANTIGOS[k]
+      if (velho !== undefined) v = a[velho]
+      // 'skin' so vale como indice se couber num byte: acima disso e cor crua
+      if (v === undefined && k === 'pele' && (a.skin | 0) === a.skin && a.skin <= 255) v = a.skin
+    }
+    let n = v | 0
+    if (n < 0) n = 0
+    const max = opcoes[i] | 0
+    // CLAMP, nao resto: com resto, a opcao 7 de um campo de 5 viraria a 2, e o
+    // jogador veria um visual que ele nao escolheu e nao consegue explicar.
+    // Preso na ultima opcao pelo menos e visivelmente "o fim da lista".
+    // max 0 = campo sem catalogo (o reservado): so o teto do byte vale.
+    if (max > 0) { if (n > max - 1) n = max - 1 }
+    else if (n > 255) n = 255
+    saida[k] = n
   }
-  const pele = b(a.skinIdx !== undefined ? a.skinIdx : a.skin)
-  return {
-    hair: b(a.hair), eyes: b(a.eyes), brows: b(a.brows),
-    mouth: b(a.mouth), hairColor: b(a.hairColor),
-    skin: pele, skinIdx: pele,
-  }
+  return saida
 }
 
 /** A URL do WebSocket NUNCA e escrita no codigo: sai de location.

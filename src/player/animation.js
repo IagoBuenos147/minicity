@@ -47,16 +47,111 @@ export function createAnimator(character) {
   const base = Object.create(null)
   let captured = false
 
+  // --- respiracao: vai nos MESHES do peito, nunca na junta -------------------
+  // Escalar a junta 'chest' arrastaria pescoco, cabeca e (por tabela) o ponto
+  // dos olhos junto, porque sao filhos dela: o jogador lia isso como a cabeca
+  // inflando e o corpo subindo. Nos meshes o peito incha e mais nada se mexe.
+  let chestMeshes = null
+  let chestCount = -1
+  function findChestMeshes() {
+    chestMeshes = []
+    const c = parts.chest
+    if (!c || !c.children) return
+    chestCount = c.children.length
+    for (let i = 0; i < c.children.length; i++) {
+      const o = c.children[i]
+      if (o && o.isMesh && o.scale) {
+        chestMeshes.push({ o, sx: o.scale.x, sy: o.scale.y, sz: o.scale.z })
+      }
+    }
+  }
+  // k = 0..1. Peito abre 1.4% na largura e 0.6% na altura no auge da inspiracao.
+  function applyBreath(k) {
+    // relista se o peito ganhou ou perdeu peca (jaqueta, colete, etc.)
+    const c = parts.chest
+    if (chestMeshes === null || (c && c.children.length !== chestCount)) findChestMeshes()
+    const wide = 1 + 0.014 * k
+    const tall = 1 + 0.006 * k
+    for (let i = 0; i < chestMeshes.length; i++) {
+      const m = chestMeshes[i]
+      m.o.scale.set(m.sx * wide, m.sy * tall, m.sz * wide)
+    }
+  }
+
+  // --- piscada --------------------------------------------------------------
+  // Em idle a piscada e o UNICO movimento que sobra, entao ela mora aqui e nao
+  // no controller: assim o avatar remoto e o NPC-jogador piscam pelo mesmo
+  // codigo. Se character.js expuser setBlink(abertura), ele manda; senao
+  // achatamos o grupo dos olhos como o npc.js ja faz.
+  let blinkIn = 1.2 + Math.random() * 3.5
+  let blinkT = -1
+  let eyesBaseY = null   // posicao original do slot (nem sempre e zero)
+  let eyesPivotY = 0     // altura media dos globos, pra piscar sem escorregar
+
+  function eyesGroup() {
+    const s = character && character.slots
+    return (s && s.eyes) || null
+  }
+
+  // Altura media das FOLHAS (os globos), somando os offsets do caminho. Se o
+  // catalogo devolver os olhos dentro de um grupo intermediario, a media dos
+  // filhos diretos daria zero e o olho escorregaria pra baixo ao piscar.
+  function scanEyes(o, offY, acc, depth) {
+    if (depth > 4 || !o.children) return
+    for (let i = 0; i < o.children.length; i++) {
+      const c = o.children[i]
+      if (!c || !c.position) continue
+      const y = offY + c.position.y
+      if (c.children && c.children.length) scanEyes(c, y, acc, depth + 1)
+      else { acc.sum += y; acc.n++ }
+    }
+  }
+
+  function measureEyes(g) {
+    if (eyesBaseY === null) eyesBaseY = g.position.y
+    const acc = { sum: 0, n: 0 }
+    scanEyes(g, 0, acc, 0)
+    eyesPivotY = acc.n ? acc.sum / acc.n : 0
+  }
+
+  // abertura: 1 = olho aberto, 0 = fechado
+  function setBlink(open) {
+    if (character && typeof character.setBlink === 'function') {
+      character.setBlink(open)
+      return
+    }
+    const g = eyesGroup()
+    if (!g) return
+    if (eyesBaseY === null) measureEyes(g)
+    g.scale.y = open
+    g.position.y = eyesBaseY + eyesPivotY * (1 - open)
+  }
+
+  function updateBlink(dt) {
+    if (blinkT < 0) {
+      blinkIn -= dt
+      if (blinkIn > 0) return
+      blinkT = 0
+      blinkIn = 2.0 + Math.random() * 4.5
+      const g = eyesGroup()
+      if (g) measureEyes(g)   // o slot e refeito ao trocar de aparencia
+    }
+    blinkT += dt
+    const k = Math.min(1, blinkT / 0.10)
+    setBlink(1 - Math.sin(k * Math.PI) * 0.93)
+    if (k >= 1) { blinkT = -1; setBlink(1) }
+  }
+
   // deltas do frame, zerados e recalculados sempre do zero
   const d = Object.create(null)
   for (let i = 0; i < PARTS.length; i++) {
     d[PARTS[i]] = { rx: 0, ry: 0, rz: 0, px: 0, py: 0, pz: 0, s: 1 }
   }
 
-  // fases independentes
+  // fases independentes. Fase inicial aleatoria: dois personagens lado a lado
+  // nao podem respirar e piscar em sincronia.
   let stride = 0      // ciclo da passada (1 ciclo = 2 passos)
-  let tBreath = 0     // respiracao
-  let tIdle = 0       // balanco/ deslocamento de peso do idle
+  let tBreath = Math.random() * 10   // respiracao
 
   // pesos suavizados dos estados
   let wLoco = 0, wRun = 0, wAir = 0
@@ -123,53 +218,32 @@ export function createAnimator(character) {
       k.ry += a[1] * w
       k.rz += a[2] * w
     }
-    // respiracao continua, so que bem mais contida
-    const br = 0.5 + 0.5 * Math.sin(tBreath * TAU * 0.26)
-    if (d.chest) d.chest.s = mix(d.chest.s, 1.008, br * w)
+    // a respiracao continua rodando por fora (applyBreath), com peso menor
   }
 
-  // Respiracao + micro balanco. w = peso do idle.
+  // Idle: o corpo tem PESO e fica PARADO. w = peso do idle.
+  //
+  // Aqui nao entra NADA que dependa do tempo. O que existia antes — deslocamento
+  // de peso a cada 4 s, pendulo dos bracos, deriva da cabeca e giro do quadril —
+  // somava um balanco constante de um lado pro outro; e como as pernas e os pes
+  // sao filhos do quadril, qualquer coisa escrita nele levantava e deslizava os
+  // pes. Era exatamente isso que o dono via como "flutuando".
+  //
+  // Sobra so uma POSE (valores constantes, que dao silhueta relaxada sem mexer
+  // um milimetro por quadro). A respiracao vai por fora, na escala dos meshes do
+  // peito (applyBreath), e a piscada em updateBlink.
   function poseIdle(w) {
     if (w <= 0.001) return
-    const br = Math.sin(tBreath * TAU * 0.28)       // ~4.3 s por ciclo
-    const br01 = 0.5 + 0.5 * br
-    // peito sobe e "infla" um tico
-    if (d.chest) {
-      // sem py: subir o peito 1.2 cm a cada respiracao lia como flutuacao
-      d.chest.s = mix(1, 1.010, br01 * w)
-      d.chest.rx += -0.020 * br01 * w
-    }
-    if (d.torso) d.torso.rx += -0.010 * br01 * w
 
-    // Deslocamento de peso lento (~4 s). Mexer o QUADRIL em Y ou X levanta e
-    // desliza os pes junto (as pernas sao filhas dele) e o personagem parado
-    // parecia flutuar. Entao o quadril so gira de leve, e quem sugere o peso
-    // mudando de perna e o tronco.
-    const shift = Math.sin(tIdle * TAU / 4)
-    if (d.hips) {
-      d.hips.rz += 0.016 * shift * w
-      d.hips.ry += 0.022 * shift * w
-    }
-    if (d.chest) d.chest.ry += -0.035 * shift * w
-    if (d.neck) d.neck.ry += 0.020 * shift * w
-    if (d.head) {
-      d.head.ry += 0.030 * Math.sin(tIdle * 0.37) * w
-      d.head.rx += 0.020 * Math.sin(tIdle * 0.52 + 1.1) * w
-    }
-
-    // pernas acompanham o peso: a perna do lado carregado estica
-    if (d.legLUpper) d.legLUpper.rz += 0.020 * shift * w
-    if (d.legRUpper) d.legRUpper.rz += 0.020 * shift * w
-    if (d.legLLower) d.legLLower.rx += (0.06 + 0.05 * Math.max(0, -shift)) * w
-    if (d.legRLower) d.legRLower.rx += (0.06 + 0.05 * Math.max(0, shift)) * w
-
-    // pendulo dos bracos, defasado entre os lados
-    const pl = Math.sin(tIdle * 0.8)
-    const pr = Math.sin(tIdle * 0.8 + 0.7)
-    if (d.armLUpper) { d.armLUpper.rx += 0.055 * pl * w; d.armLUpper.rz += (-0.03 + 0.02 * pl) * w }
-    if (d.armRUpper) { d.armRUpper.rx += 0.055 * pr * w; d.armRUpper.rz += (0.03 - 0.02 * pr) * w }
-    if (d.armLLower) d.armLLower.rx += (-0.16 - 0.04 * pl) * w
-    if (d.armRLower) d.armRLower.rx += (-0.16 - 0.04 * pr) * w
+    // cotovelos levemente dobrados e bracos encostados no corpo
+    if (d.armLUpper) d.armLUpper.rz += -0.030 * w
+    if (d.armRUpper) d.armRUpper.rz += 0.030 * w
+    if (d.armLLower) d.armLLower.rx += -0.16 * w
+    if (d.armRLower) d.armRLower.rx += -0.16 * w
+    // maos giradas pra dentro, como maos soltas de verdade
+    if (d.handL) d.handL.rz += -0.06 * w
+    if (d.handR) d.handR.rz += 0.06 * w
+    // quadril, pernas e pes: ZERO. Os pes ficam plantados onde nasceram.
   }
 
   // Passada. w = peso da locomocao, run = blend walk->run.
@@ -317,14 +391,21 @@ export function createAnimator(character) {
     stride += TAU * hz * dt
     if (stride > TAU) stride -= TAU * Math.floor(stride / TAU)
     tBreath += dt
-    tIdle += dt
     if (waveT >= 0) { waveT += dt; if (waveT > 1.9) waveT = -1 }
 
     clearDeltas()
 
     const sitK = 1 - wSit
     const ground = (1 - wAir) * sitK
-    poseIdle((1 - wLoco) * ground)
+    const idleW = (1 - wLoco) * ground
+
+    // Respiracao (~4.3 s por ciclo) e piscada: o que resta de vida no idle.
+    // Andando e correndo ela some, porque a passada ja mexe o tronco inteiro.
+    const br01 = 0.5 + 0.5 * Math.sin(tBreath * TAU * 0.28)
+    applyBreath(br01 * clamp01(idleW + wSit * 0.7))
+    updateBlink(dt)
+
+    poseIdle(idleW)
     poseLocomotion(wLoco * ground, wRun)
     poseAir(wAir * sitK, vy)
     poseSit(wSit)

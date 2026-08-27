@@ -517,170 +517,290 @@ export function makeTrashCan() {
 }
 
 // ===========================================================================
-// ARVORE (determinista pelo seed)
-// Duas especies escolhidas pelo seed, tronco com raizes e curvatura,
-// ramificacao recursiva de 3 niveis e copa em tufos sobre os galhos.
-// Orcamento: 1800-2500 triangulos por arvore (o grosso e a folhagem).
+// ARVORE = PINHEIRO / CONIFERA (determinista pelo seed)
+// A referencia e um pinheiro: tronco reto e fino, quase todo escondido, e uma
+// copa CONICA feita de ANDARES de galhos que descem em leque, cada andar mais
+// largo que o de cima, com as pontas viradas ligeiramente pra cima. Silhueta =
+// triangulo alto e irregular, bem mais ALTO que largo (~9-14 m por 3-4 m).
+//
+// Por que os tufos redondos sairam daqui: bolota le como folha larga de arvore
+// frondosa. Agulha le como MASSA RECORTADA. Os tufos continuam existindo, mas
+// so pra floreira, vaso e arbusto.
+//
+// Orcamento: ~1700-2600 triangulos por arvore, a mesma ordem da arvore antiga
+// (~2000). Cada andar custa 10*n triangulos; o resto e tronco e ponta.
 // ===========================================================================
+
+// ANDAR DE GALHOS: um prato serrilhado que cai em leque.
+//
+// A primeira versao punha um galho-mesh por galho. Ficava caro (19 triangulos
+// cada) e, pior, RALO: com 10 galhos por andar dava pra ver o ceu entre eles e
+// a arvore lia como escova de garrafa. Um andar inteiro numa geometria so
+// custa 10*n triangulos (menos que n galhos separados) e a massa fica
+// CONTINUA -- que e como agulha se le de longe.
+//
+// O recorte vem da SERRILHA: o raio alterna entre ponta longa e ponta curta,
+// sector a sector. A ponta longa ainda sobe um pouco no fim (o termo r^8),
+// que e o "galho virado pra cima" da referencia; a curta so cai.
+// `drop` = quanto a borda desce, em unidades de raio -- e o que diferencia o
+// andar de baixo (leque caido) do de cima (quase reto).
+function tierGeo(n, variant, drop) {
+  return geo('pine-tier:' + n + ':' + variant + ':' + drop.toFixed(2), () => {
+    const FR = [0.30, 0.66, 1.0]     // aneis do prato
+    const pos = [], idx = []
+    const ph = variant * 2.7
+    // expoente perto de 1 = perfil CONICO. Com 1.4 o miolo do prato ficava
+    // chapado e o andar lia como telhado de pagode empilhado.
+    const yOf = (rr) => -drop * Math.pow(rr, 1.05) + drop * 0.30 * Math.pow(rr, 8)
+    // max(0,...) obrigatorio: o ruido da serrilha pode passar de rr = 1, e
+    // Math.pow(negativo, 0.8) e NaN -- um vertice NaN estraga a fusao inteira
+    // do forno do city.js, nao so este andar.
+    const thOf = (rr) => 0.15 * Math.pow(Math.max(0, 1 - rr), 0.8) + 0.008
+    const V = (k, j, s) => 2 + (k * n + j) * 2 + s
+    pos.push(0, thOf(0) / 2, 0)      // 0 = centro de cima
+    pos.push(0, -thOf(0) / 2, 0)     // 1 = centro de baixo
+    for (let k = 0; k < 3; k++) {
+      for (let j = 0; j < n; j++) {
+        const a = (j / n) * Math.PI * 2
+        // serrilha alternada FUNDA + ruido: sem o ruido o dente de serra fica
+        // perfeitamente regular e le como engrenagem; sem a serrilha funda o
+        // andar le como prato de plastico
+        const cut = (j % 2 ? 0.52 : 1.0)
+          * (0.84 + 0.16 * Math.sin(j * 2.3 + ph) + 0.10 * Math.sin(j * 5.1 + ph * 2.1))
+        const m = 1 - (1 - cut) * (k === 0 ? 0.20 : k === 1 ? 0.62 : 1)
+        const rr = FR[k] * m
+        // ondulacao do andar inteiro: uns galhos caem mais que os vizinhos.
+        // A fase muda por anel, senao o andar sobe e desce inteiro e continua
+        // sendo uma chapa, so que torta.
+        const wob = 0.17 * Math.sin(j * 1.7 + ph * 1.3 + k * 1.1) * FR[k] * drop
+        // quem tem a ponta CURTA tambem fica mais BAIXO: e o que separa um
+        // galho do vizinho de verdade, em vez de recortar so o contorno
+        const dip = (1 - cut) * 0.55 * drop * FR[k]
+        // corrugado SO na face de cima: sulco entre um galho e o outro
+        const rid = (0.20 * Math.sin(j * 3.1 + ph * 0.7)
+          + 0.09 * Math.sin(j * 6.3 + ph * 1.9)) * FR[k] * drop
+        const y = yOf(rr) + wob - dip, th = thOf(rr)
+        const cs = Math.cos(a) * rr, sn = Math.sin(a) * rr
+        pos.push(cs, y + th / 2 + rid, sn)
+        pos.push(cs, y - th / 2, sn)
+      }
+    }
+    for (let j = 0; j < n; j++) {
+      const jn = (j + 1) % n
+      idx.push(0, V(0, jn, 0), V(0, j, 0))      // leque do centro, por cima
+      idx.push(1, V(0, j, 1), V(0, jn, 1))      // idem, por baixo
+      for (let k = 0; k < 2; k++) {
+        const a0 = V(k, j, 0), b0 = V(k, jn, 0), c0 = V(k + 1, jn, 0), d0 = V(k + 1, j, 0)
+        idx.push(a0, b0, c0, a0, c0, d0)        // faixa de cima
+        const a1 = a0 + 1, b1 = b0 + 1, c1 = c0 + 1, d1 = d0 + 1
+        idx.push(a1, d1, c1, a1, c1, b1)        // faixa de baixo
+      }
+    }
+    const gg = new THREE.BufferGeometry()
+    gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    gg.setIndex(idx)
+    gg.computeVertexNormals()   // normal SUAVE: faceta plana le como pedra
+    return gg
+  })
+}
+
+// GALHO SOLTO: usado so pra QUEBRAR a borda do prato (senao o andar le como
+// disco) e pra fechar a ponta da arvore. Forma achatada e recortada, espinha
+// ao longo de +Z, secao em "tenda" (crista no meio, bordas caidas): a crista
+// pega o sol e o fundo fica virado pro chao, que e de onde sai o verde quase
+// preto na sombra sem precisar de material novo.
+// 4 aneis x 3 vertices = 12 vertices, 19 triangulos, geometria CACHEADA.
+const FROND_SEG = 3
+function frondGeo(variant = 0) {
+  return geo('pine-frond:' + variant, () => {
+    const pos = [], idx = []
+    const ph = variant * 1.31
+    const skew = 0.84 + (variant % 3) * 0.11   // um lado do leque mais cheio
+    for (let i = 0; i <= FROND_SEG; i++) {
+      const t = i / FROND_SEG
+      // espinha: cai na saida e volta a SUBIR na ponta. O galho e inclinado
+      // pra baixo depois, entao a ponta acaba virada pra cima.
+      const yS = -0.05 * t + 0.24 * Math.pow(t, 2.2)
+      const bump = Math.sin(Math.PI * Math.pow(t, 0.62)) * (1 - t * 0.18)
+      const w = 0.34 * (bump + 0.09 * (1 - t)) * (0.9 + 0.2 * Math.sin(i * 1.9 + ph))
+      // serrilha ALTERNADA entre os dois lados: com so 3 trechos, recortar os
+      // dois lados no mesmo anel daria duas mordidas; assim da quatro.
+      const wl = w * (i % 2 === 1 ? 0.58 : 1.0) * skew
+      const wr = w * (i % 2 === 0 ? 0.58 : 1.0) * (2 - skew)
+      const h = w * 0.45 + 0.010                // altura da crista
+      const dw = w * 0.28                       // as bordas caem em leque
+      pos.push(-wl, yS - dw, t)
+      pos.push(0, yS + h, t)
+      pos.push(wr, yS - dw, t)
+    }
+    for (let i = 0; i < FROND_SEG; i++) {
+      const a = i * 3, b = a + 3
+      idx.push(a, b + 1, a + 1, a, b, b + 1)              // face esquerda
+      idx.push(a + 2, a + 1, b + 1, a + 2, b + 1, b + 2)  // face direita
+      idx.push(a, a + 2, b + 2, a, b + 2, b)              // fundo (sombra)
+    }
+    idx.push(0, 1, 2)                                     // tampa da base
+    const gg = new THREE.BufferGeometry()
+    gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    gg.setIndex(idx)
+    gg.computeVertexNormals()
+    return gg
+  })
+}
+
 export function makeTree(seed = 0) {
   const g = mk()
   const r = rng(seed + 7)
-  const bark = M.bark()
-  const barkDark = M.barkDark()
+  const bark = M.barkDark()   // conifera tem casca escura
 
-  // ESPECIE: 0 = frondosa (baixa e larga), 1 = colunar (alta e estreita)
-  const kind = r() < 0.55 ? 0 : 1
-  const vigor = 0.85 + r() * 0.4          // escala geral da arvore
-  const trunkH = (kind === 0 ? 2.3 + r() * 0.9 : 3.5 + r() * 1.2) * vigor
-  const baseR = (kind === 0 ? 0.30 : 0.235) * vigor
-  const lean = (r() - 0.5) * (kind === 0 ? 0.30 : 0.16)  // inclinacao geral
+  // ESPECIE (3 variacoes pelo seed, porque um pinheiro so vira papel de parede):
+  //  0 = fechada     copa densa e cheia, andares colados
+  //  1 = rala e alta andares espacados, mais estreita, ponta fina
+  //  2 = caida       andar mais largo e bem tombado pra baixo, tipo picea
+  const sp = r()
+  const kind = sp < 0.40 ? 0 : sp < 0.74 ? 1 : 2
+  const vigor = 0.90 + r() * 0.22
+  const H = (kind === 0 ? 8.6 + r() * 1.5
+    : kind === 1 ? 9.9 + r() * 1.7
+      : 8.8 + r() * 1.5) * vigor
+  // meia-largura da saia: ~1.8-2.4 m, entao 3.6-4.8 m de copa contra 8-12 m de
+  // altura -- perto de 3:1, que e a proporcao da referencia. Mais estreito que
+  // isso volta a ler como escova de garrafa.
+  const halfW = (kind === 0 ? 2.42 : kind === 1 ? 2.10 : 2.56) * vigor
+  // Andares MUITO proximos: o vao vertical entre um andar e o outro tem que
+  // ser menor que a queda da saia do de cima, senao aparece tronco no meio.
+  const nT = (kind === 0 ? 15 : kind === 1 ? 13 : 14) + Math.floor(r() * 3)
+  const nBase = kind === 0 ? 14 : kind === 1 ? 11 : 12
+  // queda funda: a saia de um andar tem que passar POR CIMA do andar de baixo,
+  // senao aparece degrau e tronco entre os dois
+  const dropBase = kind === 2 ? 1.06 : 0.86
+
+  // pinheiro e reto: so um leve desaprumo, nada de curva em S
+  const lean = (r() - 0.5) * 0.070
   const leanA = r() * Math.PI * 2
   const lx = Math.cos(leanA) * lean, lz = Math.sin(leanA) * lean
 
-  // --- tronco: curva em S suave, base alargada, topo fino -------------------
-  const topR = baseR * (kind === 0 ? 0.42 : 0.34)
-  const tip = new THREE.Vector3(lx * trunkH, trunkH, lz * trunkH)
+  // --- tronco reto e fino ---------------------------------------------------
+  const baseR = (0.105 + 0.032 * (H / 11)) * vigor
+  const trunkTopY = H * 0.90
   const trunkPts = [
     new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(lx * trunkH * 0.28 - lz * 0.10, trunkH * 0.30, lz * trunkH * 0.28 + lx * 0.10),
-    new THREE.Vector3(lx * trunkH * 0.64 + lz * 0.08, trunkH * 0.66, lz * trunkH * 0.64 - lx * 0.08),
-    tip,
+    new THREE.Vector3(lx * H * 0.34, H * 0.34, lz * H * 0.34),
+    new THREE.Vector3(lx * H * 0.68, H * 0.68, lz * H * 0.68),
+    new THREE.Vector3(lx * trunkTopY, trunkTopY, lz * trunkTopY),
   ]
-  const trunk = new THREE.Mesh(limbGeo(trunkPts, baseR, topR, 7, 5), bark)
+  const trunk = new THREE.Mesh(limbGeo(trunkPts, baseR, baseR * 0.16, 6, 4), bark)
   trunk.castShadow = true; trunk.receiveShadow = true
   g.add(trunk)
 
-  // --- raizes: sapopemas na base, coladas no tronco -------------------------
-  const nRoots = 4 + Math.floor(r() * 3)
-  for (let i = 0; i < nRoots; i++) {
-    const a = (i / nRoots) * Math.PI * 2 + r() * 0.7
-    const out = baseR * (1.5 + r() * 1.1)
-    const rp = [
-      new THREE.Vector3(0, baseR * 2.0, 0),
-      new THREE.Vector3(Math.cos(a) * out * 0.45, baseR * 0.95, Math.sin(a) * out * 0.45),
-      new THREE.Vector3(Math.cos(a) * out, baseR * 0.16, Math.sin(a) * out),
-    ]
-    const m = new THREE.Mesh(limbGeo(rp, baseR * 0.55, baseR * 0.10, 3, 2), barkDark)
+  // pe alargado: 4 sapopemas curtas so pra base nao nascer do chao como cano
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + r() * 0.8
+    const out = baseR * (1.6 + r() * 0.9)
+    const m = new THREE.Mesh(limbGeo([
+      new THREE.Vector3(0, baseR * 2.2, 0),
+      new THREE.Vector3(Math.cos(a) * out * 0.5, baseR * 0.9, Math.sin(a) * out * 0.5),
+      new THREE.Vector3(Math.cos(a) * out, baseR * 0.12, Math.sin(a) * out),
+    ], baseR * 0.5, baseR * 0.09, 3, 2), bark)
     m.castShadow = true; m.receiveShadow = true
     g.add(m)
   }
 
-  // --- ramificacao recursiva ------------------------------------------------
-  // Guarda as pontas dos galhos terminais; a copa nasce delas (nao uma bola so).
-  const tips = []
-  const up = new THREE.Vector3(0, 1, 0)
-  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3()
+  // MIOLO: um cilindro verde bem escuro abracando o tronco, do comeco da saia
+  // ate o topo. Nao e enfeite -- e o que impede de enxergar o TRONCO marrom
+  // pelo vao entre dois andares, que e o que mais denunciava a copa como falsa.
+  // Le como sombra interna da folhagem. 12 triangulos.
+  const core = new THREE.Mesh(
+    geo('pine-core', () => new THREE.CylinderGeometry(0.13, 1, 1, 6, 1, true)),
+    leafMat(0))
+  core.castShadow = true; core.receiveShadow = true
+  g.add(core)
 
-  function grow(from, dir, len, rad, depth) {
-    // arqueamento: o galho sai reto e curva pra cima na ponta
-    const curl = (kind === 0 ? 0.30 : 0.16) + depth * 0.10
-    const p1 = tmpA.copy(dir).multiplyScalar(len * 0.36).add(from).clone()
-    p1.y += len * curl * 0.18
-    const p2 = tmpB.copy(dir).multiplyScalar(len * 0.72).add(from).clone()
-    p2.y += len * curl * 0.60
-    const end = dir.clone().multiplyScalar(len).add(from)
-    end.y += len * curl
-    const tipRad = rad * 0.46
-    // galho fino nao precisa de secao redonda: 3 lados ja engana
-    const radial = depth === 0 ? 5 : 3
-    const steps = depth === 0 ? 3 : depth === 1 ? 2 : 1
-    const m = new THREE.Mesh(limbGeo([from.clone(), p1, p2, end], rad, tipRad, radial, steps), bark)
-    m.castShadow = true; m.receiveShadow = true
-    g.add(m)
+  function frond(x, y, z, azim, pitch, len, tone, variant, roll) {
+    const f = new THREE.Mesh(frondGeo(variant % 5), leafMat(tone))
+    f.position.set(x, y, z)
+    // YXZ: primeiro rola no proprio eixo, depois inclina, depois aponta.
+    // Nessa ordem o "pitch" e sempre a queda do galho, seja pra onde for.
+    f.rotation.order = 'YXZ'
+    f.rotation.set(pitch, Math.PI / 2 - azim, roll)
+    f.scale.set(len * 0.95, len * 0.46, len)   // achatado: e uma forma CHATA
+    f.castShadow = true; f.receiveShadow = true
+    g.add(f)
+  }
 
-    if (depth >= 2) { tips.push({ p: end, w: 1.0 }); return }
-    // folhagem tambem no meio da copa (nao so nas pontas): sem isso a copa
-    // fica oca e da pra ver o ceu no meio dos galhos. So em metade dos galhos:
-    // ancora demais faria a copa estourar o orcamento de tufos.
-    if (depth === 1 && r() < 0.55) tips.push({ p: end.clone().addScaledVector(dir, -len * 0.34), w: 0.66 })
-    const nKids = depth === 0 ? 2 : (r() < 0.35 ? 2 : 1)
-    // base ortonormal em volta da direcao do pai, pra abrir o leque
-    const side = new THREE.Vector3().crossVectors(dir, up)
-    if (side.lengthSq() < 1e-5) side.set(1, 0, 0)
-    side.normalize()
-    const perp = new THREE.Vector3().crossVectors(side, dir).normalize()
-    for (let k = 0; k < nKids; k++) {
-      const spread = (kind === 0 ? 0.62 : 0.38) * (0.7 + r() * 0.6)
-      const roll = (k / nKids) * Math.PI * 2 + r() * 1.2
-      const nd = dir.clone()
-        .addScaledVector(side, Math.cos(roll) * spread)
-        .addScaledVector(perp, Math.sin(roll) * spread)
-      nd.y += 0.18 * (1 - depth * 0.3)      // filhos tendem a subir
-      nd.normalize()
-      grow(end.clone(), nd, len * (0.56 + r() * 0.12), tipRad * 0.92, depth + 1)
+  // --- andares --------------------------------------------------------------
+  // A saia comeca BAIXO de proposito: e o que esconde o tronco e fecha o
+  // triangulo na base.
+  const y0 = H * (0.085 + r() * 0.04)
+  const yTop = H * 0.93
+  const spin = r() < 0.5 ? 1 : -1
+  const twist = 2.39996 * spin   // angulo aureo: andar nenhum alinha com o de baixo
+  core.scale.set(baseR * 1.7, yTop - y0 + 0.5, baseR * 1.7)
+  core.position.set(lx * (y0 + yTop) * 0.5, (y0 + yTop) * 0.5, lz * (y0 + yTop) * 0.5)
+
+  for (let i = 0; i < nT; i++) {
+    const t = nT > 1 ? i / (nT - 1) : 0
+    // t^0.78 e nao t: os andares ficam MAIS JUNTOS em cima. Espacados por
+    // igual, os de cima (que sao pequenos) deixavam vao, e a arvore terminava
+    // em espinha de peixe.
+    const y = y0 + (yTop - y0) * Math.pow(t, 0.78)
+    // perfil conico. O "ombro" segura os dois primeiros andares um pouco
+    // menores: numa conifera de verdade o ponto mais largo nao e a saia, e
+    // logo acima dela.
+    const shoulder = 0.76 + 0.24 * Math.min(1, t * 4.0)
+    // 1 - t*0.86 (e nao 1 - t) com expoente baixo: perfil quase RETO. Com uma
+    // curva forte o topo virava mastro pelado e so a saia tinha volume -- o
+    // triangulo da referencia tem lado reto, nao concavo.
+    const rad = halfW * Math.pow(1 - t * 0.86, 0.62) * shoulder * (0.90 + r() * 0.22)
+    if (rad < 0.12) continue
+    // n quantizado: cada (n, variante, queda) vira UMA geometria em cache, e
+    // sem quantizar isso viraria uma malha nova por andar de cada arvore.
+    const n = Math.max(7, Math.min(14, Math.round(nBase * (1 - t * 0.42))))
+    // andar de baixo cai em leque, o de cima fica quase reto: e isso que fecha
+    // o triangulo. Quantizado em oitavos pelo mesmo motivo do n.
+    const drop = Math.round((dropBase * (1 - t * 0.42)) * 8) / 8
+    // So os DOIS tons mais escuros da paleta, alternando por andar -- e a
+    // "variacao entre os andares" da referencia. Indice alto e verde de
+    // frondosa: sob o sol do jogo a copa virava brocolis iluminado, e o que se
+    // quer e verde escuro, quase preto na sombra.
+    const tone = i % 2
+    const tier = new THREE.Mesh(tierGeo(n, i % 3, drop), leafMat(tone))
+    tier.position.set(lx * y, y, lz * y)
+    tier.rotation.y = i * twist + r() * 0.4
+    // desaprumo minimo por andar: prato perfeitamente na horizontal le como
+    // disco de plastico empilhado
+    tier.rotation.x = (r() - 0.5) * 0.13
+    tier.rotation.z = (r() - 0.5) * 0.13
+    tier.scale.set(rad, rad, rad)
+    tier.castShadow = true; tier.receiveShadow = true
+    g.add(tier)
+
+    // 1-2 galhos escapando do prato: sem isso a borda do andar le como disco
+    // recortado, nao como um punhado de galhos
+    const nOut = r() < 0.55 ? 2 : 1
+    for (let k = 0; k < nOut; k++) {
+      const a = r() * Math.PI * 2
+      frond(
+        lx * y + Math.cos(a) * rad * 0.40, y + drop * rad * -0.16, lz * y + Math.sin(a) * rad * 0.40,
+        a, drop * 0.85, rad * (0.52 + r() * 0.22), tone, i * 2 + k, (r() - 0.5) * 0.6,
+      )
     }
   }
 
-  // galhos primarios saindo do terco superior do tronco
-  const nPrim = kind === 0 ? 3 + Math.floor(r() * 2) : 5 + Math.floor(r() * 2)
-  // Alcance dos galhos encurtado de proposito: com a copa feita de tufos
-  // pequenos, um leque muito aberto deixava buraco entre um bolo e outro.
-  const primLen = (kind === 0 ? 1.06 : 0.86) * vigor
-  // A colunar distribui os galhos pela metade de cima do tronco (senao vira
-  // um poste com um tufo no topo); a frondosa abre tudo perto do topo.
-  const t0 = kind === 0 ? 0.74 : 0.50
-  const tSpan = kind === 0 ? 0.22 : 0.46
-  for (let i = 0; i < nPrim; i++) {
-    const a = (i / nPrim) * Math.PI * 2 + r() * 0.9
-    const t = t0 + (i / nPrim) * tSpan           // sobe a saida a cada galho
-    const from = new THREE.Vector3(tip.x * t, trunkH * t, tip.z * t)
-    // frondosa abre quase na horizontal; colunar sobe quase junto do tronco
-    const outw = kind === 0 ? 1.0 : 0.45
-    const dir = new THREE.Vector3(Math.cos(a) * outw, kind === 0 ? 0.55 : 1.25, Math.sin(a) * outw).normalize()
-    grow(from, dir, primLen * (0.85 + r() * 0.35), topR * 0.80, 0)
+  // --- ponta: conifera termina em ESPETO, nunca em bola ---------------------
+  // 4 galhos quase em pe, cruzados: um cone liso ali virava chapeu de festa.
+  const tipY = yTop + (H - yTop) * 0.15
+  for (let k = 0; k < 3; k++) {
+    const a = k * 2.1 + r() * 0.6
+    frond(
+      lx * tipY + Math.cos(a) * baseR * 0.5, tipY, lz * tipY + Math.sin(a) * baseR * 0.5,
+      a, -1.34 - r() * 0.14, (H - tipY) * (1.05 + r() * 0.30), 1, k + 1, (r() - 0.5) * 0.4,
+    )
   }
-  // ponta do tronco tambem vira copa (lider central)
-  tips.push({ p: tip.clone().setY(trunkH + 0.05), w: 0.9 })
 
-  // --- copa: bolos FOFOS feitos de muitos tufos pequenos --------------------
-  // Uma bolota grande por ponta lia como CRISTAL: com 20 faces, cada faceta de
-  // um icosaedro de 2 m ficava do tamanho de meio metro. Aqui cada ponta de
-  // galho vira um bolo de tufos pequenos sobrepostos, com normal suave: massa
-  // continua e silhueta irregular. TODA ponta ganha bolo, senao sobra galho
-  // pelado espetando o ceu.
-  const clumpR = (kind === 0 ? 0.80 : 0.68) * vigor
-  const tone = kind === 0 ? 1 : 0
-  // centro da copa, pra decidir quais aglomerados sao "borda"
-  let cx = 0, cy = 0, cz = 0
-  for (const t of tips) { cx += t.p.x; cy += t.p.y; cz += t.p.z }
-  cx /= tips.length; cy /= tips.length; cz /= tips.length
-  let maxD = 0.001
-  for (const t of tips) {
-    const d = Math.hypot(t.p.x - cx, t.p.z - cz)
-    if (d > maxD) maxD = d
-  }
-  // TUFT_BUDGET segura o custo: cada tufo custa 36 triangulos, entao ~50
-  // tufos + galhos cabem no alvo de ~2500 triangulos por arvore.
-  // Com 50 a copa ficava RALA: dividido pelas ~20 pontas dava 2 tufos por ponta
-  // e dava pra ver o ceu no meio da folhagem. Folha e volume: precisa de MUITO
-  // tufo pra virar massa. Os tufos sao fundidos por cor no forno do city.js,
-  // entao isso custa triangulo, nao draw call.
-  const TUFT_BUDGET = 190
-  const perTip = Math.max(5, Math.min(14, Math.floor(TUFT_BUDGET / Math.max(1, tips.length))))
-  // TETO do raio do tufo em METROS. Folha nao cresce junto com a arvore: sem
-  // esse teto a arvore vigorosa voltava a ter bolota de 1.2 m, que de perto
-  // mostra faceta de meio metro -- o efeito cristal que se quer evitar.
-  // Com a variacao de escala (0.70-1.18x) o tufo fica em 0.35-0.85 m de diametro.
-  const TUFT_MAX = 0.50
-  for (const t of tips) {
-    const edge = Math.hypot(t.p.x - cx, t.p.z - cz) / maxD
-    const up2 = (t.p.y - cy) / Math.max(0.5, clumpR * 3)
-    // borda da copa e topo pegam mais luz -> tom mais claro
-    const tn = tone + Math.round(edge * 1.8 + Math.max(0, up2) * 1.3)
-    const sz = clumpR * t.w
-    // raio do bolo cresce com a quantidade de tufos, e o tufo encolhe: assim
-    // o volume do bolo fica parecido tenha ele 2 ou 6 tufos
-    foliageClump(g, t.p.x, t.p.y + sz * 0.18, t.p.z,
-      sz * 0.24 * Math.sqrt(perTip), Math.min(TUFT_MAX, sz * 0.72 / Math.pow(perTip, 0.42)),
-      perTip, tn, r, kind === 0 ? 0.86 : 0.95)
-  }
-  // massa no miolo pra copa nao ficar oca vista de baixo
-  // miolo denso: sem isso a copa fica oca e transparente vista de baixo
-  foliageClump(g, cx, cy - clumpR * 0.26, cz, maxD * 0.52, Math.min(TUFT_MAX, clumpR * 0.62), 26, tone, r, 0.72)
-  foliageClump(g, cx, cy + clumpR * 0.18, cz, maxD * 0.40, Math.min(TUFT_MAX, clumpR * 0.55), 16, tone + 1, r, 0.66)
-
-  const spread = kind === 0 ? baseR * 3.4 : baseR * 3.0
-  g.userData.collider = { w: spread, d: spread }
+  // Colisor so em volta do tronco: a saia e larga, mas parar o jogador a 2 m de
+  // um pinheiro numa calcada de 3 m fecharia a passagem.
+  g.userData.collider = { w: 1.45, d: 1.45 }
   return g
 }
 

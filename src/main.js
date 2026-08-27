@@ -64,6 +64,10 @@ const game = {
   setAppearance(partial) {
     Object.assign(appearance, partial)
     character.setAppearance(appearance)
+    // E AQUI que o visual vira coisa dos outros jogadores. Sem esta linha o
+    // barbeiro so mudava o boneco desta tela: MINHA_APARENCIA nunca saia e o
+    // servidor nunca guardava nada.
+    if (rede && typeof rede.enviarAparencia === 'function') rede.enviarAparencia(appearance)
     // em 1a pessoa a cabeca continua escondida
     character.setVisibleBody(player.mode === 'third' || preview.active)
   },
@@ -161,6 +165,12 @@ rede.aoEvento = (ev) => {
     case 'bemvindo':
       // o servidor guarda o inventario por nome: quem volta ja chega com a arma
       if ((ev.itens | 0) & ITENS_PORTAL_GUN) hotbar.marcarDisponivel(2, true)
+      // ...e guarda o VISUAL tambem. Sem aplicar aqui, quem recarrega a pagina
+      // perde a cara que escolheu, mesmo com o servidor tendo guardado certo.
+      if (ev.aparencia) {
+        Object.assign(appearance, ev.aparencia)
+        character.setAppearance(appearance)
+      }
       break
     default: break
   }

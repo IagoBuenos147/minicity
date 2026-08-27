@@ -141,15 +141,23 @@ export function alturaDoChao(x, z) {
 // ---------------------------------------------------------------------------
 // APARENCIA
 //
-// Sao 6 indices de catalogo: hair, eyes, brows, mouth, hairColor, skin. O
-// protocolo entrega e recebe este mesmo objeto, com estes mesmos nomes — o
-// servidor nunca mexe em byte de aparencia na mao. Guardar em objeto (e nao em
-// Uint8Array indexado) e o que impede que trocar a ordem dos campos um dia
-// vire tom de pele no lugar de sobrancelha.
+// Sao 20 indices de catalogo (cabeca, olhos, pupila, nariz, boca, barba,
+// cabelo, pele, corCabelo, sobrancelha e as nove pecas de roupa). O protocolo
+// entrega e recebe este mesmo objeto, com estes mesmos nomes — o servidor nunca
+// mexe em byte de aparencia na mao. Guardar em objeto (e nao em Uint8Array
+// indexado) e o que impede que trocar a ordem dos campos um dia vire tom de
+// pele no lugar de sobrancelha.
+//
+// A lista de campos vem do PROTOCOLO, nao e copiada aqui: quando ela crescer de
+// novo, uma copia local guardaria a aparencia velha por nome e devolveria no
+// BEMVINDO um jogador com metade das roupas zeradas.
+//
+// Pra sala, isto continua OPACO: ela nao sabe o que e "chapeu 3", so guarda por
+// nome e reenvia. Quem da sentido a cada indice e o cliente.
 // ---------------------------------------------------------------------------
-const CAMPOS_APARENCIA = ['hair', 'eyes', 'brows', 'mouth', 'hairColor', 'skin']
+const CAMPOS_APARENCIA = Proto.CAMPOS_APARENCIA
 
-/** Copia so os 6 campos, cada um cortado em 0..255. Lixo vira 0. */
+/** Copia so os campos do contrato, cada um cortado em 0..255. Lixo vira 0. */
 function limparAparencia(ap) {
   const a = ap || {}
   const saida = {}
