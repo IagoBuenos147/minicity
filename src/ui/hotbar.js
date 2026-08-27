@@ -293,6 +293,34 @@ function iconePortalGun(c, S) {
 }
 
 const ICONES = {
+  // revolver de lado: coronha, armacao, tambor e cano
+  revolver(c, S) {
+    const u = S / 100
+    c.strokeStyle = '#c9d2df'; c.fillStyle = '#8d95a3'; c.lineWidth = 2 * u
+    // cano
+    c.fillRect(48 * u, 40 * u, 34 * u, 9 * u)
+    // armacao
+    c.fillRect(30 * u, 38 * u, 22 * u, 15 * u)
+    // tambor
+    c.beginPath(); c.arc(40 * u, 46 * u, 9 * u, 0, 7); c.fill()
+    c.strokeStyle = '#5c6472'; c.stroke()
+    // camaras
+    c.fillStyle = '#3c424d'
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2
+      c.beginPath(); c.arc(40 * u + Math.cos(a) * 5 * u, 46 * u + Math.sin(a) * 5 * u, 1.7 * u, 0, 7); c.fill()
+    }
+    // coronha de madeira
+    c.fillStyle = '#7a4a28'
+    c.beginPath()
+    c.moveTo(30 * u, 50 * u); c.lineTo(24 * u, 74 * u)
+    c.lineTo(34 * u, 76 * u); c.lineTo(38 * u, 52 * u)
+    c.closePath(); c.fill()
+    // gatilho
+    c.strokeStyle = '#5c6472'; c.lineWidth = 1.6 * u
+    c.beginPath(); c.arc(41 * u, 58 * u, 5 * u, 0.1, 2.9); c.stroke()
+  },
+
   maos: iconeMao,
   mao: iconeMao,
   anel: iconeAnel,
@@ -322,15 +350,16 @@ const PADRAO = [
   { chave: 'maos', nome: 'Maos', icone: 'maos' },
   { chave: 'anel', nome: 'Anel verde', icone: 'anel' },
   { chave: 'portal', nome: 'Arma de portal', icone: 'portal' },
+  { chave: 'revolver', nome: 'Revolver', icone: 'revolver' },
 ]
 
 /**
  * @param {object} opts
  * @param {(indice:number, chave:string)=>void} [opts.aoTrocar] avisado a cada troca
- * @param {number} [opts.slots] quantidade de slots (padrao 3)
+ * @param {number} [opts.slots] quantidade de slots (padrao 4)
  * @param {HTMLElement} [opts.pai] onde pendurar (padrao document.body)
  */
-export function criarHotbar({ aoTrocar, slots = 3, pai } = {}) {
+export function criarHotbar({ aoTrocar, slots = 4, pai } = {}) {
   if (!document.getElementById('hotbar-style')) {
     const s = document.createElement('style')
     s.id = 'hotbar-style'

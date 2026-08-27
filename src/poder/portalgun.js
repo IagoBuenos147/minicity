@@ -8,6 +8,7 @@ import * as Proto from '../comum/protocolo.js'
 import { criarModeloArma } from './portal-arma.js'
 import { criarPortal, liberarGeometriasDoPortal } from './portal-efeito.js'
 import { criarClarao, COR_VERDE } from './efeitos.js'
+import { PRIORIDADE } from '../render/luzes-efeito.js'
 
 // ---------------------------------------------------------------------------
 // A ARMA DE PORTAL.
@@ -61,9 +62,10 @@ const _EIXO_Y = new THREE.Vector3(0, 1, 0)
  * @param dep.hud          opcional, so pra toast
  * @param dep.groundY      opcional, (x,z)->altura do chao
  * @param dep.interaction  opcional, pra desligar o "Pegar a arma" ao equipar
+ * @param dep.poolLuz      opcional, pool de luzes de efeito (ver secao 2)
  */
 export function criarPortalGun({ scene, camera, player, character, collision, rede, hud,
-  groundY, interaction }) {
+  groundY, interaction, poolLuz }) {
 
   const chaoEm = typeof groundY === 'function' ? groundY : () => 0
 
@@ -98,23 +100,37 @@ export function criarPortalGun({ scene, camera, player, character, collision, re
   arma.grupo.rotation.set(0, 0, 0)
 
   // =========================================================================
-  // 2. LUZES — o orcamento inteiro sao DUAS PointLight, sem sombra
+  // 2. LUZES — duas "luzes", emprestadas do pool compartilhado da cena
   // =========================================================================
-  // Uma PointLight com sombra custa 6 passadas de render; duas dessas derrubam
-  // os 60 fps sozinhas. Por isso castShadow = false nas duas.
-  //
   // luzArma mora no frasco (largada ou na mao). luzPortal e UMA SO, emprestada
   // pro portal mais perto da camera: com dois portais abertos, o de longe fica
-  // sem luz propria, e ninguem percebe. Elas nascem visiveis e nunca sao
-  // escondidas — mexer em .visible muda a contagem de luzes e o three recompila
-  // TODOS os materiais da cena (engasgo de varios quadros). Apagar e sempre
-  // intensity = 0.
-  const luzArma = new THREE.PointLight(COR_VERDE, 0.8, 3.2, 2)
-  luzArma.castShadow = false
+  // sem luz propria, e ninguem percebe.
+  //
+  // As duas vem de src/render/luzes-efeito.js e NAO sao PointLight, sao
+  // proxies: o custo de uma luz no three e ESTAR na cena, e mudar a quantidade
+  // de luzes visiveis faz o renderer recompilar TODOS os materiais da cena
+  // (engasgo de varios quadros a cada portal). Com o pool a contagem fica
+  // constante. Nada de .visible aqui: apagar e sempre intensity = 0.
+  //
+  // Sem pool (modulo solto, num teste) cai de volta pra PointLight de sempre,
+  // sem sombra — uma PointLight com sombra custa 6 passadas de render.
+  function novaLuz(cor, intensidade, distancia, prioridade, nome) {
+    if (poolLuz && typeof poolLuz.emprestar === 'function') {
+      return poolLuz.emprestar({ cor, intensidade, distancia, prioridade, nome })
+    }
+    const l = new THREE.PointLight(cor, intensidade, distancia, 2)
+    l.castShadow = false
+    l.name = nome
+    return l
+  }
+
+  // BAIXA: brilho continuo do frasco, que ja e emissivo por conta propria.
+  const luzArma = novaLuz(COR_VERDE, 0.8, 3.2, PRIORIDADE.BAIXA, 'luz-arma')
   scene.add(luzArma)
 
-  const luzPortal = new THREE.PointLight(0x35ff96, 0, 9, 2)
-  luzPortal.castShadow = false
+  // ALTA: a abertura do portal e a travessia sao estalos curtos e chamativos —
+  // e o tipo de clarao que nao pode perder a disputa por uma aura de fundo.
+  const luzPortal = novaLuz(0x35ff96, 0, 9, PRIORIDADE.ALTA, 'luz-portal')
   scene.add(luzPortal)
 
   const clarao = criarClarao(scene, camera)
@@ -188,6 +204,11 @@ export function criarPortalGun({ scene, camera, player, character, collision, re
     avisar('Arma de portal equipada. Clique pra abrir um portal.')
   }
 
+  // Depois de PEGO, o item nunca mais volta pro chao. Sem esta trava,
+  // apertar 1 (Maos) chamava desequipar(), que revelava a copia do mundo e
+  // religava o "Pegar": o jogador via o item reaparecer no lugar de onde o
+  // tinha tirado, e podia "pegar" de novo o que ja estava na barra dele.
+  let pego = false
   function desequipar() {
     if (!equipado) return
     equipado = false
@@ -195,8 +216,9 @@ export function criarPortalGun({ scene, camera, player, character, collision, re
     pivo.add(arma.grupo)
     arma.grupo.position.set(0, 0, 0)
     arma.grupo.rotation.set(0, 0, 0)
-    grupoNoMundo.visible = true
-    if (interaction && typeof interaction.setEnabled === 'function') {
+    // so reaparece no mundo se nunca tiver sido pega (ver a trava `pego`)
+    grupoNoMundo.visible = !pego
+    if (!pego && interaction && typeof interaction.setEnabled === 'function') {
       interaction.setEnabled('portal-gun', true)
     }
   }
@@ -207,6 +229,7 @@ export function criarPortalGun({ scene, camera, player, character, collision, re
     radius: 2.1,
     label: 'Pegar a arma de portal',
     onInteract(game) {
+      pego = true
       equipar()
       // o sistema de interacao copia os campos, entao desligar so vale por id
       const it = (game && game.interaction) || interaction
@@ -531,6 +554,9 @@ export function criarPortalGun({ scene, camera, player, character, collision, re
     clarao.dispose()
     arma.dispose()
     scene.remove(luzArma, luzPortal)
+    if (poolLuz && typeof poolLuz.devolver === 'function') {
+      poolLuz.devolver(luzArma); poolLuz.devolver(luzPortal)
+    }
     if (grupoNoMundo.parent) grupoNoMundo.parent.remove(grupoNoMundo)
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
     overlay = null
@@ -538,6 +564,15 @@ export function criarPortalGun({ scene, camera, player, character, collision, re
 
   return {
     grupoNoMundo,
+    /** Ja esta com o jogador (voltou pelo BEMVINDO, por exemplo): some do
+     *  mundo e nao pode mais ser pego do chao. */
+    marcarPego() {
+      pego = true
+      grupoNoMundo.visible = false
+      if (interaction && typeof interaction.setEnabled === 'function') {
+        interaction.setEnabled('portal-gun', false)
+      }
+    },
     interactable,
     equipar,
     desequipar,

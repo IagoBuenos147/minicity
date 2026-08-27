@@ -45,6 +45,19 @@
 //    formato so, que e exatamente o que a regra 2 do sala.js proibe. Quem
 //    entra atrasado recebe um VEICULO_DONO de cada veiculo ocupado (e um
 //    HELI_CRIADO de cada helicoptero vivo), pelo mesmo caminho do portal.
+//
+// 8. O RAPAZ QUE VIRA ZUMBI E UM NPC COMUM (id 1004), e nao um sistema a
+//    parte. A doenca, a virada, a perseguicao e a morte dele sao ESTADOS no
+//    enum EST_NPC — os mesmos 15 bytes de NPC que o snapshot ja mandava,
+//    nenhum byte a mais por quadro. A posicao dele viaja no x/z/yaw do mesmo
+//    registro, como a de qualquer NPC.
+//    O UNICO pacote novo e o ZUMBI_TIRO (18), porque o tiro e a unica coisa
+//    que nasce no cliente: o servidor nao sabe onde a mira estava. Ele leva o
+//    id do NPC e UM BYTE dizendo a parte (cabeca ou corpo) — nunca a vida
+//    resultante. Quem subtrai vida e o servidor; a vida do cliente e desenho.
+//    Todo o resto (sangue, clarao, onda de choque, camera lenta, tremor,
+//    tosse, balao, a pele esverdeando) e 100% LOCAL: cada maquina desenha
+//    sozinha a partir da TRANSICAO de estado que ela observa no snapshot.
 // ---------------------------------------------------------------------------
 
 import { VERSAO_PROTOCOLO, TICK_HZ, HELI_ID_MIN, HELI_ID_MAX } from './mundo.js'
@@ -73,6 +86,7 @@ export const P = {
   SAIR_VEICULO: 15,
   VEICULO_POS: 16,
   CRIAR_HELI: 17,
+  ZUMBI_TIRO: 18,
 
   BEMVINDO: 128,
   RECUSA: 129,
@@ -116,8 +130,28 @@ export const ANIM = { PARADO: 0, ANDANDO: 1, CORRENDO: 2, NO_AR: 3, SENTADO: 4 }
 export const FLAG_SENTADO = 1 << 0
 export const FLAG_ANEL = 1 << 1
 
-// NPC no SNAPSHOT
-export const EST_NPC = { PARADO: 0, TRABALHANDO: 1, SENTADO: 2, CORTANDO: 3, CONVERSANDO: 4 }
+// NPC no SNAPSHOT.
+//
+// 0..4 sao as poses de sempre. 5..9 sao o rapaz da porta da mercearia (id
+// 1004): a maquina de estados dele mora no SERVIDOR (servidor/sala.js, no
+// passo()) e viaja NESTE MESMO BYTE, que o registro de NPC ja tinha. E por
+// isso que o zumbi custa zero byte a mais por quadro — ele nao e um sistema
+// novo, e um NPC com estados novos.
+//
+// SUMIDO existe separado de MORTO por causa de quem ENTRA ATRASADO: sem ele,
+// um jogador que chega dez minutos depois receberia "morto" e comecaria a
+// desenhar a queda e o desaparecimento de novo, como se o tiro tivesse
+// acabado de acontecer. Com ele, quem chega depois ve so a mancha no chao.
+export const EST_NPC = {
+  PARADO: 0, TRABALHANDO: 1, SENTADO: 2, CORTANDO: 3, CONVERSANDO: 4,
+  SAO: 5, ADOECENDO: 6, ZUMBI: 7, MORTO: 8, SUMIDO: 9,
+}
+
+// ZUMBI_TIRO.parte — 1 byte. Nao e booleano de proposito: 0 fica sendo "nao
+// disse", que o servidor descarta, do mesmo jeito que 0 e "ninguem" em
+// falandoCom. Um bool teria feito lixo virar "corpo" em silencio.
+export const PARTE_CABECA = 1
+export const PARTE_CORPO = 2
 
 // objeto agarravel no SNAPSHOT
 export const EST_OBJ = { REPOUSO: 0, SEGURO: 1, VOANDO: 2, DESTRUIDO: 3 }
@@ -818,6 +852,40 @@ export function lerCriarHeli(dvBruto) {
     z: dv.getFloat32(9, true),
     yaw: i16ParaAngulo(dv.getInt16(13, true)),
   }
+}
+
+/**
+ * 18 ZUMBI_TIRO (confiavel): u16 npcId, u8 parte. 4 bytes com o tipo.
+ *
+ * PEDIDO, como FALAR e PEGAR — e o unico pacote do zumbi que nasce no cliente,
+ * porque o servidor nao tem a mira de ninguem: quem tracou o raio e sabe se
+ * pegou a cabeca ou o corpo foi a maquina de quem atirou.
+ *
+ * O QUE ELE NAO LEVA E O PONTO DA COISA: nao vai vida, nao vai dano, nao vai
+ * "ele morreu". Se o cliente mandasse a vida resultante, bastaria um cliente
+ * estragado dizer "vida 0" pra matar o NPC na tela de todo mundo. Aqui ele
+ * diz ONDE acertou e mais nada; QUEM SUBTRAI A VIDA E O SERVIDOR (1 na cabeca
+ * mata, 3 no corpo), e o resultado sai pelo caminho de sempre — o campo
+ * `estado` do NPC no proximo snapshot.
+ *
+ * Confiavel porque e EVENTO: perder um tiro e o jogador apertar o gatilho, ver
+ * o sangue sair (isso e local e sai na hora) e o zumbi nao morrer nunca.
+ *
+ * Chegar duas vezes tira vida duas vezes, e isso e certo: dois tiros no corpo
+ * SAO dois tiros no corpo. A idempotencia que importa aqui esta no servidor,
+ * que ignora tiro em NPC que ja esta morto.
+ */
+export function escreverZumbiTiro(npcId, parte) {
+  const { buf, dv } = novo(P.ZUMBI_TIRO, 4)
+  dv.setUint16(1, npcId & 0xffff, true)
+  dv.setUint8(3, parte | 0)
+  return buf
+}
+
+export function lerZumbiTiro(dvBruto) {
+  const dv = cabe(dvBruto, P.ZUMBI_TIRO, 4)
+  if (!dv) return null
+  return { npcId: dv.getUint16(1, true), parte: dv.getUint8(3) }
 }
 
 // ---------------------------------------------------------------------------

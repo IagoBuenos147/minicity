@@ -64,7 +64,6 @@ export function bakeStatic(root, opts = {}) {
   const before = countDrawables(root)
   const buckets = new Map()
   const keep = []
-  const toRemove = new Set()
 
   // O inverso da matriz do root leva do mundo para o espaco local do grupo,
   // assim o grupo continua podendo ser movido/rotacionado depois.
@@ -111,7 +110,6 @@ export function bakeStatic(root, opts = {}) {
     local.copy(invRoot).multiply(n.matrixWorld)
     gc.applyMatrix4(local)
     b.geos.push(gc)
-    toRemove.add(n)
   })
 
   // tira do lugar antigo o que sobrevive e recoloca no root, mantendo a pose
@@ -127,11 +125,28 @@ export function bakeStatic(root, opts = {}) {
   // limpa a arvore antiga (os meshes fundidos e os grupos vazios)
   const oldChildren = root.children.filter((c) => !keep.includes(c))
   for (const c of oldChildren) root.remove(c)
-  for (const n of toRemove) if (n.geometry) n.geometry.dispose()
+
+  // NAO damos dispose() na geometria ORIGINAL do mesh que entrou no forno.
+  //
+  // Muita geometria deste jogo e COMPARTILHADA de proposito: a esfera do furo
+  // serve aos 20 furos das rodas, a mao com dedos e uma so pro jogo inteiro, o
+  // catalogo de rosto guarda olho e orelha em cache. dispose() nao pergunta
+  // quantos meshes ainda apontam pra ela: libera o buffer, e todo mundo que
+  // ainda usava aquela geometria vira mesh quebrado. Como o forno tambem e
+  // chamado em subarvore (um carro, um objeto agarravel) enquanto o resto do
+  // jogo continua desenhando a MESMA geometria, daqui nao da pra saber se ela
+  // ficou sem dono.
+  //
+  // Soltar a referencia basta: o forno roda na montagem do mundo, ANTES do
+  // primeiro render, entao a geometria descartada nunca virou buffer de GPU e
+  // o coletor de lixo leva os arrays. Quem tem dono claro (o personagem)
+  // libera as suas no proprio dispose().
 
   let merged = 0
   for (const b of buckets.values()) {
     const geo = mergeGeometries(b.geos)
+    // Estes SIM sao descartaveis: b.geos guarda CLONES transformados, feitos
+    // aqui dentro e que ninguem mais viu (ver o g.clone() la em cima).
     for (const g of b.geos) g.dispose()
     if (!geo) continue
     const m = new THREE.Mesh(geo, b.mat)

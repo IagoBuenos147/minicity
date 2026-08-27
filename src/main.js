@@ -5,6 +5,7 @@ import { createInput } from './core/input.js'
 import { createCollisionWorld } from './systems/collision.js'
 import { createInteractionSystem } from './systems/interaction.js'
 import { createLighting } from './world/lighting.js'
+import { criarPoolDeEfeito } from './render/luzes-efeito.js'
 import { buildCity } from './world/city.js'
 import { buildBarbershop } from './world/barbershop.js'
 import { buildGrocery } from './world/grocery.js'
@@ -21,6 +22,9 @@ import { criarAnel } from './poder/anel.js'
 import { criarPortalGun } from './poder/portalgun.js'
 import { criarVeiculos } from './veiculos/veiculos.js'
 import { criarHotbar } from './ui/hotbar.js'
+import { criarClima } from './world/clima.js'
+import { criarRevolver } from './armas/revolver.js'
+import { criarZumbi } from './npc/zumbi.js'
 import { ITEM_PORTAL_GUN, ITENS_PORTAL_GUN } from './comum/protocolo.js'
 import { criarDialogo } from './ui/dialogo.js'
 import { buildAgarraveis } from './world/agarraveis.js'
@@ -39,6 +43,13 @@ const interaction = createInteractionSystem()
 const hud = createHUD()
 const lighting = createLighting(scene, renderer)
 
+// Pool de luzes de efeito. DUAS PointLight reais pra cena inteira: o anel, o
+// objeto levitado, a arma de portal, o portal, o clarao do tiro e a aura do
+// zumbi disputam essas duas por quadro (ver src/render/luzes-efeito.js). Elas
+// nascem aqui, junto com a cena, porque a quantidade de luzes da cena tem que
+// ser CONSTANTE — o three recompila todos os materiais quando ela muda.
+const poolLuz = criarPoolDeEfeito(scene, 2, camera)
+
 // --- Personagem do jogador -------------------------------------------------
 const appearance = defaultAppearance()
 const character = createCharacter({ appearance })
@@ -53,7 +64,7 @@ const propUpdates = []
 
 const game = {
   scene, camera, renderer, engine, input, collision, interaction,
-  hud, lighting, player, character, appearance,
+  hud, lighting, poolLuz, player, character, appearance,
   time: 0,
 
   addColliders(list) { collision.add(list) },
@@ -164,7 +175,11 @@ rede.aoEvento = (ev) => {
     case 'portal-aberto': case 'portal-fechado': portalgun.aoEventoDeRede(ev); break
     case 'bemvindo':
       // o servidor guarda o inventario por nome: quem volta ja chega com a arma
-      if ((ev.itens | 0) & ITENS_PORTAL_GUN) hotbar.marcarDisponivel(2, true)
+      if ((ev.itens | 0) & ITENS_PORTAL_GUN) {
+        hotbar.marcarDisponivel(2, true)
+        // quem volta ja com a arma nao pode ve-la de novo largada na cidade
+        if (typeof portalgun.marcarPego === 'function') portalgun.marcarPego()
+      }
       // ...e guarda o VISUAL tambem. Sem aplicar aqui, quem recarrega a pagina
       // perde a cara que escolheu, mesmo com o servidor tendo guardado certo.
       if (ev.aparencia) {
@@ -219,6 +234,15 @@ mount(grocery, 'grocery')
 if (barber && barber.group) console.info('barbearia:', bakeStatic(barber.group))
 if (grocery && grocery.group) console.info('mercearia:', bakeStatic(grocery.group))
 
+// Altura do chao: calcada (0.16), parque, beco e piso das lojas. Sem isso o
+// personagem anda com os pes enterrados no concreto.
+if (city && typeof city.groundY === 'function') {
+  game.groundY = city.groundY
+  if (typeof player.setGroundSampler === 'function') player.setGroundSampler(city.groundY)
+} else {
+  game.groundY = () => 0
+}
+
 // Objetos que o anel levita. Ficam FORA do forno de geometria: eles se mexem.
 const agarraveis = buildAgarraveis()
 scene.add(agarraveis.group)
@@ -228,7 +252,7 @@ scene.add(agarraveis.group)
 const anel = criarAnel({
   scene, camera, player, character, collision, rede, hud,
   groundY: (x, z) => game.groundY(x, z),
-  interaction,
+  interaction, poolLuz,
 })
 game.anel = anel
 if (anel.grupoNoChao) scene.add(anel.grupoNoChao)
@@ -239,7 +263,7 @@ for (const [id, mesh] of agarraveis.meshes) anel.registrarObjeto(id, mesh)
 const portalgun = criarPortalGun({
   scene, camera, player, character, collision, rede, hud,
   groundY: (x, z) => game.groundY(x, z),
-  interaction,
+  interaction, poolLuz,
 })
 game.portalgun = portalgun
 if (portalgun.grupoNoMundo) scene.add(portalgun.grupoNoMundo)
@@ -256,18 +280,51 @@ const veiculos = criarVeiculos({
 game.veiculos = veiculos
 scene.add(veiculos.grupo)
 
-// 1 maos, 2 anel, 3 arma de portal. O slot fica travado ate pegar o item.
+// --- chuva, revolver e o NPC que vira zumbi --------------------------------
+const clima = criarClima({ scene, camera, renderer, lighting, groundY: (x, z) => game.groundY(x, z), inicial: 0.45 })
+game.clima = clima
+if (clima.grupo) scene.add(clima.grupo)
+
+const revolver = criarRevolver({
+  scene, camera, player, character, collision, rede, hud,
+  groundY: (x, z) => game.groundY(x, z), interaction, poolLuz,
+})
+game.revolver = revolver
+if (revolver.grupoNoMundo) scene.add(revolver.grupoNoMundo)
+if (revolver.interactable) interaction.add(revolver.interactable)
+
+const zumbi = criarZumbi({
+  scene, player, character, collision, hud, rede,
+  groundY: (x, z) => game.groundY(x, z), interaction, poolLuz,
+})
+game.zumbi = zumbi
+if (zumbi.grupo) scene.add(zumbi.grupo)
+if (zumbi.interactable) interaction.add(zumbi.interactable)
+
+// O tiro do revolver so vira dano porque alguem liga uma ponta na outra: o
+// revolver diz ONDE acertou, o zumbi diz se aquilo era cabeca ou corpo.
+revolver.aoAcerto = (info) => {
+  if (!info || !info.objeto) return
+  const u = zumbi.grupo && zumbi.grupo.userData
+  const parte = u && typeof u.parteAtingida === 'function' ? u.parteAtingida(info.objeto) : null
+  if (parte) zumbi.levarTiro(parte, info)
+}
+
+// 1 maos, 2 anel, 3 arma de portal, 4 revolver. Slot travado ate pegar o item.
 const hotbar = criarHotbar({
   aoTrocar(indice, chave) {
     if (chave !== 'anel' && anel.equipado) anel.desequipar()
     if (chave !== 'portal' && portalgun.equipado) portalgun.desequipar()
+    if (chave !== 'revolver' && revolver.equipado) revolver.desequipar()
     if (chave === 'anel' && !anel.equipado) anel.equipar()
     if (chave === 'portal' && !portalgun.equipado) portalgun.equipar()
+    if (chave === 'revolver' && !revolver.equipado) revolver.equipar()
   },
 })
 game.hotbar = hotbar
 hotbar.marcarDisponivel(1, false)
 hotbar.marcarDisponivel(2, false)
+hotbar.marcarDisponivel(3, false)   // revolver: so depois de achar no beco
 
 /** Chamado quando um item e pego: libera o slot e ja poe na mao. */
 game.pegouItem = (chave) => {
@@ -275,15 +332,6 @@ game.pegouItem = (chave) => {
   hotbar.marcarDisponivel(i, true)
   hotbar.selecionar(i)
   if (chave === 'portal' && rede.conectado) rede.pegarItem(ITEM_PORTAL_GUN)
-}
-
-// Altura do chao: calcada (0.16), parque, beco e piso das lojas. Sem isso o
-// personagem anda com os pes enterrados no concreto.
-if (city && typeof city.groundY === 'function') {
-  game.groundY = city.groundY
-  if (typeof player.setGroundSampler === 'function') player.setGroundSampler(city.groundY)
-} else {
-  game.groundY = () => 0
 }
 
 // Occluders da camera: caixas COM altura, so do que realmente tapa a visao.
@@ -312,15 +360,71 @@ scene.traverse((o) => {
 })
 
 // --- Camera de preview (customizacao) --------------------------------------
-const preview = { active: false, focus: 'head', t: 0, savedMode: 'third' }
+// Onde a camera fica em cada categoria que o customizador abre. O customizer
+// chama game.beginPreview(foco) a cada troca de aba.
+//   y     altura do alvo acima dos pes (quando nao ha 'parte')
+//   dist  distancia da camera ao alvo
+//   alto  quanto a camera sobe alem do alvo
+//   parte junta do character a seguir (mao, pe): melhor que altura fixa
+const FOCOS = {
+  rosto: { y: 1.60, dist: 1.15, alto: 0.04, fov: 40 },
+  corpo: { y: 1.00, dist: 3.30, alto: 0.25, fov: 52 },
+  pescoco: { y: 1.38, dist: 1.05, alto: 0.02, fov: 42 },
+  pes: { y: 0.16, dist: 1.40, alto: 0.55, fov: 46, parte: 'footL' },
+  mao: { y: 0.90, dist: 0.75, alto: 0.05, fov: 40, parte: 'handL' },
+  braco: { y: 1.15, dist: 1.15, alto: 0.05, fov: 44, parte: 'armLLower' },
+  // nomes antigos, pra nao quebrar quem ainda chama assim
+  head: { y: 1.60, dist: 1.15, alto: 0.04, fov: 40 },
+  body: { y: 1.00, dist: 3.30, alto: 0.25, fov: 52 },
+}
+
+const preview = { active: false, focus: 'rosto', t: 0, savedMode: 'third', yaw: 0, pitch: 0.05, slotAntes: -1 }
 const _pv = new THREE.Vector3()
 const _pf = new THREE.Vector3()
 
+// --- girar a camera do provador/barbeiro arrastando o mouse ---------------
+let arrastando = false
+let arrasteX = 0
+let arrasteY = 0
+
+function preMouseDown(e) {
+  if (!preview.active || e.button !== 0) return
+  // clique no painel do customizador nao gira a camera
+  if (e.target && e.target.closest && e.target.closest('.mcrp-customizer, [class*="customizer"], button')) return
+  arrastando = true
+  arrasteX = e.clientX
+  arrasteY = e.clientY
+}
+function preMouseMove(e) {
+  if (!arrastando || !preview.active) return
+  preview.yaw -= (e.clientX - arrasteX) * 0.008
+  preview.pitch = Math.max(-0.75, Math.min(0.85, preview.pitch - (e.clientY - arrasteY) * 0.006))
+  arrasteX = e.clientX
+  arrasteY = e.clientY
+}
+function preMouseUp() { arrastando = false }
+
+window.addEventListener('mousedown', preMouseDown)
+window.addEventListener('mousemove', preMouseMove)
+window.addEventListener('mouseup', preMouseUp)
+
 function startPreview(focus) {
+  const jaAberto = preview.active
   preview.active = true
-  preview.focus = focus || 'head'
+  preview.focus = focus || 'rosto'
   preview.t = 0
+  // trocar de aba NAO reseta o angulo: o jogador girou pra ver de costas e
+  // perderia isso a cada categoria
+  if (!jaAberto) { preview.yaw = 0; preview.pitch = 0.05 }
+  arrastando = false
   preview.savedMode = player.mode
+  // Guarda o que estava na mao e ESVAZIA a mao: a arma de 1a pessoa e filha da
+  // camera, entao no close do rosto ela apareceria gigante na frente do
+  // barbeiro. Volta pro mesmo slot ao fechar o painel.
+  if (!jaAberto) {
+    preview.slotAntes = hotbar && typeof hotbar.selecionado === 'number' ? hotbar.selecionado : -1
+    if (hotbar && preview.slotAntes > 0) hotbar.selecionar(0)
+  }
   player.setLocked(true)
   character.setVisibleBody(true)
   input.exitLock()
@@ -331,6 +435,11 @@ function startPreview(focus) {
 function stopPreview() {
   if (!preview.active) return
   preview.active = false
+  // devolve pra mao o que estava equipado antes de sentar na cadeira
+  if (hotbar && preview.slotAntes > 0) {
+    hotbar.selecionar(preview.slotAntes)
+    preview.slotAntes = -1
+  }
   player.setLocked(false)
   character.setVisibleBody(preview.savedMode === 'third')
   hud.setCrosshair(preview.savedMode === 'first')
@@ -344,21 +453,69 @@ function stopPreview() {
 function updatePreview(dt) {
   preview.t += dt
   const root = character.root
-  const yaw = root.rotation.y
-  const headY = preview.focus === 'head' ? PLAYER.EYE_HEIGHT + 0.05 : 1.05
-  const dist = preview.focus === 'head' ? 1.15 : 2.6
-  // orbita lenta em frente ao rosto
-  const a = yaw + Math.sin(preview.t * 0.35) * 0.5
-  _pf.set(root.position.x, headY, root.position.z)
+
+  // --- 1) o mouse gira a camera em volta do personagem --------------------
+  // Antes isto era uma orbita automatica por seno: o jogador nao controlava
+  // nada e nao conseguia se ver de costas.
+  // (o giro vem de arrastar com o mouse; ver os listeners de preview abaixo.
+  //  Aqui nao da pra usar input.mouseDelta: no preview o ponteiro fica LIVRE
+  //  pra clicar nos botoes do painel, e sem pointer lock nao ha delta.)
+
+  // --- 2) alvo e distancia conforme a parte que esta sendo mexida ---------
+  const f = FOCOS[preview.focus] || FOCOS.rosto
+  const py = root.position.y
+  let alvoY = py + f.y
+  let distBase = f.dist
+
+  // partes que moram numa junta (mao, pe) sao seguidas de verdade, senao a
+  // camera aponta pro ar quando o boneco muda de proporcao
+  if (f.parte && character.parts && character.parts[f.parte]) {
+    character.parts[f.parte].getWorldPosition(_pf)
+    alvoY = _pf.y
+  }
+
+  _pf.set(root.position.x, alvoY, root.position.z)
+  if (f.parte && character.parts && character.parts[f.parte]) {
+    character.parts[f.parte].getWorldPosition(_pf)
+  }
+
+  // --- 3) posicao na orbita ------------------------------------------------
+  // O angulo e relativo a FRENTE do personagem: preview.yaw 0 = DE FRENTE.
+  // Cuidado com o sinal, que ja esteve errado e mostrava a nuca:
+  //   o corpo e desenhado com root.rotation.y = bodyYaw = yaw + PI (o modelo
+  //   nasce olhando pro +Z local, e esse PI e a correcao disso), enquanto a
+  //   frente do jogador e _fwd = (-sin yaw, -cos yaw) — ver controller.js.
+  //   Logo (sin(bodyYaw), cos(bodyYaw)) == (-sin yaw, -cos yaw) == a frente.
+  // Somar mais um PI aqui punha a camera do outro lado.
+  const ang = root.rotation.y + preview.yaw
+  const cp = Math.cos(preview.pitch)
   _pv.set(
-    root.position.x + Math.sin(a) * dist,
-    headY + (preview.focus === 'head' ? 0.06 : 0.35),
-    root.position.z + Math.cos(a) * dist,
+    _pf.x + Math.sin(ang) * cp * distBase,
+    _pf.y + Math.sin(preview.pitch) * distBase + f.alto,
+    _pf.z + Math.cos(ang) * cp * distBase,
   )
-  camera.position.lerp(_pv, 1 - Math.pow(0.001, dt))
+
+  // --- 4) NAO ATRAVESSA PAREDE --------------------------------------------
+  // Era a reclamacao: "a camera ta bugando e entrando dentro da construcao".
+  // Mesmo teste da camera de 3a pessoa: encurta o braco ate o obstaculo.
+  if (collision && typeof collision.segmentHit === 'function') {
+    const t = collision.segmentHit(_pf, _pv, 0.2)
+    if (t < 1) {
+      const d = Math.max(0.35, distBase * t - 0.12)
+      _pv.set(
+        _pf.x + Math.sin(ang) * cp * d,
+        _pf.y + Math.sin(preview.pitch) * d + f.alto,
+        _pf.z + Math.cos(ang) * cp * d,
+      )
+    }
+  }
+  // nem afunda no chao
+  const chao = game.groundY(_pv.x, _pv.z) + 0.22
+  if (_pv.y < chao) _pv.y = chao
+
+  camera.position.lerp(_pv, 1 - Math.pow(0.0015, dt))
   camera.lookAt(_pf)
-  const targetFov = preview.focus === 'head' ? 42 : 55
-  camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 6)
+  camera.fov += (f.fov - camera.fov) * Math.min(1, dt * 6)
   camera.updateProjectionMatrix()
 }
 
@@ -406,6 +563,7 @@ function frame() {
   if (input.wasPressed('Digit1')) hotbar.selecionar(0)
   if (input.wasPressed('Digit2')) hotbar.selecionar(1)
   if (input.wasPressed('Digit3')) hotbar.selecionar(2)
+  if (input.wasPressed('Digit4')) hotbar.selecionar(3)
 
   if (!preview.active) {
     player.update(dt)
@@ -438,7 +596,9 @@ function frame() {
         // Pegar um item destrava o slot na barra e ja poe na mao.
         // Sem 'return' aqui: isto roda DENTRO do frame, e sair cedo pularia o
         // render e a luz deste quadro (um engasgo visivel ao pegar o item).
-        const item = hit.id === 'anel-verde' ? 'anel' : (hit.id === 'portal-gun' ? 'portal' : null)
+        const item = hit.id === 'anel-verde' ? 'anel'
+          : hit.id === 'portal-gun' ? 'portal'
+            : /revolver/.test(hit.id) ? 'revolver' : null
         const npcId = item ? 0 : NPC_DA_INTERACAO[hit.id]
         if (item) {
           interaction.trigger(game)
@@ -480,7 +640,15 @@ function frame() {
   veiculos.atualizar(dt)
   anel.atualizar(dt)
   portalgun.atualizar(dt)
+  revolver.atualizar(dt)
+  zumbi.atualizar(dt)
+  clima.atualizar(dt, player.position)
   dialogo.atualizar(player.position)
+
+  // DEPOIS de todo mundo escrever nas suas "luzes": o pool escolhe as duas mais
+  // fortes do quadro e copia pras duas PointLight reais. Tem que ser aqui, no
+  // fim — antes disso metade dos efeitos ainda nao mexeu na propria luz.
+  poolLuz.atualizar()
 
   // tranco de camera do anel (agarrar/arremessar), somado depois da camera
   for (const t of [anel.tremor, portalgun.tremor]) {

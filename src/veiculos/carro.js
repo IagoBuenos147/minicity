@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { solid, box, cyl, sphere, roundedBox } from '../world/materials.js'
+import { bakeStatic } from '../world/bake.js'
 
 // ---------------------------------------------------------------------------
 // O CARRO — muscle car preto, linhas de classico dos anos 60/70.
@@ -347,6 +348,14 @@ export function construir() {
       grupo.add(pivo)
       const roda = fazerRoda()
       pivo.add(roda)
+      // A roda gira e esterca, mas POR DENTRO ela e rigida: banda, flanco, aro,
+      // furos e cubo andam juntos. Entao o forno funde as nove pecas em quatro
+      // (uma por material) e o no `roda` continua sendo o que recebe
+      // rotation.x/.y do sistema de veiculos.
+      bakeStatic(roda)
+      // marca DEPOIS do proprio forno e ANTES do forno da carroceria: e assim
+      // que bakeStatic sabe que esta subarvore nao pode ser fundida no corpo
+      roda.userData.dynamic = true
       rodas.push({ mesh: roda, dianteira, raio: RODA_R })
     }
   }
@@ -356,10 +365,20 @@ export function construir() {
   // =========================================================================
   const assento = new THREE.Object3D()
   assento.position.set(ASSENTO_X, 0.52, -0.36)
+  // O assento nao e mesh: sem esta marca o forno o varreria junto com os grupos
+  // vazios e o motorista perderia o lugar onde senta.
+  assento.userData.dynamic = true
   grupo.add(assento)
 
   grupo.userData.luzesFreio = [luzFreioE, luzFreioD]
   grupo.userData.farois = [farolMat]
+
+  // FORNO DA CARROCERIA. Nada dela se mexe sozinho: o carro inteiro inclina,
+  // mergulha e vira como um bloco so (veiculos.js escreve em grupo.rotation).
+  // Sobram de fora as quatro rodas e o assento, ja marcados acima. Os materiais
+  // dos farois e das lanternas sao instancias proprias, entao continuam com o
+  // seu proprio mesh e o sistema acende so a luz deste carro.
+  bakeStatic(grupo)
 
   return { grupo, assento, rodas, config: 'carro' }
 }

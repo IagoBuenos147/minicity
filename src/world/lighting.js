@@ -380,6 +380,28 @@ export function createLighting(scene, renderer) {
     return out.copy(cA).lerp(cB, k)
   }
 
+  // NUBLADO: 0 = ceu do ciclo normal, 1 = fechado de chuva. Quem manda nisso e
+  // o clima (src/world/clima.js). Fica AQUI, e nao la, porque o ciclo de dia
+  // reescreve ceu, sol e fog todo quadro: se a chuva escrevesse por fora, o
+  // proximo apply() apagaria. Assim existe um dono so de cada valor.
+  let nublado = 0
+
+  // Paleta de dia fechado. Cinza levemente azulado, nunca preto: chuva de dia
+  // e clara, o que muda e o contraste — sol quase sem direcao, nuvem cobrindo
+  // tudo e neblina mais densa.
+  const NUBLADO = {
+    zen: 0x6f7b8c, hor: 0x9aa4ae, glow: 0x8e97a1, glowI: 0.25,
+    // CUIDADO com o sentido: uCloudCover e o LIMIAR do fbm, entao numero
+    // MENOR = MAIS nuvem (ver o uniforme la embaixo). Os horarios normais
+    // ficam em 0.53..0.62; 0.30 fecha o ceu. Ja esteve 0.94 aqui, que e acima
+    // do maximo do fbm (0.9375) e nao deixava passar NUVEM NENHUMA: dava um
+    // ceu cinza liso, sem nuvem, que era o contrario do pretendido.
+    cBright: 0x9aa2ac, cDark: 0x555c68, cCover: 0.30,
+    hemiSky: 0x8e9aa8, hemiGnd: 0x5d5f5c, hemiI: 0.80,
+    amb: 0x939aa4, ambI: 0.62,
+    sunMul: 0.30, fillMul: 0.72, fogMul: 2.3, expMul: 0.80,
+  }
+
   let targetDirty = false
 
   function apply() {
@@ -468,6 +490,37 @@ export function createLighting(scene, renderer) {
       renderer.toneMappingExposure = baseExposure * THREE.MathUtils.lerp(a.exp, b.exp, k)
     }
 
+    // --- ceu fechado de chuva -----------------------------------------------
+    // Entra DEPOIS do ciclo, sobre os valores dele: assim o entardecer chuvoso
+    // ainda e um entardecer, so que abafado.
+    if (nublado > 0.001) {
+      const n = nublado
+      sun.intensity *= THREE.MathUtils.lerp(1, NUBLADO.sunMul, n)
+      sun.castShadow = sun.intensity > 0.05
+      fill.intensity *= THREE.MathUtils.lerp(1, NUBLADO.fillMul, n)
+
+      cA.setHex(NUBLADO.hemiSky); hemi.color.lerp(cA, n)
+      cA.setHex(NUBLADO.hemiGnd); hemi.groundColor.lerp(cA, n)
+      hemi.intensity = THREE.MathUtils.lerp(hemi.intensity, NUBLADO.hemiI, n)
+      cA.setHex(NUBLADO.amb); ambient.color.lerp(cA, n)
+      ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, NUBLADO.ambI, n)
+
+      cA.setHex(NUBLADO.zen); uniforms.uZenith.value.lerp(cA, n)
+      cA.setHex(NUBLADO.hor); uniforms.uHorizon.value.lerp(cA, n)
+      cA.setHex(NUBLADO.glow); uniforms.uGlow.value.lerp(cA, n)
+      uniforms.uGlowI.value = THREE.MathUtils.lerp(uniforms.uGlowI.value, NUBLADO.glowI, n)
+      cA.setHex(NUBLADO.cBright); uniforms.uCloudBright.value.lerp(cA, n)
+      cA.setHex(NUBLADO.cDark); uniforms.uCloudDark.value.lerp(cA, n)
+      uniforms.uCloudCover.value = THREE.MathUtils.lerp(uniforms.uCloudCover.value, NUBLADO.cCover, n)
+      uniforms.uSunColor.value.copy(sun.color)
+
+      // a nevoa fecha junto: e ela que da o "ar pesado" da chuva
+      fogColor.copy(uniforms.uHorizon.value).lerp(uniforms.uZenith.value, 0.34)
+      fog.color.copy(fogColor)
+      fog.density *= THREE.MathUtils.lerp(1, NUBLADO.fogMul, n)
+      if (renderer) renderer.toneMappingExposure *= THREE.MathUtils.lerp(1, NUBLADO.expMul, n)
+    }
+
     // vira "noite" quando o sol some: main liga os postes por aqui
     const nowNight = sunDir.y < 0.02
     if (nowNight !== isNight) {
@@ -492,6 +545,17 @@ export function createLighting(scene, renderer) {
       time = ((t % 1) + 1) % 1
       apply()
     },
+
+    /**
+     * Ceu fechado de chuva, 0..1. Quem chama e src/world/clima.js, uma vez por
+     * quadro, com a mesma forca da chuva — assim a chuva e o ceu nunca
+     * discordam (chover com ceu azul le como bug, e e).
+     */
+    setNublado(v) {
+      const n = Number(v)
+      nublado = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0
+    },
+    get nublado() { return nublado },
 
     /** Alvo das sombras: o main passa a posicao do jogador todo frame. */
     setTarget(v) {

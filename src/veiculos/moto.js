@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { solid, box, cyl, sphere, roundedBox } from '../world/materials.js'
+import { bakeStatic } from '../world/bake.js'
 
 // ---------------------------------------------------------------------------
 // A MOTO — naked classica, ~2.1 m de ponta a ponta.
@@ -129,6 +130,12 @@ export function construir() {
     disco.rotation.z = Math.PI / 2
     disco.position.x = larg * 0.55
     r.add(disco)
+    // A roda gira e esterca, mas por DENTRO ela e rigida: pneu, aro, raios,
+    // cubo e disco andam sempre juntos. O forno funde as nove pecas em quatro
+    // (uma por material) e o no `r` continua sendo quem recebe rotation.x/.y.
+    bakeStatic(r)
+    // sem esta marca o forno da moto engoliria a roda dentro do chassi
+    r.userData.dynamic = true
     return r
   }
 
@@ -328,11 +335,27 @@ export function construir() {
   // =========================================================================
   const assento = new THREE.Object3D()
   assento.position.set(0, BANCO_Y, -0.30)
+  // nao e mesh: sem a marca o forno o varreria junto com os grupos vazios e o
+  // piloto perderia o lugar onde senta
+  assento.userData.dynamic = true
   grupo.add(assento)
 
   grupo.userData.luzesFreio = [luzFreio]
   grupo.userData.farois = [farolMat]
   grupo.userData.pivoDirecao = pivoFrente   // quem quiser estercar a frente inteira
+
+  // FORNO. Duas passadas, de dentro pra fora, porque a moto tem DOIS niveis de
+  // coisa que se mexe:
+  //   1) a frente inteira (guidao, garfo, farol, para-lama) esterca junto no
+  //      pivoFrente — por dentro dela nada se mexe, entao ela vira um punhado
+  //      de meshes por material e depois e marcada pra sobreviver;
+  //   2) o chassi, o motor, o tanque e o escape nunca se mexem: viram o corpo.
+  // As rodas ja sairam do forno marcadas la em fazerRoda(), e a roda dianteira
+  // e neta do pivoFrente — o forno preserva a subarvore dinamica inteira,
+  // entao ela continua pendurada la e continua estercando junto.
+  bakeStatic(pivoFrente)
+  pivoFrente.userData.dynamic = true
+  bakeStatic(grupo)
 
   return { grupo, assento, rodas, config: 'moto' }
 }

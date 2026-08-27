@@ -29,10 +29,12 @@ import {
   NPCS, AGARRAVEIS, TIPOS_AGARRAVEL,
   PORTAL_DURACAO,
   VEICULOS, HELI_ID_MIN, HELI_ID_MAX,
+  ZUMBI_ID, ZUMBI_DOENCA, ZUMBI_GRITO, ZUMBI_VEL, ZUMBI_DIST_ATAQUE,
+  ZUMBI_VIDA_MAX, ZUMBI_SUMIR, ZUMBI_RAIO,
   distXZ, olharPara,
 } from '../src/comum/mundo.js'
 import { LEVELS, WORLD } from '../src/config.js'
-import { BARBER, GROCERY, PARK } from '../src/world/layout.js'
+import { BARBER, GROCERY, PARK, FILLERS, WALL_T } from '../src/world/layout.js'
 
 // ---------------------------------------------------------------------------
 // O PROTOCOLO VEM DE UM LUGAR SO: src/comum/protocolo.js.
@@ -51,7 +53,7 @@ const {
   ENTRAR, MEU_ESTADO, MINHA_APARENCIA, FALAR, SAIR_DIALOGO, ESCOLHA,
   PEGAR, SOLTAR, ARREMESSAR, OBJ_POS, DESTRUIU,
   ABRIR_PORTAL, PEGAR_ITEM,
-  ENTRAR_VEICULO, SAIR_VEICULO, VEICULO_POS, CRIAR_HELI,
+  ENTRAR_VEICULO, SAIR_VEICULO, VEICULO_POS, CRIAR_HELI, ZUMBI_TIRO,
 } = Proto.P
 
 const TIPOS = { ...Proto.P }
@@ -70,6 +72,17 @@ const DESTRUIDO = Proto.EST_OBJ.DESTRUIDO
 
 // NPC conversando (EST_NPC.CONVERSANDO); os outros estados saem da pose.
 const NPC_CONVERSANDO = Proto.EST_NPC.CONVERSANDO
+
+/* Os estados do rapaz da porta da mercearia. Sao valores do MESMO enum de
+   pose de NPC (EST_NPC), e por isso viajam no byte de estado que o registro de
+   NPC do snapshot ja tinha: o zumbi nao custa nenhum byte a mais por quadro.
+   Ver a regra 8 do cabecalho de protocolo.js. */
+const Z_SAO = Proto.EST_NPC.SAO
+const Z_ADOECENDO = Proto.EST_NPC.ADOECENDO
+const Z_ZUMBI = Proto.EST_NPC.ZUMBI
+const Z_MORTO = Proto.EST_NPC.MORTO
+const Z_SUMIDO = Proto.EST_NPC.SUMIDO
+const PARTE_CABECA = Proto.PARTE_CABECA
 
 // portal: faixa de id e o unico item que existe hoje
 const PORTAL_ID_MIN = Proto.PORTAL_ID_MIN
@@ -139,6 +152,128 @@ export function alturaDoChao(x, z) {
 }
 
 // ---------------------------------------------------------------------------
+// PAREDES — as caixas em que o zumbi nao pode entrar.
+//
+// ISTO NAO E UMA SEGUNDA VERDADE SOBRE A CIDADE, e a MESMA. As caixas saem de
+// src/world/layout.js, que e dado puro (sem THREE, sem nada) e e de onde o
+// cliente levanta as paredes das lojas e os predios de cenario — o mesmo
+// arquivo de onde alturaDoChao() aqui em cima ja tira o piso das lojas. O que
+// nao pode existir e uma geometria ESCRITA A MAO aqui; ler a de la e o
+// contrario disso.
+//
+// So XZ, sem altura: o zumbi anda no chao e nao pula. E so as caixas GRANDES —
+// movel de loja, poste e caixote nao entram, porque eles nao estao em
+// layout.js e inventa-los aqui seria exatamente a duplicacao que a regra
+// proibe. Um zumbi que passa raspando numa prateleira nao incomoda ninguem;
+// um que atravessa a fachada da mercearia, sim.
+//
+// A FACHADA E PARTIDA PELO VAO DA PORTA, do mesmo jeito que o cliente faz em
+// registerCameraOccluders: sem isso o zumbi nunca entraria na loja atras de
+// quem se escondeu la dentro, que e o lugar mais obvio pra correr.
+const FOLGA_PORTA = 0.2   // alarga o vao: ele nao pode raspar na ombreira e travar
+
+function caixa(x0, x1, z0, z1) { return { x0, x1, z0, z1 } }
+
+const PAREDES = []
+// predios de cenario: macicos, sem interior nenhum
+for (const b of FILLERS) PAREDES.push(caixa(b.x0, b.x1, b.z0, b.z1))
+// lojas: as 4 paredes, e nao a caixa cheia — o interior e util, da pra entrar
+for (const b of [BARBER, GROCERY]) {
+  const T = WALL_T
+  PAREDES.push(caixa(b.x0, b.x0 + T, b.z0, b.z1))          // oeste
+  PAREDES.push(caixa(b.x1 - T, b.x1, b.z0, b.z1))          // leste
+  PAREDES.push(caixa(b.x0, b.x1, b.z0, b.z0 + T))          // fundos
+  // fachada (z1) partida no vao da porta
+  const dl = b.door.center - b.door.width / 2 - FOLGA_PORTA
+  const dr = b.door.center + b.door.width / 2 + FOLGA_PORTA
+  PAREDES.push(caixa(b.x0, dl, b.z1 - T, b.z1))
+  PAREDES.push(caixa(dr, b.x1, b.z1 - T, b.z1))
+}
+
+/**
+ * Tira um corpo de raio `r` de dentro de UMA caixa, pelo eixo de MENOR
+ * penetracao. Devolve true se mexeu.
+ *
+ * O raio entra INFLANDO a caixa, em vez de virar uma conta de circulo contra
+ * retangulo: o resultado e o mesmo em tudo que nao e canto, custa quatro
+ * comparacoes e nao tem raiz quadrada nenhuma rodando 15 vezes por segundo.
+ *
+ * O eixo de menor penetracao e o que faz o perseguidor parecer esperto: ele
+ * cancela so a componente que entrou na parede e deixa a outra passar, entao o
+ * zumbi DESLIZA rente a fachada ate achar a porta em vez de ficar tremendo
+ * contra o tijolo. Escolher o maior (ou empurrar pelos dois) o prenderia.
+ */
+function empurrarDeCaixa(p, r, c) {
+  const x0 = c.x0 - r, x1 = c.x1 + r
+  const z0 = c.z0 - r, z1 = c.z1 + r
+  if (p.x <= x0 || p.x >= x1 || p.z <= z0 || p.z >= z1) return false
+  const oeste = p.x - x0, leste = x1 - p.x
+  const sul = p.z - z0, norte = z1 - p.z
+  const menor = Math.min(oeste, leste, sul, norte)
+  if (menor === oeste) p.x = x0
+  else if (menor === leste) p.x = x1
+  else if (menor === sul) p.z = z0
+  else p.z = z1
+  return true
+}
+
+/**
+ * Tira o corpo de dentro de TODAS as paredes. Duas passadas porque sair de uma
+ * caixa pode enfiar o corpo na vizinha (as paredes de uma loja se encostam nos
+ * cantos); a segunda resolve isso. Nao insisto mais que duas de proposito: em
+ * canto fechado a terceira ficaria empurrando de um lado pro outro para sempre,
+ * e parar um centimetro dentro do tijolo e melhor do que travar o tique.
+ */
+function tirarDasParedes(p, r) {
+  for (let passada = 0; passada < 2; passada++) {
+    let bateu = false
+    for (let i = 0; i < PAREDES.length; i++) {
+      if (empurrarDeCaixa(p, r, PAREDES[i])) bateu = true
+    }
+    if (!bateu) return
+  }
+}
+
+/** A loja em que este ponto esta, ou null se ele esta na rua. */
+function lojaEm(x, z) {
+  for (const b of [BARBER, GROCERY]) {
+    if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1) return b
+  }
+  return null
+}
+
+/**
+ * PARA ONDE ANDAR, quando andar reto nao resolve.
+ *
+ * Escorregar na parede sozinho ja impede o zumbi de atravessar tijolo, mas nao
+ * o faz ENTRAR: com o jogador escondido no fundo da mercearia, ele desliza pela
+ * fachada ate ficar colado bem em cima da pessoa e para ali para sempre, com a
+ * porta oito metros a oeste. Perseguidor que fica de cara na parede nao assusta
+ * ninguem.
+ *
+ * O conserto e um ponto de passagem so, e ele sai do MESMO layout.js: se um dos
+ * dois esta dentro de uma loja e o outro nao, ande primeiro ate a PORTA daquela
+ * loja. Nao e busca de caminho, nao ha grafo nem lista aberta — sao duas caixas
+ * e uma porta, que e tudo o que existe de fechado nesta cidade.
+ *
+ * Quando ele proprio esta dentro de uma loja, a porta que vale e a DELE: sair
+ * vem antes de entrar em outra, senao ele miraria a porta da mercearia de
+ * dentro da barbearia e se prensaria na parede errada.
+ *
+ * Devolve null quando nao ha nada no meio — e ai a mira e o jogador, como
+ * sempre foi.
+ */
+function portaEntre(npc, alvo) {
+  const minha = lojaEm(npc.x, npc.z)
+  const dele = lojaEm(alvo.x, alvo.z)
+  if (minha === dele) return null      // os dois na rua, ou os dois na mesma loja
+  const loja = minha || dele
+  // o meio do vao, na linha da fachada: passou dela, `lojaEm` muda e a mira
+  // volta a ser o jogador no mesmo tique
+  return { x: loja.door.center, z: loja.z1 }
+}
+
+// ---------------------------------------------------------------------------
 // APARENCIA
 //
 // Sao 20 indices de catalogo (cabeca, olhos, pupila, nariz, boca, barba,
@@ -186,6 +321,10 @@ const ESTADO_DA_POSE = {
   cut: Proto.EST_NPC.CORTANDO,
   sit: Proto.EST_NPC.SENTADO,
   work: Proto.EST_NPC.TRABALHANDO,
+  // 'sao' e a pose de UM NPC so: o rapaz da porta da mercearia. Ela entra
+  // nesta mesma tabela de proposito, porque para a sala ele e um NPC igual aos
+  // outros — o que muda e que o estado dele anda sozinho no passo().
+  sao: Proto.EST_NPC.SAO,
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +365,15 @@ export function criarSala(opcoes = {}) {
       linha: 0,
       falas: n.falas,
       opcoes: n.opcoes,
+      /* So o rapaz da porta da mercearia (1004) tem estes. Uma marca no
+         proprio NPC, e nao um Map separado nem um `if (id === 1004)` espalhado
+         pelo arquivo: quem le uma linha de FALAR ou de passo() ve na hora por
+         que aquele NPC e diferente. */
+      zumbi: n.id === ZUMBI_ID,
+      vida: ZUMBI_VIDA_MAX,
+      /* Relogio do estado atual, em SEGUNDOS, contado no passo(). Zera a cada
+         troca de estado, como o tEstado do cliente. */
+      tEstado: 0,
     })
   }
 
@@ -267,6 +415,9 @@ export function criarSala(opcoes = {}) {
   }
 
   let tick = 0
+  /* Instante do ultimo passo(), para o dt sair do RELOGIO e nao da contagem
+     de tiques (ver o comentario de passo()). */
+  let ultimoPassoEm = Date.now()
   let ultimoId = 0
   let ultimoPortalId = PORTAL_ID_MIN - 1
   let ultimoHeliId = HELI_ID_MIN - 1
@@ -589,6 +740,18 @@ export function criarSala(opcoes = {}) {
         if (!m) return
         const npc = npcs.get(m.npcId)
         if (!npc) return
+        /* O rapaz da porta da mercearia NAO conversa: falar com ele e o que
+           COMECA A DOENCA. Ele passa por aqui, e nao por um pacote proprio,
+           porque o pedido e exatamente o mesmo dos outros NPCs ("apertei E
+           nesta pessoa") e quem decide o que acontece depois disso e o
+           servidor — que e o ponto inteiro desta mudanca.
+           IDEMPOTENTE: apertar E de novo (ou o pacote duplicar) so acha um NPC
+           que ja nao esta mais SAO e sai calado. Sem NEGADO: nao ha nada
+           ocupado, e o jogador ja esta vendo o rapaz tossir. */
+        if (npc.zumbi) {
+          if (npc.estado === Z_SAO) trocarEstadoZumbi(npc, Z_ADOECENDO)
+          return
+        }
         if (npc.falandoCom === jogador.id) {
           // repetiu o pedido (pacote duplicado, ou apertou E de novo): so
           // reafirma o estado. Idempotente.
@@ -869,6 +1032,42 @@ export function criarSala(opcoes = {}) {
         return
       }
 
+      /* O TIRO NO ZUMBI. E a unica coisa deste NPC que nasce no cliente, e por
+         um motivo so: o servidor nao tem a mira de ninguem. Quem tracou o raio
+         e sabe se pegou a cabeca ou o corpo foi a maquina de quem atirou.
+
+         O QUE CHEGA AQUI E "ONDE ACERTEI", NUNCA "QUANTO DE VIDA SOBROU".
+         Quem subtrai a vida e este arquivo, e so ele: 1 na cabeca mata (tira
+         ZUMBI_VIDA_MAX de uma vez), 3 no corpo matam. Se a vida viesse no
+         pacote, um cliente estragado mandaria "vida 0" e mataria o NPC na tela
+         de todo mundo. E por isso que a vida nem sequer SAI daqui: ela nao
+         esta no snapshot, so o estado esta.
+
+         Tiro em NPC ja morto sai em silencio — e a idempotencia que importa
+         aqui. Dois tiros iguais no corpo TEM que contar dois: dois tiros sao
+         dois tiros. */
+      case ZUMBI_TIRO: {
+        const m = Proto.lerZumbiTiro(dv)
+        if (!m) return
+        const npc = npcs.get(m.npcId)
+        if (!npc || !npc.zumbi) return
+        if (npc.estado === Z_MORTO || npc.estado === Z_SUMIDO) return
+        /* Alcance: a mesma sanidade do SOLTAR e do ABRIR_PORTAL. Nao e
+           anti-trapaca (ninguem disputa nada aqui), e so nao deixar um cliente
+           estragado matar o zumbi do outro lado da cidade, sem nunca ter
+           chegado perto dele. O revolver tem alcance bem menor que isto. */
+        if (distXZ(npc.x, npc.z, jogador.x, jogador.z) > 40) return
+        npc.vida -= (m.parte === PARTE_CABECA) ? ZUMBI_VIDA_MAX : 1
+        if (npc.vida <= 0) {
+          npc.vida = 0
+          /* Morreu ANTES de virar zumbi (deu tiro no rapaz doente, ou no
+             rapaz sao): ele cai do mesmo jeito. O estado que sai daqui e
+             sempre MORTO, entao o cliente tem um caminho so pra "ele caiu". */
+          trocarEstadoZumbi(npc, Z_MORTO)
+        }
+        return
+      }
+
       default:
         return   // tipo desconhecido: cliente mais novo, ou lixo. Ignora.
     }
@@ -891,6 +1090,119 @@ export function criarSala(opcoes = {}) {
       /* Pacote truncado ou inventado. Derrubar o processo por causa de um
          byte a menos seria trocar um cliente ruim por uma sala vazia. */
     }
+  }
+
+  // --- o rapaz que vira zumbi (NPC 1004) -----------------------------------
+  //
+  // O CEREBRO DELE MORA AQUI. Antes ele decidia tudo no cliente, e o resultado
+  // era o previsivel num jogo de mundo compartilhado: cada jogador tinha o seu
+  // zumbi particular: um via o rapaz virar bicho e vir pra cima, e o amigo do
+  // lado continuava vendo um rapaz sadio parado na porta.
+  //
+  // O que anda por aqui e SO a verdade do mundo: em que estado ele esta, onde
+  // ele esta e pra onde ele olha. Tudo isso ja cabe no registro de NPC do
+  // snapshot, sem um byte a mais. O sangue, o clarao, a onda de choque, a
+  // camera lenta, o tremor, a tosse, o balao e a pele esverdeando NAO passam
+  // por aqui: sao desenho, e desenho e do cliente.
+  //
+  // ELE NAO ATRAVESSA PAREDE. Anda em linha reta ate o jogador mais proximo e
+  // depois e empurrado pra fora das caixas de PAREDES (la em cima), que saem
+  // de src/world/layout.js — o MESMO dado de onde o cliente levanta as paredes
+  // e de onde alturaDoChao() ja tira o piso das lojas. Ler aquele arquivo nao
+  // e duplicar a cidade; escrever caixas na mao aqui e que seria.
+  // A fachada das duas lojas e partida no vao da porta, entao ele entra atras
+  // de quem se escondeu la dentro — que e o primeiro lugar pra onde se corre.
+
+  /* Troca o estado do zumbi e zera o relogio dele. Um lugar so: e por aqui que
+     passam a doenca (FALAR), a virada, a morte (ZUMBI_TIRO) e o sumico. */
+  function trocarEstadoZumbi(npc, novo) {
+    if (!npc || npc.estado === novo) return
+    npc.estado = novo
+    npc.tEstado = 0
+    /* estadoBase e "para o que ele volta quando a conversa acaba". Este NPC
+       nao conversa, mas manter os dois iguais garante que nenhum caminho
+       generico de NPC (liberarDialogo, por exemplo) ressuscite um zumbi
+       morto ao devolver a pose original. */
+    npc.estadoBase = novo
+  }
+
+  /* O jogador mais perto deste ponto, ou null com a sala vazia. E o alvo da
+     perseguicao: sem ninguem online nao ha para onde andar, e o zumbi fica
+     parado onde estava — nao ha "ultimo alvo" guardado, porque um alvo que
+     nao esta mais aqui e exatamente o tipo de coisa que fica presa. */
+  function jogadorMaisProximo(x, z) {
+    let melhor = null
+    let menor = Infinity
+    for (const j of jogadores.values()) {
+      const d = distXZ(x, z, j.x, j.z)
+      if (d < menor) { menor = d; melhor = j }
+    }
+    return melhor
+  }
+
+  function passoZumbi(dt) {
+    const npc = npcs.get(ZUMBI_ID)
+    if (!npc || !npc.zumbi) return
+    // parado na calcada, ou ja sumiu: nao ha relogio correndo
+    if (npc.estado === Z_SAO || npc.estado === Z_SUMIDO) return
+    npc.tEstado += dt
+
+    /* A doenca dura ZUMBI_DOENCA segundos CONTADOS AQUI. Se cada maquina
+       contasse os seus 10 s, ele viraria zumbi em horas diferentes em cada
+       tela — o mesmo motivo pelo qual o servidor conta o tempo do portal. */
+    if (npc.estado === Z_ADOECENDO) {
+      if (npc.tEstado >= ZUMBI_DOENCA) trocarEstadoZumbi(npc, Z_ZUMBI)
+      return
+    }
+
+    /* Morto ele PARA DE ANDAR, e so. Passado o tempo que o cliente gasta
+       desenhando a queda e o fade, o estado vira SUMIDO — que e o que conta
+       pra quem ENTRA DEPOIS: sem esse segundo estado, quem chegasse dez
+       minutos atrasado receberia "morto" e comecaria a desenhar a queda de
+       novo, como se o tiro tivesse acabado de acontecer. */
+    if (npc.estado === Z_MORTO) {
+      if (npc.tEstado >= ZUMBI_SUMIR) trocarEstadoZumbi(npc, Z_SUMIDO)
+      return
+    }
+
+    /* ZUMBI: os primeiros ZUMBI_GRITO segundos ele fica PARADO gritando. Sem
+       essa pausa aqui, o cliente desenharia a pose do grito com o corpo ja
+       deslizando pela calcada, porque a posicao vem daqui e a pose e local. */
+    if (npc.tEstado < ZUMBI_GRITO) return
+
+    const alvo = jogadorMaisProximo(npc.x, npc.z)
+    if (!alvo) return
+    const d = distXZ(npc.x, npc.z, alvo.x, alvo.z)
+    if (d <= ZUMBI_DIST_ATAQUE) {
+      // encostou: para de andar, mas continua encarando a pessoa
+      npc.yaw = olharPara(npc.x, npc.z, alvo.x, alvo.z)
+      return
+    }
+
+    /* Pra onde ele anda: o jogador, ou a porta da loja que separa os dois. Sem
+       parede no meio, `porta` e null e isto e a linha reta de sempre. */
+    const porta = portaEntre(npc, alvo)
+    const mx = porta ? porta.x : alvo.x
+    const mz = porta ? porta.z : alvo.z
+    const dm = distXZ(npc.x, npc.z, mx, mz)
+    if (dm < 1e-4) return
+    // ele olha pra ONDE ANDA, e nao pro jogador: indo pela porta, encarar a
+    // pessoa atraves da parede o faria andar de lado, de caranguejo
+    npc.yaw = olharPara(npc.x, npc.z, mx, mz)
+    /* Anda no maximo ate a distancia de ataque: sem esse teto, um dt grande
+       (o servidor engasgou) faria ele atravessar o jogador e sair do outro
+       lado, e no tique seguinte voltar — tremendo em cima da pessoa. O teto
+       so vale pro JOGADOR: parar a 1,15 m da porta seria parar antes de
+       entrar, e ele nunca entraria. */
+    const teto = porta ? ZUMBI_VEL * dt : Math.min(ZUMBI_VEL * dt, d - ZUMBI_DIST_ATAQUE)
+    npc.x += ((mx - npc.x) / dm) * teto
+    npc.z += ((mz - npc.z) / dm) * teto
+    /* E entao ele sai de dentro de qualquer parede em que tenha entrado. Feito
+       DEPOIS do passo, e nao antes: andar reto continua sendo o plano, e a
+       parede so corrige o que ele nao podia fazer. Como o empurrao e pelo eixo
+       de menor penetracao, o que sobra da direcao continua valendo e ele
+       desliza rente a fachada em vez de tremer contra ela. */
+    tirarDasParedes(npc, ZUMBI_RAIO)
   }
 
   // --- o passo ------------------------------------------------------------
@@ -917,8 +1229,27 @@ export function criarSala(opcoes = {}) {
     return Proto.escreverSnapshot(tick, outros, [...npcs.values()], moveram)
   }
 
-  function passo() {
+  /**
+   * Um tique do mundo.
+   *
+   * dtForcado (segundos) existe para os testes poderem adiantar o relogio sem
+   * esperar 10 s de parede pela doenca do zumbi. Em producao ninguem passa
+   * nada e o dt sai do RELOGIO, nao da contagem de tiques: rede-ws.js repoe
+   * tique perdido chamando passo() varias vezes seguidas e desiste depois de
+   * cinco. Contando tiques, o zumbi andaria devagar depois de um engasgo e
+   * ficaria para tras do tempo real para sempre; contando relogio, o tique
+   * seguinte ja anda o que faltava.
+   */
+  function passo(dtForcado) {
     tick = (tick + 1) >>> 0
+
+    const agora = Date.now()
+    let dt = Number.isFinite(dtForcado) ? Number(dtForcado) : (agora - ultimoPassoEm) / 1000
+    ultimoPassoEm = agora
+    /* Teto de meio segundo: se o processo travou (ou a maquina dormiu), o
+       zumbi nao pode dar um salto de dez metros e aparecer dentro de alguem. */
+    if (!(dt > 0)) dt = 0
+    else if (dt > 0.5) dt = 0.5
 
     /* QUEM CONTA O TEMPO DO PORTAL E O SERVIDOR. Se cada maquina apagasse o
        portal no seu proprio cronometro, ele sumiria em horas diferentes em
@@ -952,6 +1283,11 @@ export function criarSala(opcoes = {}) {
       npc.yaw = olharPara(npc.x, npc.z, j.x, j.z)
     }
 
+    /* O RELOGIO DA DOENCA E A PERSEGUICAO. Aqui, e nao no cliente: e isto que
+       faz o rapaz adoecer, virar bicho e vir andando no MESMO instante e pelo
+       MESMO caminho na tela de todo mundo. */
+    passoZumbi(dt)
+
     for (const j of jogadores.values()) {
       if (j.con) j.con.enviar(pacoteSnapshot(j), false)
     }
@@ -965,6 +1301,10 @@ export function criarSala(opcoes = {}) {
     PORTAL_DURACAO, PORTAL_ID_MIN, PORTAL_ID_MAX,
     ITEM_PORTAL_GUN: Proto.ITEM_PORTAL_GUN,
     NEGADO_VEICULO, HELI_ID_MIN, HELI_ID_MAX,
+    // o zumbi: id, estados e os numeros que a simulacao usa
+    ZUMBI_ID, ZUMBI_DOENCA, ZUMBI_GRITO, ZUMBI_VEL, ZUMBI_DIST_ATAQUE,
+    ZUMBI_VIDA_MAX, ZUMBI_SUMIR,
+    Z_SAO, Z_ADOECENDO, Z_ZUMBI, Z_MORTO, Z_SUMIDO,
   }
 
   const sala = {
@@ -990,6 +1330,7 @@ const REDE_MD = {
   ESCOLHA: 6, PEGAR: 7, SOLTAR: 8, ARREMESSAR: 9, OBJ_POS: 10, DESTRUIU: 11,
   ABRIR_PORTAL: 12, PEGAR_ITEM: 13,
   ENTRAR_VEICULO: 14, SAIR_VEICULO: 15, VEICULO_POS: 16, CRIAR_HELI: 17,
+  ZUMBI_TIRO: 18,
   BEMVINDO: 128, RECUSA: 129, SNAPSHOT: 130, ENTROU: 131, SAIU: 132,
   APARENCIA: 133, DIALOGO: 134, DIALOGO_FIM: 135, OBJ_DONO: 136,
   OBJ_DESTRUIDO: 137, NEGADO: 138, PORTAL_ABERTO: 139, PORTAL_FECHADO: 140,

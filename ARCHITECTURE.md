@@ -78,12 +78,22 @@ game = {
 | `src/world/barbershop.js` | `buildBarbershop(game)` | interior + cadeira + espelho + quadros + barbeiro |
 | `src/world/grocery.js` | `buildGrocery(game)` | interior + prateleiras + caixa + atendente |
 | `src/player/character.js` | `createCharacter(opts)` | boneco procedural estilo Schedule I |
-| `src/player/appearance.js` | catálogos de 3 opções | cabelos, olhos, bocas, sobrancelhas |
+| `src/player/appearance.js` | `CATALOGS` | 8 cabeças, 5 olhos/pupilas/narizes/bocas/barbas/cabelos/peles (ver PERSONAGEM.md) |
+| `src/player/roupas.js` | catálogos de roupa | 9 categorias × 6: chapéu, blusa, jaqueta, calça, calçado, colar, anel, relógio, tatuagem |
 | `src/player/animation.js` | `createAnimator(character)` | idle/andar/correr/pular procedural |
 | `src/player/controller.js` | `createPlayerController(...)` | movimento + câmera 1ª/3ª pessoa |
 | `src/npc/npc.js` | `createNPC(opts)` | NPC parado com idle, usa `createCharacter` |
 | `src/ui/hud.js` | `createHUD()` | crosshair, prompt E, ajuda, toasts |
-| `src/ui/customizer.js` | `createCustomizer(game)` | painel de troca de cabelo/olhos/boca/sobrancelha |
+| `src/ui/customizer.js` | `createCustomizer(game)` | 19 abas: 10 de rosto (barbeiro) + 9 de roupa (provador) |
+| `src/ui/hotbar.js` | `criarHotbar(opts)` | barra de 4 itens: mãos, anel, arma de portal, revólver |
+| `src/render/luzes-efeito.js` | `criarPoolDeEfeito(scene, n, camera)` | 2 PointLight compartilhadas por TODOS os efeitos; ver a armadilha do recompile de shader no cabecalho do arquivo |
+| `src/world/clima.js` | `criarClima(opts)` | chuva (1 LineSegments) + respingos (1 InstancedMesh) + escurecida |
+| `src/world/agarraveis.js` | `buildAgarraveis()` | os objetos que o anel verde levita, cada um com id estável |
+| `src/armas/revolver.js` | `criarRevolver(opts)` | revólver de 6 balas, mira, recarga tambor a tambor, `aoAcerto` |
+| `src/npc/zumbi.js` | `criarZumbi(opts)` | NPC 1004 da porta da mercearia: são → adoecendo (10 s) → zumbi → morto → sumido. Online quem decide é o servidor; este arquivo só desenha |
+| `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
+| `src/poder/anel.js` | `criarAnel(opts)` | telecinese do anel verde + montagem do helicóptero |
+| `src/poder/portalgun.js` | `criarPortalGun(opts)` | arma de portal: abre portal verde que leva à barbearia |
 
 ## Assinaturas exatas
 
@@ -140,6 +150,26 @@ Player = {
   teleport(x, z, yaw),
 }
 ```
+
+### Arma ↔ alvo (como o tiro vira dano)
+
+Os dois módulos não se conhecem: `main.js` liga uma ponta na outra. A arma diz
+**onde** acertou; o alvo diz **o que** era aquilo.
+
+```js
+// src/armas/revolver.js
+revolver.aoAcerto = ({ ponto, normal, objeto, distancia }) => {}
+
+// quem pode ser alvo expõe isto no userData do seu grupo:
+grupo.userData.parteAtingida = (objeto) => 'cabeca' | 'corpo' | null
+
+// e leva o tiro:
+alvo.levarTiro('cabeca' | 'corpo', { ponto, normal, objeto, distancia })
+```
+
+Qualquer mesh que **não** deve poder ser acertado (sangue, clarão, onda de
+choque, respingo de chuva) marca `o.userData.semTiro = true`. Sem isso o segundo
+tiro acerta a gota de sangue do primeiro, que está exatamente no caminho.
 
 ### Builders de cenário
 ```js

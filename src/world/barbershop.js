@@ -4,6 +4,7 @@ import { LEVELS } from '../config.js'
 import * as Props from './props.js'
 import { createNPC, POSES } from '../npc/npc.js'
 import { HIPS_Y as HIPS_REF } from '../player/character.js'
+import { congelarPersonagem } from '../player/congelar.js'
 import {
   PALETTE, stdMat, solid, emissive, glass, box, cyl, sphere, plane, roundedBox,
   tex, woodTex, tileTex, plasterTex, paintingMat, textPlaneMat,
@@ -1779,6 +1780,24 @@ function spawnNPC(opts, M) {
   return npc
 }
 
+/**
+ * Cola os meshes rigidos de cada junta do NPC (ver player/congelar.js).
+ *
+ * Os tres bonecos da loja nascem vestidos e NUNCA mais trocam de aparencia:
+ * ninguem chama setAppearance/setPose neles depois daqui. Entao os ~85 meshes
+ * soltos de cada um (olho, pupila, nariz, boca, cabelo, blusa, calca, sapato)
+ * podem virar um punhado de meshes por junta. A animacao de npc.js escreve em
+ * JUNTA (rotacao dos bracos, escala do peito, piscada no slot dos olhos) e o
+ * forno preserva junta por junta, entao ela continua funcionando igual.
+ *
+ * Chamar SO depois que tudo que fica pendurado no corpo ja esta no lugar
+ * (avental, fita metrica, capa): o que chegar depois nao entra no bolo.
+ */
+function congelarNPC(npc) {
+  if (!npc || !npc.character || !npc.character.parts) return null
+  return congelarPersonagem(npc.root, { juntas: npc.character.parts })
+}
+
 /** Boneco simplificado caso o modulo de NPC ainda nao esteja pronto. */
 function fallbackNPC(opts, M) {
   const skin = solid(PALETTE.skin, 0.85)
@@ -2524,6 +2543,7 @@ export function buildBarbershop(game) {
   cape.position.set(0, SIT_HIP_Y + 0.47, 0.02)
   cape.scale.set(1.0, 0.62, 1.0) // sentado: a capa so cobre ate o colo
   client.root.add(cape)
+  congelarNPC(client)
 
   // --- barbeiro em pe, do lado direito do cliente ----------------------------
   // Com yaw -PI/2 o lado direito do cliente aponta para +Z do mundo.
@@ -2562,6 +2582,18 @@ export function buildBarbershop(game) {
   apron.position.y = apronHost === barber.root ? 0.95 : 0
   apronHost.add(apron)
   shadowOn(barber.root)
+  // A tesoura e pendurada em handR por npc.js e as DUAS METADES giram (o
+  // "snip"): marca a subarvore dela como animada pro forno nao colar as duas
+  // metades numa peca so. Os slots (anel, relogio) continuam liberados.
+  const maoDaTesoura = barber.character && barber.character.parts
+    && barber.character.parts.handR
+  if (maoDaTesoura) {
+    for (const o of maoDaTesoura.children) {
+      if (o.isMesh || String(o.name).startsWith('slot:')) continue
+      o.traverse((n) => { n.userData.anima = true })
+    }
+  }
+  congelarNPC(barber)
   colliders.push(colAt(barberPos.x, barberPos.z, 0.36, 0.36, 'barbeiro'))
 
   // --- Rosa, a vendedora do provador ----------------------------------------
@@ -2601,6 +2633,7 @@ export function buildBarbershop(game) {
   fita.add(box(0.17, 0.024, 0.012, fitaMat, 0, 0.185, 0.055))
   fita.position.y = fitaHost === rosa.root ? 1.14 : 0
   fitaHost.add(fita)
+  congelarNPC(rosa)
 
   // ======================= INTERACOES =======================
   // Posicoes sao ABSOLUTAS no mundo (ficam fora do group), entao somam FLOOR_Y.

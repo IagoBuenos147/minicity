@@ -4,6 +4,7 @@ import { criarModeloRevolver, N_CAMARAS, ANGULO_ABERTO } from './revolver-modelo
 import {
   criarFogoDeBoca, criarFumaca, criarFaiscas, criarFuros, criarCapsulas,
 } from './efeitos-tiro.js'
+import { PRIORIDADE } from '../render/luzes-efeito.js'
 
 // ---------------------------------------------------------------------------
 // O REVOLVER.
@@ -24,8 +25,11 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Onde a arma fica largada: no beco do quadrante sudeste, encostada na cacamba
- * de lixo que fica em (21.5, 32.2). O beco tem piso em LEVELS.ALLEY = 0.05.
+ * Onde a arma fica largada: no beco do quadrante sudeste, na frente da cacamba
+ * de lixo que fica em (21.5, 32.2) — fora do colisor dela e longe da lixeira
+ * de (24.5, 32.8), pra dar pra chegar perto e apertar E. O beco tem piso em
+ * LEVELS.ALLEY = 0.05 e e o canto mais escuro do mapa, por isso a arma
+ * flutua com uma luz propria (ver atualizarLargado).
  */
 export const REVOLVER_POS = { x: 23.6, y: 0.05, z: 30.9 }
 
@@ -96,11 +100,16 @@ function suave(k) { return k * k * (3 - 2 * k) }   // smoothstep
  * @param dep.hud          opcional, pra toast e pra apagar a mira ao usar alca
  * @param dep.groundY      opcional, (x,z)->altura do chao (onde a capsula para)
  * @param dep.interaction  opcional, pra desligar o "Pegar o revolver" ao pegar
+ * @param dep.poolLuz      opcional, pool de luzes de efeito (ver secao 2)
  */
 export function criarRevolver({ scene, camera, player, character, collision, rede, hud,
-  groundY, interaction }) {
+  groundY, interaction, poolLuz }) {
 
   const chaoEm = typeof groundY === 'function' ? groundY : () => 0
+  // `collision` entra na assinatura porque e o que o contrato do jogo passa
+  // pra todo sistema, mas o tiro nao precisa dele: o raio ja e resolvido
+  // contra a geometria de verdade da cena, que e mais fina que os AABBs.
+  void collision
 
   // Decidido A CADA ACAO, nunca congelado na criacao: o jogo abre antes de
   // conectar, pode nunca conectar e pode cair no meio.
@@ -182,13 +191,43 @@ export function criarRevolver({ scene, camera, player, character, collision, red
   const furos = criarFuros(efeitosRaiz, 14)
   const capsulas = criarCapsulas(efeitosRaiz, 8)
 
-  // Luz do tiro: UMA PointLight SEM SOMBRA, que nasce apagada e nunca some.
-  // Sombra aqui custaria 6 passadas de render por quadro; e mexer em .visible
-  // muda a contagem de luzes e faz o three RECOMPILAR todos os materiais da
-  // cena (engasgo de varios quadros a cada disparo). Apagar e intensity = 0.
-  const luzTiro = new THREE.PointLight(0xffc070, 0, 9, 2)
-  luzTiro.castShadow = false
+  // Luz do tiro: UMA so, emprestada do pool de src/render/luzes-efeito.js.
+  // O que volta nao e uma PointLight, e um proxy — o custo de uma luz no three
+  // e ESTAR na cena, e mexer na quantidade de luzes visiveis faz o renderer
+  // RECOMPILAR todos os materiais da cena (engasgo de varios quadros a cada
+  // disparo). Por isso tambem nunca escondemos nada com .visible: apagar e
+  // intensity = 0. Prioridade ALTA: o clarao dura ~0.06 s e e o que vende o
+  // tiro; perder a vez pra uma aura de fundo seria perde-lo por inteiro.
+  //
+  // Sem pool (modulo solto, num teste) cai de volta pra PointLight de sempre,
+  // sem sombra — sombra aqui custaria 6 passadas de render por quadro.
+  const luzTiro = (poolLuz && typeof poolLuz.emprestar === 'function')
+    ? poolLuz.emprestar({
+      cor: 0xffc070, intensidade: 0, distancia: 9,
+      prioridade: PRIORIDADE.ALTA, nome: 'luz-tiro',
+    })
+    : (() => {
+      const l = new THREE.PointLight(0xffc070, 0, 9, 2)
+      l.castShadow = false
+      l.name = 'luz-tiro'
+      return l
+    })()
   scene.add(luzTiro)
+
+  // Luz separada pro brilho da arma no chao: continua, fraca e de prioridade
+  // BAIXA, pra nunca roubar a vez de um efeito curto perto da camera.
+  const luzLargado = (poolLuz && typeof poolLuz.emprestar === 'function')
+    ? poolLuz.emprestar({
+      cor: 0xffc070, intensidade: 0, distancia: 3.4,
+      prioridade: PRIORIDADE.BAIXA, nome: 'luz-revolver-chao',
+    })
+    : (() => {
+      const l = new THREE.PointLight(0xffc070, 0, 3.4, 2)
+      l.castShadow = false
+      l.name = 'luz-revolver-chao'
+      return l
+    })()
+  scene.add(luzLargado)
   let luzT = 0
 
   // =========================================================================
@@ -214,6 +253,7 @@ export function criarRevolver({ scene, camera, player, character, collision, red
   let ultimoYaw = 0, ultimoPitch = 0
   let sensBase = null            // sensibilidade guardada enquanto mira
   let ultimoTiro = -1            // instante do ultimo disparo (trava clique duplo)
+  let avisoVazioEm = -99         // pra o 'Vazio' nao repetir a cada clique seco
 
   // Quem quiser reagir ao tiro liga isto. Assinatura fixa:
   //   revolver.aoAcerto = ({ ponto, normal, objeto, distancia }) => {}
@@ -224,6 +264,11 @@ export function criarRevolver({ scene, camera, player, character, collision, red
   // =========================================================================
   // 4. EQUIPAR / DESEQUIPAR
   // =========================================================================
+  // Depois de PEGO, o item nunca mais volta pro chao. Sem esta trava,
+  // apertar 1 (Maos) chamava desequipar(), que revelava a copia do mundo e
+  // religava o "Pegar": o jogador via o item reaparecer no lugar de onde o
+  // tinha tirado, e podia "pegar" de novo o que ja estava na barra dele.
+  let pego = false
   function equipar() {
     if (equipado) return
     equipado = true
@@ -235,7 +280,9 @@ export function criarRevolver({ scene, camera, player, character, collision, red
     paiAtual = null                 // forca o reparent no primeiro quadro
     ultimoYaw = camera.rotation.y
     ultimoPitch = camera.rotation.x
-    // a luz volta a ser so o clarao do tiro (ver atualizarLargado)
+    // o brilho da arma no chao apaga junto com ela (senao fica uma lanterna
+    // acesa no beco pra sempre, gastando vaga no pool de luzes)
+    luzLargado.intensity = 0
     luzTiro.intensity = 0
     luzTiro.distance = 9
     if (interaction && typeof interaction.setEnabled === 'function') {
@@ -258,8 +305,9 @@ export function criarRevolver({ scene, camera, player, character, collision, red
     modelo.grupo.position.set(0, 0, 0)
     modelo.grupo.rotation.set(0, 0, 0)
     modelo.mao.visible = false
-    grupoNoMundo.visible = true
-    if (interaction && typeof interaction.setEnabled === 'function') {
+    // so reaparece no beco se nunca tiver sido pego (ver a trava `pego`)
+    grupoNoMundo.visible = !pego
+    if (!pego && interaction && typeof interaction.setEnabled === 'function') {
       interaction.setEnabled('revolver', true)
     }
   }
@@ -270,6 +318,7 @@ export function criarRevolver({ scene, camera, player, character, collision, red
     radius: 2.1,
     label: 'Pegar o revolver',
     onInteract(game) {
+      pego = true
       equipar()
       // o sistema de interacao COPIA os campos, entao desligar so vale por id
       const it = (game && game.interaction) || interaction
@@ -320,7 +369,12 @@ export function criarRevolver({ scene, camera, player, character, collision, red
     if (camaras[indice] !== 'bala') {
       // CLIQUE SECO: so o martelo batendo em camara vazia.
       avancarCamara()
-      if (contarBalas() === 0) avisar('Vazio. Aperte R pra recarregar.')
+      // Um toast por clique seco viraria uma pilha de mensagens: quem esta
+      // sem bala clica varias vezes seguidas.
+      if (contarBalas() === 0 && tempo - avisoVazioEm > 3) {
+        avisoVazioEm = tempo
+        avisar('Vazio. Aperte R pra recarregar.')
+      }
       return false
     }
 
@@ -421,6 +475,8 @@ export function criarRevolver({ scene, camera, player, character, collision, red
       if (character && character.root && filho === character.root) continue
       if (!filho.visible) continue
       if (filho.isLight || filho.isCamera) continue
+      // proxies do pool de luzes: Object3D vazios, nunca sao alvo de tiro
+      if (filho.userData && filho.userData.luzProxy) continue
       alvos.push(filho)
     }
     acertos.length = 0
@@ -660,15 +716,19 @@ export function criarRevolver({ scene, camera, player, character, collision, red
     modelo.grupo.rotation.z = 0.20 + Math.sin(tempo * 0.9) * 0.06
     modelo.grupo.rotation.x = -0.10
     matDisco.opacity = 0.020 + Math.sin(tempo * 2.2) * 0.008
-    // A MESMA PointLight do tiro faz o farolete da arma largada. As duas
-    // coisas nunca acontecem juntas (pra atirar tem que estar equipada), e
-    // uma segunda luz so pra isto sairia caro: o beco ja e o canto mais
-    // escuro do mapa e trocar a contagem de luzes recompila a cena inteira.
+    // O farolete da arma largada tem luz PROPRIA, e de baixa prioridade.
+    // Ja usou a mesma do tiro, e foi um erro caro: o clarao do disparo pede
+    // PRIORIDADE.ALTA (e um lampejo de 0.06 s que, se perder a vez, se perde
+    // inteiro), mas este brilho aqui e CONTINUO e comeca aceso na abertura do
+    // jogo. Com peso = intensidade x prioridade, um brilho de fundo passava a
+    // valer mais que tudo e prendia uma das duas luzes reais da cena a 60 m da
+    // camera, com alcance de 3.4 m — iluminando pixel nenhum enquanto a aura
+    // do zumbi, a dois metros do jogador, ficava apagada.
     // A luz fica ACIMA da arma, nao dentro dela: com decaimento quadratico,
     // uma PointLight colada no mesh transforma a arma numa lampada.
-    luzTiro.position.set(REVOLVER_POS.x, REVOLVER_POS.y + 1.00, REVOLVER_POS.z)
-    luzTiro.distance = 3.4
-    luzTiro.intensity = 1.15 + Math.sin(tempo * 2.2) * 0.22
+    luzLargado.position.set(REVOLVER_POS.x, REVOLVER_POS.y + 1.00, REVOLVER_POS.z)
+    luzLargado.distance = 3.4
+    luzLargado.intensity = 1.15 + Math.sin(tempo * 2.2) * 0.22
   }
 
   /** Troca o pai do suporte quando o modo de camera muda. */
@@ -873,6 +933,11 @@ export function criarRevolver({ scene, camera, player, character, collision, red
     furos.dispose(); capsulas.dispose()
     scene.remove(efeitosRaiz)
     scene.remove(luzTiro)
+    scene.remove(luzLargado)
+    if (poolLuz && typeof poolLuz.devolver === 'function') {
+      poolLuz.devolver(luzTiro)
+      poolLuz.devolver(luzLargado)
+    }
     if (suporte.parent) suporte.parent.remove(suporte)
     modelo.dispose()
     geoDisco.dispose(); matDisco.dispose()
@@ -881,6 +946,15 @@ export function criarRevolver({ scene, camera, player, character, collision, red
 
   return {
     grupoNoMundo,
+    /** Ja esta com o jogador (voltou pelo BEMVINDO, por exemplo): some do
+     *  mundo e nao pode mais ser pego do chao. */
+    marcarPego() {
+      pego = true
+      grupoNoMundo.visible = false
+      if (interaction && typeof interaction.setEnabled === 'function') {
+        interaction.setEnabled('revolver', false)
+      }
+    },
     interactable,
     equipar,
     desequipar,

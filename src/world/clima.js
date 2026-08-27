@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { BARBER, GROCERY, FILLERS } from './layout.js'
 
 // ---------------------------------------------------------------------------
 // CLIMA — chuva suave.
@@ -63,11 +64,20 @@ function texturaRespingo() {
  * @param dep.renderer opcional; sem ele a exposicao nao e mexida
  * @param dep.groundY  opcional, (x,z)->altura do chao pros respingos
  * @param dep.inicial  opcional, forca inicial 0..1 (padrao: chuva mansa)
+ * @param dep.lighting opcional, o ciclo de dia. COM ele o ceu fecha junto com a
+ *                     chuva (lighting.setNublado); sem ele sobra o filtro de
+ *                     neblina daqui, que escurece mas nao muda o ceu.
  */
-export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
+export function criarClima({ scene, camera, renderer, groundY, inicial, lighting } = {}) {
+  // Quem fecha o ceu e o lighting, se ele existir: ceu, sol, nuvem, neblina e
+  // exposicao sao DELE, e ele reescreve tudo todo quadro. Dois donos do mesmo
+  // valor sempre acabam em escuridao dobrada ou em um apagando o outro.
+  const fechaCeu = lighting && typeof lighting.setNublado === 'function'
   const chaoEm = typeof groundY === 'function' ? groundY : null
 
   const grupo = new THREE.Group()
+  // nada do clima e alvo de tiro (ver as marcas em cada mesh abaixo)
+  grupo.userData.semTiro = true
   grupo.name = 'clima'
 
   // =========================================================================
@@ -89,6 +99,10 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
     fog: true,           // a chuva longe some junto com o resto: da profundidade
   })
   const gotas = new THREE.LineSegments(geoGotas, matGotas)
+  // O tiro atravessa a chuva. Sem esta marca o raycast do revolver acerta a
+  // gota que esta a 30 cm da cara do jogador e nenhuma bala chega ao alvo —
+  // e chove o tempo todo, entao a arma simplesmente nao funcionaria.
+  gotas.userData.semTiro = true
   // A caixa anda todo quadro; deixar o three recalcular bounding sphere seria
   // pagar por um culling que nunca vai cortar nada (a caixa cerca a camera).
   gotas.frustumCulled = false
@@ -96,6 +110,65 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
   gotas.receiveShadow = false
   gotas.renderOrder = 6
   grupo.add(gotas)
+
+  // =========================================================================
+  // 1b. O QUE TEM TELHADO
+  // =========================================================================
+  // Sem isto chove DENTRO da barbearia e da mercearia — a caixa de gotas cerca
+  // a camera e nao sabe o que existe acima dela. Foi visto em foto.
+  //
+  // Nao adianta simplesmente desligar a chuva quando o jogador entra: as duas
+  // lojas tem vitrine, e olhar pela vitrine numa tarde de chuva e ver a rua
+  // molhada. Entao a decisao e POR GOTA: cada uma pergunta se o chao dela esta
+  // coberto. As de dentro somem, as da rua continuam caindo do outro lado do
+  // vidro.
+  //
+  // A pergunta e respondida por uma grade de 1 m montada UMA vez: por gota,
+  // por quadro, seria caixa por caixa vezes 1500 gotas. Assim e uma leitura.
+  const COB = (() => {
+    const caixas = []
+    const push = (b) => { if (b) caixas.push([b.x0, b.x1, b.z0, b.z1]) }
+    push(BARBER); push(GROCERY)
+    for (const f of FILLERS) push(f)
+    if (!caixas.length) return null
+
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+    for (const c of caixas) {
+      if (c[0] < x0) x0 = c[0]; if (c[1] > x1) x1 = c[1]
+      if (c[2] < z0) z0 = c[2]; if (c[3] > z1) z1 = c[3]
+    }
+    // margem de 1 m: a borda do telhado passa um pouco da parede
+    x0 -= 1; z0 -= 1; x1 += 1; z1 += 1
+    const w = Math.ceil(x1 - x0), d = Math.ceil(z1 - z0)
+    const g = new Uint8Array(w * d)
+    // Sem folga extra em volta de cada predio. Uma folga de meio metro para
+    // cada lado, arredondada pra fora, virava quase 3 m de telhado imaginario
+    // entre dois predios — e fechava os BECOS, que sao ruas de verdade aqui (o
+    // revolver esta largado num deles). A celula de 1 m ja da o beiral: a
+    // borda do predio cai no meio de uma celula e a celula inteira conta como
+    // coberta.
+    for (const c of caixas) {
+      const a = Math.max(0, Math.floor(c[0] - x0))
+      const b = Math.min(w - 1, Math.floor(c[1] - x0))
+      const e = Math.max(0, Math.floor(c[2] - z0))
+      const f = Math.min(d - 1, Math.floor(c[3] - z0))
+      for (let iz = e; iz <= f; iz++) for (let ix = a; ix <= b; ix++) g[iz * w + ix] = 1
+    }
+    return { g, x0, z0, w, d }
+  })()
+
+  /** Tem telhado em cima deste ponto? */
+  function coberto(x, z) {
+    if (!COB) return false
+    // Math.floor, e nao |0: para um ponto ANTES da origem da grade o |0 trunca
+    // na direcao do zero (-0.4 vira 0) e o ponto entraria na primeira celula em
+    // vez de ser recusado. Aqui a cidade tem coordenada negativa dos dois lados.
+    const ix = Math.floor(x - COB.x0)
+    if (ix < 0 || ix >= COB.w) return false
+    const iz = Math.floor(z - COB.z0)
+    if (iz < 0 || iz >= COB.d) return false
+    return COB.g[iz * COB.w + ix] === 1
+  }
 
   // Estado de cada gota, tudo em arrays planos (zero objeto por gota).
   const gx = new Float32Array(MAX_GOTAS)
@@ -129,6 +202,7 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
   const geoResp = new THREE.PlaneGeometry(1, 1)
   geoResp.rotateX(-Math.PI / 2)        // deitado no chao ja na geometria
   const respingos = new THREE.InstancedMesh(geoResp, matResp, MAX_RESPINGOS)
+  respingos.userData.semTiro = true   // idem: respingo no chao nao para bala
   respingos.frustumCulled = false
   respingos.castShadow = false
   respingos.receiveShadow = false
@@ -167,6 +241,7 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
   let escritoDens = -1
 
   function restaurarAmbiente() {
+    if (fechaCeu) { lighting.setNublado(0); return }
     if (!temBase) return
     if (scene && scene.fog) {
       scene.fog.density = baseDens
@@ -178,6 +253,7 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
   }
 
   function aplicarAmbiente(i) {
+    if (fechaCeu) { lighting.setNublado(i); return }
     const f = scene && scene.fog
     if (!f) return
     if (!temBase || Math.abs(f.density - escritoDens) > 1e-7) {
@@ -271,7 +347,7 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
         // bateu no chao: respinga (as vezes) e volta pro topo em outro lugar
         if (podeRespingar) {
           const ddx = x - cx, ddz = z - cz
-          if (ddx * ddx + ddz * ddz < RESPINGO_RAIO * RESPINGO_RAIO) {
+          if (ddx * ddx + ddz * ddz < RESPINGO_RAIO * RESPINGO_RAIO && !coberto(x, z)) {
             nascerRespingo(x, z, cy)
             acumResp -= 1
             podeRespingar = acumResp > 0
@@ -282,10 +358,19 @@ export function criarClima({ scene, camera, renderer, groundY, inicial } = {}) {
       }
       gx[i] = x; gy[i] = y; gz[i] = z
 
+      const o = i * 6
+      // Debaixo de telhado a gota continua existindo e caindo (ela vai sair do
+      // predio pelo wrap), so nao e DESENHADA: os dois pontos do risco viram o
+      // mesmo ponto e o segmento nao cobre pixel nenhum. Mais barato do que
+      // remontar a lista de gotas visiveis a cada quadro.
+      if (coberto(x, z)) {
+        posGotas[o] = x; posGotas[o + 1] = y; posGotas[o + 2] = z
+        posGotas[o + 3] = x; posGotas[o + 4] = y; posGotas[o + 5] = z
+        continue
+      }
       // o risco aponta pra tras no sentido da queda (inclui a deriva do vento)
       const len = gl[i]
       const k = len / gv[i]
-      const o = i * 6
       posGotas[o] = x
       posGotas[o + 1] = y
       posGotas[o + 2] = z

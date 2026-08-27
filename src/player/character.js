@@ -390,6 +390,11 @@ export function createCharacter(opts = {}) {
 
   const peitoNu = part(latheGeo(CHEST_PROFILE), 'skin')
   peitoNu.scale.set(NU_S, 1, NU_S)
+  // A RESPIRACAO (animation.js applyBreath) escala os meshes filhos diretos do
+  // 'chest' um por um, guardando a escala de cada um. userData.anima avisa o
+  // forno de congelar.js: este mesh e alvo de animacao, nao pode ser fundido
+  // com os vizinhos nem perder a propria escala pra dentro da geometria.
+  peitoNu.userData.anima = true
   chest.add(peitoNu)
   nu.peito.push(peitoNu)
 
@@ -551,6 +556,13 @@ export function createCharacter(opts = {}) {
     slots[k] = g
     ANCORA[k].add(g)
   }
+  // A PISCADA nao mexe numa palpebra solta: ela achata o GRUPO dos olhos em Y
+  // (npc.js e animation.js fazem os dois igual, escrevendo scale.y e
+  // position.y neste Group). userData.anima marca o slot como animado pro
+  // forno de congelar.js preservar o transform dele — o que estiver dentro
+  // pode ser fundido a vontade, porque pisca tudo junto.
+  slots.olhos.userData.anima = true
+
   // apelidos em ingles: npc.js pisca em slots.eyes, e o customizer antigo usa
   // os quatro nomes velhos. Sao o MESMO Group, nao uma copia.
   slots.hair = slots.cabelo

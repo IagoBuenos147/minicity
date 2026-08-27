@@ -103,8 +103,25 @@ export function createAnimator(character) {
       if (!c || !c.position) continue
       const y = offY + c.position.y
       if (c.children && c.children.length) scanEyes(c, y, acc, depth + 1)
-      else { acc.sum += y; acc.n++ }
+      else { acc.sum += y + centroDaGeo(c); acc.n++ }
     }
+  }
+
+  // Altura do miolo da geometria da folha, e nao so a posicao do no.
+  // Sem isto o forno de personagem (player/congelar.js) quebra a piscada dos
+  // NPCs: ele funde os globos num mesh so, e esse mesh fica na ORIGEM do slot
+  // com a altura toda dentro da geometria. A media das posicoes daria zero, o
+  // olho passaria a achatar em volta do lugar errado e escorregaria pra baixo
+  // a cada piscada. Com o miolo da geometria a conta continua certa antes e
+  // depois do forno.
+  function centroDaGeo(m) {
+    const g = m && m.geometry
+    if (!g || !g.attributes || !g.attributes.position) return 0
+    if (!g.boundingBox) g.computeBoundingBox()
+    const b = g.boundingBox
+    if (!b) return 0
+    const sy = m.scale ? m.scale.y : 1
+    return ((b.min.y + b.max.y) / 2) * sy
   }
 
   function measureEyes(g) {

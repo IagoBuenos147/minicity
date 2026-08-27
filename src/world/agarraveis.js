@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { AGARRAVEIS, TIPOS_AGARRAVEL } from '../comum/mundo.js'
 import { solid, box, cyl, roundedBox, woodTex, PALETTE } from './materials.js'
+import { bakeStatic } from './bake.js'
 
 // ---------------------------------------------------------------------------
 // Os objetos que o anel verde consegue levitar.
@@ -10,8 +11,13 @@ import { solid, box, cyl, roundedBox, woodTex, PALETTE } from './materials.js'
 // servidor discordarem sobre um id, o objeto some ou levita sozinho — entao a
 // fonte e uma so, e e la.
 //
-// Estes meshes NAO entram no forno de geometria (bake) do city.js: eles se
-// mexem. Cada um fica solto na cena, com o id no userData.
+// Estes objetos NAO entram no forno de geometria (bake) do city.js: eles se
+// mexem, e fundi-los com a rua colaria um caixote no asfalto. Cada um fica
+// solto na cena, com o id no userData.
+//
+// Mas cada objeto passa pelo forno SOZINHO (ver buildAgarraveis): por dentro
+// ele e rigido, entao os meshes dele viram um por material. O objeto continua
+// inteiro e continua se mexendo — o que muda e so quantos draw calls custa.
 // ---------------------------------------------------------------------------
 
 function mkCaixote(t) {
@@ -148,9 +154,29 @@ export function buildAgarraveis() {
     if (!t) { console.warn('tipo agarravel desconhecido:', def.tipo); continue }
     const fab = FABRICAS[def.tipo] || mkCaixa
     const m = fab(t)
+    // as sombras entram ANTES do forno: ele separa por material E por sombra,
+    // entao marcar depois deixaria cada peca no balde errado
+    m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+
+    // FORNO DE GEOMETRIA. Um agarravel e um CORPO RIGIDO: as doze ripas do
+    // caixote nunca se mexem uma em relacao a outra, entao fundi-las num mesh
+    // por material nao perde nada e tira ~160 draw calls da rua. O objeto `m`
+    // continua sendo O MESMO objeto — e por ele, e pelo id em userData, que a
+    // rede e o anel falam deste agarravel — e o forno preserva a pose local de
+    // cada peca, entao mover/girar `m` continua funcionando igual.
+    //
+    // Roda aqui, com o grupo ainda na origem e sem giro: assim a matriz do
+    // root e a identidade e o forno so precisa reescrever as pecas.
+    //
+    // O destaque da mira (o contorno BackSide de anel.js) empresta a geometria
+    // do PRIMEIRO mesh do grupo. O forno mantem a ordem dos materiais como
+    // apareceram na fabrica, e em todas elas o primeiro material e o dominante
+    // (a madeira do caixote, o papelao da caixa, a chapa da lata) — entao o
+    // contorno passa a envolver o objeto inteiro em vez de uma ripa so.
+    bakeStatic(m)
+
     m.position.set(def.x, def.y, def.z)
     m.rotation.y = ((def.id * 2654435761) % 1000) / 1000 * Math.PI * 2  // giro estavel por id
-    m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
     // o ID mora aqui: e por ele que a rede e o anel falam deste objeto
     m.userData.agarravelId = def.id
     m.userData.tipo = def.tipo

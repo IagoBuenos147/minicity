@@ -13,6 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { garantirServidor } from './servidor-dev.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const URL_BASE = process.env.GAME_URL || 'http://localhost:5173'
@@ -108,6 +109,8 @@ try {
     const t = m.text()
     if (m.type() === 'error' && !t.includes('favicon') && !t.includes('404')) errors.push(t)
   })
+
+  await garantirServidor(URL_BASE)
 
   await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await page.waitForFunction('window.__game && window.__game.scene', { timeout: 60000 })

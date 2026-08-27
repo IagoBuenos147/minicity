@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { solid, tex, PALETTE } from '../world/materials.js'
+import { bakeStatic } from '../world/bake.js'
 
 // ---------------------------------------------------------------------------
 // O SKATE.
@@ -290,7 +291,14 @@ export function construir() {
     eixo.castShadow = false
     truck.add(eixo)
 
-    // as duas rodas deste truck
+    // As duas rodas deste truck num EIXO so. O truck ja tem a origem no centro
+    // do eixo e as duas rodas ficam em cima do proprio X local (y = z = 0),
+    // ou seja, EM CIMA do eixo de giro: girar este grupo em X gira cada roda em
+    // torno do proprio centro, exatamente como girar as duas separadas. Com
+    // isso as quatro rodas custam 4 draw calls em vez de 8, e o resto do truck
+    // (base, pino, buchas, hanger) fica de fora, parado, como tem que ficar.
+    const eixoRodas = new THREE.Group()
+    truck.add(eixoRodas)
     for (const sx of [-1, 1]) {
       const roda = new THREE.Mesh(geoRoda, matRoda)
       roda.position.set(sx * EIXO_X, 0, 0)
@@ -298,9 +306,19 @@ export function construir() {
       const nucleo = new THREE.Mesh(geoNucleo, matNucleo)
       nucleo.castShadow = false
       roda.add(nucleo)                // gira junto: e o que deixa o giro visivel
-      truck.add(roda)
-      rodas.push(roda)
+      eixoRodas.add(roda)
     }
+    // uretano e nucleo sao rigidos entre si: viram dois meshes, um por material
+    bakeStatic(eixoRodas)
+    eixoRodas.userData.dynamic = true      // o forno do skate nao pode engoli-lo
+    // O contrato de veiculos.js le estes dois campos do proprio no:
+    //   raio    senao ele mede a caixa do PAR de rodas (larga demais) e o giro
+    //           sairia lento demais pro chao que passa embaixo;
+    //   esterca senao ele deduz pelo z > 0.05 e o eixo da frente comecaria a
+    //           estercar — e no skate quem vira e o deck, nunca a roda.
+    eixoRodas.userData.raio = RODA_R
+    eixoRodas.userData.esterca = false
+    rodas.push(eixoRodas)
   }
 
   // --- assento: em pe, de lado ----------------------------------------------
@@ -315,7 +333,17 @@ export function construir() {
   // do boneco (que fica nos pes) encosta
   assento.userData.pose = 'empe'
   assento.userData.ancora = 'pes'
+  // nao e mesh: sem a marca o forno o varreria junto com os grupos vazios e o
+  // skatista perderia o ponto onde apoia os pes
+  assento.userData.dynamic = true
   pivo.add(assento)                  // dentro do pivo: o skatista tomba com o deck
+
+  // FORNO. Funde o PIVO, nao o grupo: e o pivo que o sistema tomba na curva
+  // (rotation.z), entao ele tem que continuar existindo como no. Por dentro
+  // dele o deck (madeira + lixa + arte + 16 parafusos) e os dois trucks sao
+  // rigidos — nada disso se mexe enquanto o skate anda. Ficam de fora so os
+  // dois eixos de roda e o assento, ja marcados acima.
+  bakeStatic(pivo)
 
   grupo.userData.pivo = pivo         // o sistema inclina ESTE, nao o grupo
   grupo.userData.assento = assento
@@ -330,8 +358,12 @@ export function construir() {
 //
 // - `assento` marca onde vai a RAIZ do personagem, que em character.js fica NOS
 //   PES (ARCHITECTURE.md). Por isso ele esta na face de cima do deck.
-// - `rodas` sao Mesh com o eixo ja deitado no X: o sistema so precisa somar em
-//   roda.rotation.x (rad = distancia / RODA_R). Nenhuma esterca.
+// - `rodas` sao os DOIS eixos (um por truck), nao as quatro rodas: cada eixo e
+//   um Object3D com as duas rodas do truck em cima do proprio X, entao somar em
+//   eixo.rotation.x (rad = distancia / RODA_R) gira as duas em torno do centro
+//   delas, que e o mesmo efeito de girar cada roda separada — por metade dos
+//   draw calls. Cada eixo leva userData.raio (senao o sistema mede a caixa do
+//   par e o giro sai lento) e userData.esterca = false (nenhuma esterca).
 // - `grupo.userData.pivo` existe pro sistema inclinar o skate na curva
 //   (rotation.z) sem tirar as rodas do chao. Ignorar isso e inclinar o grupo
 //   inteiro tambem funciona — so afunda um pouco as rodas.

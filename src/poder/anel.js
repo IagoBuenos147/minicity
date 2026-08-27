@@ -7,6 +7,7 @@ import {
   criarFeixe, criarContorno, criarClarao, criarAnelDeChoque,
   criarQuebra, criarRastro, criarOrbita, COR_VERDE,
 } from './efeitos.js'
+import { PRIORIDADE } from '../render/luzes-efeito.js'
 
 // ---------------------------------------------------------------------------
 // O ANEL VERDE (telecinese).
@@ -56,9 +57,10 @@ const _origem = new THREE.Vector3()
  * @param dep.hud     opcional, so pra toast
  * @param dep.groundY opcional, (x,z)->altura do chao; sem ele o chao e y=0
  * @param dep.interaction opcional, pra desligar o "Pegar o anel" ao equipar
+ * @param dep.poolLuz opcional, pool de luzes de efeito (ver secao 2)
  */
 export function criarAnel({ scene, camera, player, character, collision, rede, hud,
-  groundY, interaction }) {
+  groundY, interaction, poolLuz }) {
 
   const chaoEm = typeof groundY === 'function' ? groundY : () => 0
   // Sem rede (rodando o single player de sempre) o modulo continua jogavel: ele
@@ -136,24 +138,39 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
   haloMao.renderOrder = 2
 
   // =========================================================================
-  // 2. LUZES — o orcamento inteiro do poder sao DUAS PointLight, sem sombra
+  // 2. LUZES — duas "luzes", emprestadas do pool compartilhado da cena
   // =========================================================================
-  // O resto da cena tem so o sol projetando sombra. Uma PointLight com sombra
-  // custa 6 passadas de render; duas dessas derrubariam os 60 fps sozinhas.
   // luzAnel acompanha o anel (chao ou dedo). luzObjeto vive no objeto levitado
   // e e a MESMA luz reaproveitada pros claroes de agarrar/arremessar/quebrar —
   // por isso nao existe uma terceira.
-  const luzAnel = new THREE.PointLight(COR_VERDE, 3.2, 8, 2)
-  luzAnel.castShadow = false
+  //
+  // As duas vem de src/render/luzes-efeito.js: nao sao PointLight, sao PROXIES.
+  // O motivo esta la, mas o resumo e: o custo de uma luz no three e ESTAR na
+  // cena, nao acender, e mudar a quantidade de luzes visiveis obriga o renderer
+  // a recompilar todos os materiais (engasgo de varios quadros a cada
+  // agarrar/soltar). Com o pool, a contagem de luzes da cena e constante e
+  // estes dois efeitos disputam as luzes reais com os outros.
+  //
+  // Sem pool (modulo usado solto, num teste), cai de volta pra PointLight de
+  // sempre — sem sombra, que uma PointLight com sombra custa 6 passadas.
+  function novaLuz(cor, intensidade, distancia, prioridade, nome) {
+    if (poolLuz && typeof poolLuz.emprestar === 'function') {
+      return poolLuz.emprestar({ cor, intensidade, distancia, prioridade, nome })
+    }
+    const l = new THREE.PointLight(cor, intensidade, distancia, 2)
+    l.castShadow = false
+    l.name = nome
+    return l
+  }
+
+  // Prioridade BAIXA: e uma aura continua e o aro ja tem emissivo proprio.
+  const luzAnel = novaLuz(COR_VERDE, 3.2, 8, PRIORIDADE.BAIXA, 'luz-anel')
   luzAnel.position.set(ANEL_MUNDO.x, ANEL_MUNDO.y + 0.44, ANEL_MUNDO.z)
   scene.add(luzAnel)
 
-  // As duas luzes nascem VISIVEIS e nunca sao escondidas: apagar uma PointLight
-  // com .visible muda a contagem de luzes da cena, e o three recompila TODOS os
-  // materiais quando isso acontece — um engasgo de varios quadros a cada
-  // agarrar/soltar. Apagar e sempre intensity = 0, que nao custa recompilacao.
-  const luzObjeto = new THREE.PointLight(COR_VERDE, 0, 11, 2)
-  luzObjeto.castShadow = false
+  // Prioridade MEDIA: metade do tempo e aura, metade e clarao curto de evento.
+  // Nunca escondemos nenhuma das duas com .visible — apagar e intensity = 0.
+  const luzObjeto = novaLuz(COR_VERDE, 0, 11, PRIORIDADE.MEDIA, 'luz-objeto')
   scene.add(luzObjeto)
   let luzObjAlvo = 0        // intensidade que a luz persegue
   let luzObjPico = 0        // pico somado por cima (clarao) que decai sozinho
@@ -457,14 +474,20 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
     avisar('Anel equipado. Botao esquerdo agarra, direito recoloca.')
   }
 
+  // Depois de PEGO, o item nunca mais volta pro chao. Sem esta trava,
+  // apertar 1 (Maos) chamava desequipar(), que revelava a copia do mundo e
+  // religava o "Pegar": o jogador via o item reaparecer no lugar de onde o
+  // tinha tirado, e podia "pegar" de novo o que ja estava na barra dele.
+  let pego = false
   function desequipar() {
     if (!equipado) return
     if (seguroId) recolocar()
     equipado = false
     if (aroMao.parent) aroMao.parent.remove(aroMao)
     if (haloMao.parent) haloMao.parent.remove(haloMao)
-    grupoNoChao.visible = true
-    if (interaction && typeof interaction.setEnabled === 'function') {
+    // so reaparece no chao se nunca tiver sido pego (ver a trava `pego`)
+    grupoNoChao.visible = !pego
+    if (!pego && interaction && typeof interaction.setEnabled === 'function') {
       interaction.setEnabled('anel-verde', true)
     }
     luzAnel.distance = 8
@@ -478,6 +501,7 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
     radius: 2.1,
     label: 'Pegar o anel',
     onInteract(game) {
+      pego = true
       equipar()
       // o sistema de interacao copia os campos, entao desligar so vale por id
       const it = (game && game.interaction) || interaction
@@ -1164,6 +1188,9 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
     clarao.dispose(); choque.dispose(); quebra.dispose()
     rastro.dispose(); orbitaChao.dispose(); orbitaObj.dispose()
     scene.remove(luzAnel, luzObjeto)
+    if (poolLuz && typeof poolLuz.devolver === 'function') {
+      poolLuz.devolver(luzAnel); poolLuz.devolver(luzObjeto)
+    }
     if (aroMao.parent) aroMao.parent.remove(aroMao)
     if (haloMao.parent) haloMao.parent.remove(haloMao)
     if (grupoNoChao.parent) grupoNoChao.parent.remove(grupoNoChao)
@@ -1176,6 +1203,15 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
 
   return {
     grupoNoChao,
+    /** Ja esta com o jogador (voltou pelo BEMVINDO, por exemplo): some do
+     *  mundo e nao pode mais ser pego do chao. */
+    marcarPego() {
+      pego = true
+      grupoNoChao.visible = false
+      if (interaction && typeof interaction.setEnabled === 'function') {
+        interaction.setEnabled('anel-verde', false)
+      }
+    },
     interactable,
     equipar,
     desequipar,

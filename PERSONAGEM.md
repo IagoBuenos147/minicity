@@ -31,7 +31,8 @@ olhos semicerrados com pupilas diferentes, barba, roupa. É isso que se busca.
 | 18 | `jaqueta` | 6 | 0 = nenhuma |
 | 19 | reservado | — | folga para não mexer no protocolo de novo |
 
-`VERSAO_PROTOCOLO` **sobe para 3** (o pacote de aparência mudou de tamanho).
+`VERSAO_PROTOCOLO` subiu para 3 aqui (o pacote de aparência mudou de tamanho) e
+depois para **4**, quando o zumbi passou a ser do servidor (ver `REDE.md`).
 
 **Isso viaja pela rede**: se um jogador muda o visual, todos os outros veem na
 hora. Já existe `MINHA_APARENCIA` (cliente→servidor) e `APARENCIA`
@@ -121,5 +122,18 @@ Ao sentar na cadeira (barbeiro) ou usar o provador:
 | `src/player/animation.js` | idle com peso |
 | `src/player/controller.js` | câmera de 1ª pessoa suave |
 | `src/ui/customizer.js` | UI das categorias + câmera de close que não atravessa parede |
-| `src/comum/mundo.js` | posição do provador, `VERSAO_PROTOCOLO = 3` |
+| `src/comum/mundo.js` | posição do provador, `VERSAO_PROTOCOLO` (hoje 4) |
 | `src/comum/protocolo.js` | aparência de 20 bytes |
+
+## 9. O que mais entrou nesta onda (fora do personagem)
+
+| Item | Onde | Como se usa |
+|---|---|---|
+| Chuva | `src/world/clima.js` | fina e clara de propósito: dá pra ver a rua atrás dela. `setChuva(0..1)`, começa em 0.45 |
+| Muro com grafite | `src/world/city.js` | parede de concreto 14×3 m em x −13.55, z −30..−16; arte desenhada em canvas 2048×468 |
+| Árvore conífera | `src/world/props.js` | `makeTree(seed)` — 13 a 17 andares serrilhados, 3 espécies pelo seed; **todas** as árvores da cidade usam esta |
+| Revólver | `src/armas/revolver.js` | no chão do beco (23.6, 30.9). Slot **4** da barra. Bt.Esq atira, Bt.Dir mira, **R** recarrega. 6 balas, munição infinita |
+| Zumbi | `src/npc/zumbi.js` | NPC **1004**, na porta da mercearia. **E** → ele diz que não está bem → 10 s → vira zumbi e vem pra cima. 1 tiro na cabeça ou 3 no corpo. O **servidor** é dono do estado, da posição e da vida; o cliente só desenha e faz o juice (ver `REDE.md`) |
+
+Os testes que cobrem isto: `node tools/teste-combate.mjs` (17 casos) e
+`node tools/teste-aparencia.mjs` (23 casos, o visual viajando pela rede).

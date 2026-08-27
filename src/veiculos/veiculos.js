@@ -468,7 +468,14 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     if (player && player.setMode && modoSalvo) player.setMode(modoSalvo)
     if (hud && typeof hud.setPrompt === 'function') hud.setPrompt(null)
 
+    // Zerar a inclinacao TAMBEM, e nao so a velocidade. A rolagem e o mergulho
+    // sao amortecidos em aplicarPose(), que roda apenas para o veiculo que EU
+    // dirijo — largar a moto no meio de uma curva deixava ela deitada para
+    // sempre, porque ninguem mais amortecia aquele valor de volta a zero.
     v.vel = 0; v.velLat = 0; v.giro = 0
+    v.rolagem = 0; v.mergulho = 0; v.inclFrente = 0
+    if (v.pivoInclina) v.pivoInclina.rotation.z = 0
+    v.grupo.rotation.set(0, v.yaw, 0)
   }
 
   function sair() {

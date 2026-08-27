@@ -2,6 +2,13 @@ import * as THREE from 'three'
 import { createCharacter } from '../player/character.js'
 import { HEAD_S, EYE_ANCHOR, surfaceZ } from '../player/appearance.js'
 import { textPlaneMat } from '../world/materials.js'
+import { PRIORIDADE } from '../render/luzes-efeito.js'
+import {
+  NPC_POR_CHAVE, ZUMBI_ID,
+  ZUMBI_DOENCA, ZUMBI_GRITO, ZUMBI_VEL, ZUMBI_DIST_ATAQUE, ZUMBI_VIDA_MAX,
+  ZUMBI_RAIO,
+} from '../comum/mundo.js'
+import { EST_NPC } from '../comum/protocolo.js'
 
 // ---------------------------------------------------------------------------
 // O RAPAZ DA PORTA DA MERCEARIA — adoece na sua frente e vira zumbi.
@@ -34,34 +41,81 @@ import { textPlaneMat } from '../world/materials.js'
 //
 // DANO: 1 tiro na cabeca mata (VIDA_MAX de dano de uma vez), 3 no corpo matam.
 //
-// REDE: o servidor e o dono do mundo (REDE.md), mas o protocolo de hoje nao tem
-// mensagem pra este NPC. Entao vale a mesma regra do anel: `ehLocal()` e
-// decidido A CADA acao, e sem suporte do servidor este arquivo responde a si
-// mesmo pelo MESMO caminho do evento de rede (aoEventoDeRede). No dia em que o
-// servidor souber deste NPC basta ele passar a expor rede.zumbiPedir(acao) e
-// mandar { tipo:'zumbi-estado', estado, x, z, yaw, vida } — o cliente ja aplica.
-// Nada aqui decide sozinho quando ha servidor mandando.
+// REDE: ESTE ARQUIVO NAO DECIDE NADA QUANDO HA SERVIDOR.
 //
-// ORCAMENTO: nenhuma luz com sombra (o sol continua sendo a unica). Uma
-// PointLight sem sombra, criada com intensidade 0 e NUNCA escondida com
-// .visible — mudar a contagem de luzes recompila todos os materiais da cena.
+// O rapaz e o NPC 1004 (src/comum/mundo.js). O cerebro dele mora em
+// servidor/sala.js: o relogio da doenca, a virada, a perseguicao e a morte
+// rodam la, no passo(), e chegam aqui no MESMO registro de NPC que o snapshot
+// ja mandava — `estado` no enum EST_NPC (SAO, ADOECENDO, ZUMBI, MORTO,
+// SUMIDO) e a posicao em x/z/yaw, interpolada 100 ms atras como a de qualquer
+// NPC. Nenhum byte a mais por quadro, e o mesmo bicho na tela dos dois.
+//
+// O que este arquivo faz, online, e olhar rede.npcs.get(1004) todo quadro e
+// disparar o VISUAL nas TRANSICOES que ele observa. TODO o juice fica aqui:
+// sangue, clarao, onda de choque, camera lenta, tremor, tosse, balao de fala,
+// a pele mudando de tom, a vinheta vermelha. Nada disso viaja.
+//
+// So DUAS coisas saem daqui pro servidor, e as duas sao PEDIDOS:
+//   rede.zumbiPedir('adoecer')          falei com ele  -> FALAR no NPC 1004
+//   rede.zumbiPedir('tiro', parte)      acertei um tiro -> ZUMBI_TIRO
+// A vida NAO viaja: quem subtrai e o servidor (1 na cabeca, 3 no corpo), e o
+// resultado volta como estado MORTO no snapshot, pro mesmo caminho de todo
+// mundo. A `vida` que existe aqui embaixo e so do modo sozinho.
+//
+// MODO SOZINHO: `ehLocal()` e decidido A CADA acao (o jogo abre antes de
+// conectar e pode perder a conexao no meio). Sem servidor — ou sem conexao —
+// este arquivo roda a maquina de estados inteira sozinho, exatamente como
+// sempre fez, respondendo aos proprios pedidos pelo MESMO caminho
+// (aoEventoDeRede). Um caminho so, dos dois lados.
+//
+// ORCAMENTO: nenhuma luz com sombra (o sol continua sendo a unica) e nenhuma
+// luz PROPRIA — a aura doentia sai de um proxy emprestado do pool de
+// src/render/luzes-efeito.js. Ela nasce com intensidade 0 e NUNCA e escondida
+// com .visible: mudar a contagem de luzes recompila todos os materiais da cena.
 // ---------------------------------------------------------------------------
 
 // --- numeros do bicho -------------------------------------------------------
-const CASA = { x: -23.6, z: -10.7, yaw: 0.22 }  // calcada, do lado da porta da mercearia
-const DUR_DOENCA = 10.0      // segundos entre o "nao estou bem" e o grito
+//
+// Os que o SERVIDOR tambem precisa (posicao inicial, tempo da doenca,
+// velocidade, alcance de ataque, vida) vem de src/comum/mundo.js, que e o
+// arquivo que os dois lados leem. Duas copias divergiriam no dia em que
+// alguem afinasse a velocidade em um so — e a diferenca apareceria como "no
+// online ele e mais rapido", que ninguem liga a um numero copiado.
+// Os que sao SO VISUAIS (tempo de queda, do fade, da camera lenta, do tremor)
+// ficam aqui: eles nao atravessam a rede e o servidor nao tem o que fazer com
+// eles.
+const N_ZUMBI = NPC_POR_CHAVE.zumbi   // a entrada do NPC 1004 em mundo.js
+const CASA = { x: N_ZUMBI.x, z: N_ZUMBI.z, yaw: N_ZUMBI.yaw }
+const DUR_DOENCA = ZUMBI_DOENCA  // segundos entre o "nao estou bem" e o grito
 const DUR_TREMOR = 2.0       // ultimos segundos, quando ele treme forte
-const DUR_GRITO = 0.95       // a transformacao, parado, antes de sair andando
-const VEL_ZUMBI = 4.5        // m/s: entre PLAYER.WALK_SPEED (3.1) e RUN_SPEED (6.2)
-const RAIO_ZUMBI = 0.40      // raio de colisao dele contra as paredes
-const DIST_ATAQUE = 1.15     // a partir daqui ele encosta em voce
+const DUR_GRITO = ZUMBI_GRITO // a transformacao, parado, antes de sair andando
+const VEL_ZUMBI = ZUMBI_VEL  // m/s: entre PLAYER.WALK_SPEED (3.1) e RUN_SPEED (6.2)
+const RAIO_ZUMBI = ZUMBI_RAIO  // raio de colisao dele contra as paredes
+const DIST_ATAQUE = ZUMBI_DIST_ATAQUE  // a partir daqui ele encosta em voce
 const ESPERA_ATAQUE = 1.05   // segundos entre uma paulada e outra
-const VIDA_MAX = 3           // 3 tiros no corpo; a cabeca tira tudo de uma vez
+const VIDA_MAX = ZUMBI_VIDA_MAX  // 3 tiros no corpo; a cabeca tira tudo de uma vez
 const DUR_MORTE = 1.05       // queda
 const DUR_SUMIR = 2.2        // fade depois de deitado
 const ESPERA_SUMIR = 2.6     // quanto tempo o corpo fica no chao antes do fade
 const DUR_LENTO = 0.8        // camera lenta curtinha do tiro final
 const FATOR_LENTO = 0.28
+
+/**
+ * O byte de estado do snapshot -> o nome que este arquivo usa.
+ *
+ * SUMIDO cai em 'morto' de proposito: pra quem desenha, "morto" e "sumido" sao
+ * o mesmo estado em dois momentos diferentes da mesma animacao. O que muda e o
+ * PONTO em que a animacao comeca, e quem cuida disso e pularParaOFim().
+ * Estado que este cliente nao conhece devolve undefined e e IGNORADO — o outro
+ * lado pode ser mais novo que eu, e ignorar e melhor que adivinhar.
+ */
+const NOME_DO_ESTADO = {
+  [EST_NPC.SAO]: 'sao',
+  [EST_NPC.ADOECENDO]: 'adoecendo',
+  [EST_NPC.ZUMBI]: 'zumbi',
+  [EST_NPC.MORTO]: 'morto',
+  [EST_NPC.SUMIDO]: 'morto',
+}
 
 // Tons de pele: sao -> doente -> zumbi. O tom "sao" e proprio dele (nao o
 // padrao do jogo) pra deixar claro no cache de materiais que estas cores sao
@@ -120,8 +174,20 @@ function deltaAngulo(de, para) {
   return d
 }
 
+/**
+ * Marca uma subarvore como "nao e alvo de tiro". O revolver le userData.semTiro
+ * e pula esses objetos no raycast: sem isso, os efeitos que o zumbi joga na
+ * cena (sangue, clarao, onda de choque) ficam NA FRENTE dele e o tiro seguinte
+ * acerta a particula do tiro anterior.
+ */
+function marcarSemTiro(obj) {
+  if (!obj) return obj
+  obj.traverse ? obj.traverse((o) => { o.userData.semTiro = true }) : (obj.userData.semTiro = true)
+  return obj
+}
+
 export function criarZumbi({ scene, player, character, collision, hud,
-  groundY, interaction, rede }) {
+  groundY, interaction, rede, poolLuz }) {
 
   const chaoEm = typeof groundY === 'function' ? groundY : () => 0.16
 
@@ -141,6 +207,11 @@ export function criarZumbi({ scene, player, character, collision, hud,
   grupo.userData.dynamic = true
   grupo.position.set(CASA.x, chaoEm(CASA.x, CASA.z), CASA.z)
   grupo.rotation.y = CASA.yaw
+  // ATENCAO: NAO marque este grupo com marcarSemTiro. Ele e o ALVO.
+  // ehIgnorado() do revolver sobe pela arvore de pais, entao um semTiro aqui
+  // na raiz apagava o zumbi inteiro do raycast e a arma nunca acertava nada
+  // nele. A marca vale so para o que o proprio zumbi joga na cena DEPOIS
+  // (sangue, clarao, onda de choque), e esses sao marcados um a um.
   scene.add(grupo)
 
   const corpo = createCharacter({
@@ -269,6 +340,8 @@ export function criarZumbi({ scene, player, character, collision, hud,
   // basta posiciona-los acima da cabeca e vira-los pro jogador.
   const aviso = new THREE.Group()
   aviso.name = 'zumbi-aviso'
+  // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+  marcarSemTiro(aviso)
   scene.add(aviso)
 
   // Material PROPRIO do balao: o textPlaneMat e cacheado por texto e mexer no
@@ -321,6 +394,8 @@ export function criarZumbi({ scene, player, character, collision, hud,
   pulso.rotation.x = -Math.PI / 2
   pulso.visible = false
   pulso.renderOrder = 2
+  // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+  marcarSemTiro(pulso)
   scene.add(pulso)
 
   // Onda de choque do grito e do tiro final: o mesmo anel, cor trocada.
@@ -332,6 +407,8 @@ export function criarZumbi({ scene, player, character, collision, hud,
   onda.rotation.x = -Math.PI / 2
   onda.visible = false
   onda.renderOrder = 2
+  // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+  marcarSemTiro(onda)
   scene.add(onda)
 
   // Clarao: esfera aditiva. Sem `camera` na assinatura nao da pra fazer um
@@ -345,14 +422,32 @@ export function criarZumbi({ scene, player, character, collision, hud,
   const clarao = new THREE.Mesh(geoClarao, matClarao)
   clarao.visible = false
   clarao.renderOrder = 5
+  // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+  marcarSemTiro(clarao)
   scene.add(clarao)
 
-  // Luz: UMA PointLight sem sombra, nascida em 0 e nunca escondida (mudar a
-  // contagem de luzes da cena recompila todos os materiais — engasgo garantido).
-  const luz = new THREE.PointLight(COR_DOENCA, 0, 7.5, 2)
-  luz.castShadow = false
+  // Luz: UMA so, emprestada do pool (src/render/luzes-efeito.js). Nasce em 0 e
+  // nunca e escondida — mudar a contagem de luzes da cena recompila todos os
+  // materiais e trava a imagem por varios quadros; apagar e intensity = 0.
+  // Prioridade BAIXA: e uma aura continua e o corpo ja tem o proprio emissivo,
+  // entao ceder a luz real pro clarao de um tiro nao tira nada da cena.
+  //
+  // Sem pool (modulo solto, num teste) cai de volta pra PointLight de sempre.
+  const luz = (poolLuz && typeof poolLuz.emprestar === 'function')
+    ? poolLuz.emprestar({
+      cor: COR_DOENCA, intensidade: 0, distancia: 7.5,
+      prioridade: PRIORIDADE.BAIXA, nome: 'luz-zumbi',
+    })
+    : (() => {
+      const l = new THREE.PointLight(COR_DOENCA, 0, 7.5, 2)
+      l.castShadow = false
+      l.name = 'luz-zumbi'
+      return l
+    })()
   luz.position.copy(grupo.position)
   luz.position.y += 1.4
+  // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+  marcarSemTiro(luz)
   scene.add(luz)
   let luzPico = 0
 
@@ -363,13 +458,19 @@ export function criarZumbi({ scene, player, character, collision, hud,
   const geoGota = new THREE.BoxGeometry(1, 1, 1)
   const gotas = []
   const velGota = []
+  // Um material para as 16 gotas: todas tem a mesma cor e a MESMA opacidade a
+  // cada quadro (o laco de atualizacao escreve um valor so), entao 16
+  // materiais separados custavam memoria e nao davam nada em troca.
+  const matSangue = new THREE.MeshStandardMaterial({
+    color: COR_SANGUE, roughness: 0.55, transparent: true, opacity: 0,
+  })
   for (let i = 0; i < N_SANGUE; i++) {
-    const m = new THREE.Mesh(geoGota, new THREE.MeshStandardMaterial({
-      color: COR_SANGUE, roughness: 0.55, transparent: true, opacity: 0,
-    }))
+    const m = new THREE.Mesh(geoGota, matSangue)
     m.castShadow = false; m.receiveShadow = false
     m.visible = false
     m.frustumCulled = false
+    // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+    marcarSemTiro(m)
     scene.add(m)
     gotas.push(m)
     velGota.push(new THREE.Vector3())
@@ -461,6 +562,8 @@ export function criarZumbi({ scene, player, character, collision, hud,
   mancha.rotation.x = -Math.PI / 2
   mancha.visible = false
   mancha.renderOrder = 1
+  // efeito nao e alvo: sem isto o proximo tiro acerta a gota de sangue
+  marcarSemTiro(mancha)
   scene.add(mancha)
 
   // =========================================================================
@@ -525,8 +628,31 @@ export function criarZumbi({ scene, player, character, collision, hud,
   let estado = 'sao'
   let tempo = 0             // relogio geral (animacoes)
   let tEstado = 0           // tempo dentro do estado atual
-  let vida = VIDA_MAX
+  let vida = VIDA_MAX       // SO do modo sozinho: online quem conta e o servidor
   let yaw = CASA.yaw
+
+  /* ONDE O CORPO ESTA, antes de qualquer tremida de efeito.
+     Online quem escreve isto e o snapshot; sozinho, a simulacao daqui. Ter as
+     duas fontes caindo no MESMO par de numeros e o que deixa o resto do
+     arquivo (tremor, cambaleio, jitter do grito) escrever
+     `grupo.position.x = baseX + sacode` sem saber nem se ha servidor. */
+  let baseX = CASA.x
+  let baseZ = CASA.z
+  /* Velocidade OBSERVADA, em m/s. Online ela sai da diferenca entre duas
+     posicoes do snapshot: e assim que a passada anda no ritmo certo sem que
+     ninguem mande "estou andando" pela rede. Sozinho, e a velocidade que a
+     simulacao daqui acabou de usar. */
+  let velVista = 0
+  /* Ainda nao vi este NPC no snapshot nenhuma vez. Serve pra uma coisa so: a
+     PRIMEIRA leitura nao e uma transicao, e uma descoberta. Quem entra na
+     partida com o zumbi ja morto ha dez minutos nao pode levar o clarao do
+     tiro na cara como se ele tivesse acabado de acontecer. */
+  let primeiraLeitura = true
+  /* "Eu mando no corpo dele neste quadro?" — sim so no modo sozinho. Vale por
+     QUADRO, e nao por sessao, porque a conexao pode cair no meio da
+     perseguicao: quando cai, a simulacao daqui assume de onde o servidor
+     parou, sem nenhum caso especial. */
+  let mandaNoCorpo = true
   let faseAndar = 0
   let tosseEm = 2.0         // quando vem a proxima tosse
   let tosseT = -1           // -1 = nao esta tossindo
@@ -543,6 +669,10 @@ export function criarZumbi({ scene, player, character, collision, hud,
   let doenca = 0            // 0..1 — o quanto ele ja esta zumbi (visual)
   const pontoDoTiroFinal = new THREE.Vector3()
   let temPontoFinal = false
+  /* Segundos desde o meu ultimo tiro. Serve pra UMA coisa: saber se a morte
+     que acabou de chegar foi minha ou do outro jogador, sem precisar que isso
+     viaje pela rede. Anda com o tempo REAL, como a vinheta. */
+  let euAtirei = 0
 
   const poseAtual = {}
   for (const n of JUNTAS) poseAtual[n] = [0, 0, 0]
@@ -583,9 +713,15 @@ export function criarZumbi({ scene, player, character, collision, hud,
   // 9. PEDIDOS (quem manda, quando existe servidor, e ele)
   // =========================================================================
   /**
-   * Pede a troca de estado. Sem servidor que conheca este NPC, respondo a mim
-   * mesmo no proximo microtask, pelo MESMO caminho do evento de rede — assim
-   * existe um caminho so, e o dia em que o servidor entrar nao muda nada aqui.
+   * Pede uma acao. ONLINE ele so PEDE — quem troca o estado e o servidor, e a
+   * resposta chega pelo snapshot, junto com a de todo mundo. SOZINHO respondo
+   * a mim mesmo no proximo microtask, pelo MESMO caminho do evento de rede,
+   * pra existir um caminho so.
+   *
+   * Repare que online SO 'adoecendo' vira pedido. 'zumbi' e 'morto' nao sao
+   * pedidos de ninguem: sao CONSEQUENCIAS que o servidor calcula (o relogio da
+   * doenca acabou; a vida chegou a zero). Se o cliente pudesse pedi-los, o
+   * jogador com o console aberto mataria o zumbi na tela dos outros de graca.
    */
   function pedir(novo) {
     if (novo === estado) return
@@ -593,7 +729,7 @@ export function criarZumbi({ scene, player, character, collision, hud,
       Promise.resolve().then(() => aoEventoDeRede({ tipo: 'zumbi-estado', estado: novo }))
       return
     }
-    rede.zumbiPedir(novo)
+    if (novo === 'adoecendo') rede.zumbiPedir('adoecer')
   }
 
   /** Aplica um estado vindo do servidor (ou de mim mesmo, no modo local). */
@@ -602,7 +738,8 @@ export function criarZumbi({ scene, player, character, collision, hud,
     if (estado === 'morto') return          // idempotente: morto nao volta
     estado = novo
     tEstado = 0
-    if (novo === 'adoecendo') comecarDoenca()
+    if (novo === 'sao') comecarSao()
+    else if (novo === 'adoecendo') comecarDoenca()
     else if (novo === 'zumbi') comecarZumbi()
     else if (novo === 'morto') comecarMorte(ev && ev.ponto)
   }
@@ -615,11 +752,131 @@ export function criarZumbi({ scene, player, character, collision, hud,
     if (novo !== 'sao' && novo !== 'adoecendo' && novo !== 'zumbi' && novo !== 'morto') return
     // O servidor e dono da posicao: se ele mandou, e ela que vale.
     if (Number.isFinite(ev.x) && Number.isFinite(ev.z)) {
-      grupo.position.set(ev.x, chaoEm(ev.x, ev.z), ev.z)
+      baseX = ev.x; baseZ = ev.z
+      grupo.position.set(baseX, chaoEm(baseX, baseZ), baseZ)
     }
     if (Number.isFinite(ev.yaw)) { yaw = ev.yaw; grupo.rotation.y = yaw }
     if (Number.isFinite(ev.vida)) vida = ev.vida | 0
     aplicarEstado(novo, ev)
+  }
+
+  /**
+   * ONLINE: le o NPC 1004 do snapshot e obedece. Chamado uma vez por quadro,
+   * antes de qualquer animacao.
+   *
+   * A posicao que chega aqui JA VEM interpolada 100 ms atras (cliente-rede.js
+   * faz isso com todos os NPCs, pelo id, nunca por indice de array). Este
+   * arquivo nao interpola de novo nem prediz nada: ele copia.
+   *
+   * Nao achar o id e caso NORMAL, nao erro: no primeiro quadro depois de
+   * conectar o buffer de snapshots ainda esta vazio. Enquanto nao acho, o
+   * corpo fica onde esta — e o proximo quadro resolve.
+   */
+  function lerDoServidor(dt) {
+    const n = rede.npcs && rede.npcs.get(ZUMBI_ID)
+    if (!n) return
+
+    if (Number.isFinite(n.x) && Number.isFinite(n.z)) {
+      const dx = n.x - baseX
+      const dz = n.z - baseZ
+      // velocidade OBSERVADA: e o que decide se a passada toca ou se ele fica
+      // so gingando parado. Media exponencial pra um quadro perdido nao fazer
+      // a perna travar no meio do passo.
+      const v = dt > 1e-4 ? Math.hypot(dx, dz) / dt : 0
+      velVista += (v - velVista) * Math.min(1, dt * 8)
+      baseX = n.x
+      baseZ = n.z
+    }
+    if (Number.isFinite(n.yaw)) yaw = n.yaw
+
+    const novo = NOME_DO_ESTADO[n.estado | 0]
+    if (novo === undefined) return          // estado de um servidor mais novo
+
+    if (primeiraLeitura) {
+      primeiraLeitura = false
+      /* A PRIMEIRA leitura nao e transicao, e descoberta. Se eu entrei na
+         partida com o rapaz ja no meio da doenca, entro no estado dele sem
+         disparar o balao nem o aviso do inicio — isso ja aconteceu pra quem
+         estava aqui. O caso que mais importa e o SUMIDO: sem ele, quem chega
+         dez minutos depois veria o corpo cair e o clarao do tiro de novo. */
+      if ((n.estado | 0) === EST_NPC.SUMIDO) { estado = 'morto'; pularParaOFim(); return }
+      if (novo !== 'sao') { estado = novo; tEstado = 0; entrarSemJuice(novo) }
+      return
+    }
+
+    aplicarEstado(novo)
+    // MORTO -> SUMIDO nao e troca de estado (os dois viram 'morto' aqui), mas
+    // e a hora em que o servidor diz "acabou": o corpo some de vez.
+    if ((n.estado | 0) === EST_NPC.SUMIDO) pularParaOFim()
+  }
+
+  /**
+   * Entrar num estado que ja estava rolando quando eu cheguei: monta o VISUAL
+   * sem tocar o que e evento (balao, aviso no HUD, onda de choque, clarao).
+   * Susto de quem chega atrasado nao e susto, e barulho.
+   */
+  function entrarSemJuice(novo) {
+    desligarInteracao()
+    if (novo === 'adoecendo') {
+      barraFundo.visible = true
+      pulso.visible = true
+      return
+    }
+    // zumbi e morto compartilham o rosto: boca aberta no lugar do traco de
+    // boca do catalogo, e a pele ja fechada no verde-acinzentado
+    doenca = 1
+    const slotBoca = corpo.slots.mouth || corpo.slots.boca
+    if (slotBoca) slotBoca.visible = false
+    if (novo === 'morto') {
+      /* O corpo cai (quadroMorto cuida disso a partir do tEstado zerado), mas
+         SEM clarao, sem camera lenta, sem sangue e sem onda de choque: o tiro
+         nao foi na minha frente. Efeito de tiro e pra quem viu o tiro. */
+      mancha.position.set(baseX, chaoEm(baseX, baseZ) + 0.015, baseZ)
+      mancha.rotation.z = Math.random() * TAU
+      mancha.visible = true
+    }
+  }
+
+  /**
+   * O corpo ja sumiu ha tempo (o servidor mandou SUMIDO). Pula a queda, a
+   * espera e o fade de uma vez: fica so a mancha no chao, que e o que sobra do
+   * bicho. IDEMPOTENTE — o SUMIDO chega 15 vezes por segundo enquanto eu
+   * estiver online, e todas depois da primeira nao podem fazer nada.
+   */
+  function pularParaOFim() {
+    if (!grupo.visible && matMancha.opacity >= 0.78) return
+    estado = 'morto'
+    tEstado = Math.max(tEstado, DUR_MORTE + ESPERA_SUMIR + DUR_SUMIR)
+    sumindo = ESPERA_SUMIR + DUR_SUMIR
+    desligarInteracao()
+    barraFundo.visible = false
+    pulso.visible = false
+    grupo.visible = false
+    mancha.position.set(baseX, chaoEm(baseX, baseZ) + 0.015, baseZ)
+    mancha.visible = true
+    matMancha.opacity = 0.78
+  }
+
+  /**
+   * Voltou a ser o rapaz sadio. Na pratica so acontece numa situacao: eu abri
+   * o jogo desconectado, comecei a doenca sozinho e a conexao entrou depois —
+   * e o servidor, que nunca soube de nada, diz que ele esta SAO. Sem isto o
+   * estado voltava e o visual ficava preso (barra na tela, pele verde).
+   */
+  function comecarSao() {
+    barraFundo.visible = false
+    pulso.visible = false
+    matBarra.opacity = 0
+    matBarraFundo.opacity = 0
+    matPulso.opacity = 0
+    doenca = 0
+    vida = VIDA_MAX
+    matBoca.opacity = 0
+    const slotBoca = corpo.slots.mouth || corpo.slots.boca
+    if (slotBoca) slotBoca.visible = true
+    if (interaction && typeof interaction.setEnabled === 'function') {
+      interaction.setEnabled('zumbi-npc', true)
+    }
   }
 
   // =========================================================================
@@ -668,39 +925,61 @@ export function criarZumbi({ scene, player, character, collision, hud,
     } else {
       P.chest.getWorldPosition(_w)
     }
-    _dir.set(grupo.position.x - (player ? player.position.x : 0), 0,
-      grupo.position.z - (player ? player.position.z : 0))
+    _dir.set(baseX - (player ? player.position.x : 0), 0,
+      baseZ - (player ? player.position.z : 0))
     if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1)
     _dir.normalize()
     jorrar(_w, _dir, 3.4)
+    /* O clarao nasce NO PEITO por padrao, e quem tem um ponto melhor (o
+       atirador, que guardou onde o revolver acertou) escreve por cima no
+       primeiro quadro de quadroMorto. Sem esta linha, a morte que chega pela
+       REDE — na tela de quem NAO atirou — acenderia o clarao onde ele estava
+       da ultima vez, que e o meio do mapa quando nunca houve tiro nenhum
+       naquela maquina. */
+    clarao.position.copy(_w)
     // a mancha nasce aqui e fica: e a "marca" que sobra do bicho
-    mancha.position.set(grupo.position.x, chaoEm(grupo.position.x, grupo.position.z) + 0.015,
-      grupo.position.z)
+    mancha.position.set(baseX, chaoEm(baseX, baseZ) + 0.015, baseZ)
     mancha.rotation.z = Math.random() * TAU     // nao e sempre a mesma poca
     mancha.visible = true
-    avisar('Voce derrubou o zumbi.')
+    /* Online a morte chega pela rede pras DUAS telas, e so uma delas puxou o
+       gatilho. Quem foi e coisa que nao precisa viajar: cada maquina sabe se
+       ela mesma acabou de atirar. Sem isto, o amigo que so assistiu leria
+       "voce derrubou" sem ter feito nada. */
+    avisar(euAtirei > 0 ? 'Voce derrubou o zumbi.' : 'O zumbi caiu.')
   }
 
   function dispararOnda(tam) {
     ondaT = 0
     onda.visible = true
     onda.scale.setScalar(Math.max(0.2, tam * 0.35))
-    onda.position.set(grupo.position.x, chaoEm(grupo.position.x, grupo.position.z) + 0.03,
-      grupo.position.z)
+    onda.position.set(baseX, chaoEm(baseX, baseZ) + 0.03, baseZ)
   }
 
   // =========================================================================
   // 11. DANO
   // =========================================================================
   /**
-   * O main chama isto depois de perguntar `parteAtingida(objeto)`.
-   * parte: 'cabeca' (mata na hora) ou 'corpo' (3 tiros).
-   * info : { ponto, normal, objeto, distancia } — tudo opcional.
+   * A PORTA DE ENTRADA DO MAIN, e ela nao mudou: o revolver diz onde acertou,
+   * o main pergunta `parteAtingida(objeto)` e chama isto.
+   *   parte: 'cabeca' (mata na hora) ou 'corpo' (3 tiros).
+   *   info : { ponto, normal, objeto, distancia } — tudo opcional.
    * Devolve true se o tiro contou.
+   *
+   * O QUE MUDOU E QUEM RESPONDE. Online isto vira um PEDIDO (ZUMBI_TIRO com o
+   * id do NPC e um byte dizendo a parte) e a vida nao e mais minha: quem
+   * subtrai e o servidor, e o "ele morreu" volta como estado MORTO no
+   * snapshot, igual pros dois jogadores. Sozinho, a conta continua sendo feita
+   * aqui, exatamente como sempre foi.
+   *
+   * O IMPACTO SAI NA HORA NOS DOIS MODOS: sangue, clarao e cambaleio nao
+   * esperam resposta nenhuma. Eles sao o retorno do gatilho pra quem atirou —
+   * segurar isso por 100 ms de ida e volta faria a arma parecer quebrada. E
+   * eles nao mentem sobre nada: quem decide a morte continua sendo o servidor.
    */
   function levarTiro(parte, info) {
     if (estado === 'morto') return false
     const naCabeca = parte === 'cabeca'
+    const sozinho = ehLocal()
 
     // ponto do impacto: o que o revolver mandou, senao o centro da parte
     if (info && info.ponto && Number.isFinite(info.ponto.x)) _w.copy(info.ponto)
@@ -712,20 +991,44 @@ export function criarZumbi({ scene, player, character, collision, hud,
     if (info && info.normal && Number.isFinite(info.normal.x)) {
       _dir.set(-info.normal.x, 0, -info.normal.z)
     } else if (player) {
-      _dir.set(grupo.position.x - player.position.x, 0, grupo.position.z - player.position.z)
+      _dir.set(baseX - player.position.x, 0, baseZ - player.position.z)
     } else _dir.set(0, 0, 1)
     if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1)
     _dir.normalize()
+
+    /* O ponto do impacto e guardado SEMPRE, e nao so no tiro que mata: online
+       eu nao sei qual foi o ultimo — quem sabe e o servidor. Quem consome isto
+       e o primeiro quadro de quadroMorto, entao o valor certo e o do ultimo
+       tiro que houve, que e exatamente o que fica aqui. */
+    pontoDoTiroFinal.copy(_w)
+    temPontoFinal = true
+    // 2 s de folga: e mais do que a ida e volta ate o servidor, e menos do que
+    // qualquer intervalo em que "foi voce" deixaria de ser verdade
+    euAtirei = 2.0
+
+    if (!sozinho) {
+      /* ONLINE: a vida nao e minha. Mando o pedido e desenho o impacto; o
+         resto chega no snapshot. Nao mexo em `vida` nem chuto a morte: se eu
+         chutasse, o zumbi morreria na minha tela e continuaria andando na do
+         meu amigo — que e exatamente o bug que esta mudanca conserta. */
+      rede.zumbiPedir('tiro', naCabeca ? 'cabeca' : 'corpo')
+      jorrar(_w, _dir, naCabeca ? 4.2 : 2.2)
+      // so a POSE do cambaleio: o empurrao de verdade moveria o corpo, e a
+      // posicao dele e do servidor
+      recuo = 0.34
+      empurraoRecuo.set(0, 0, 0)
+      luzPico = Math.max(luzPico, 2.5)
+      claraoT = 0; claraoTam = 0.30
+      clarao.position.copy(_w)
+      falar(naCabeca ? 'GRRRAH!' : 'RRRGH!', 0.8)
+      return true
+    }
 
     vida -= naCabeca ? VIDA_MAX : 1
 
     if (vida <= 0) {
       jorrar(_w, _dir, naCabeca ? 4.2 : 3.0)
       pedir('morto')
-      // sem servidor o estado chega no proximo microtask; o ponto do clarao
-      // seria perdido, entao guardo aqui
-      pontoDoTiroFinal.copy(_w)
-      temPontoFinal = true
       return true
     }
 
@@ -851,6 +1154,12 @@ export function criarZumbi({ scene, player, character, collision, hud,
   function atualizar(dt) {
     if (!(dt > 0)) dt = 0.0001
     if (dt > 0.1) dt = 0.1
+
+    /* A PERGUNTA DO QUADRO. Com servidor, o estado e a posicao chegam prontos
+       e este arquivo so desenha; sem ele, a simulacao daqui assume tudo. */
+    mandaNoCorpo = ehLocal()
+    if (!mandaNoCorpo) lerDoServidor(dt)
+
     // camera lenta LOCAL do tiro final: as animacoes deste NPC (e so elas)
     // andam devagar. `tempoLento` sai no retorno pra quem quiser diminuir o dt
     // do jogo inteiro — a decisao e do main, nao deste arquivo.
@@ -859,6 +1168,12 @@ export function criarZumbi({ scene, player, character, collision, hud,
     const d = dt * escala
     tempo += d
     tEstado += d
+
+    /* O corpo mora em baseX/baseZ. Quem escreveu esses dois numeros foi o
+       servidor (online) ou a simulacao daqui (sozinho); daqui pra frente as
+       animacoes so somam tremida por cima. Plantar o corpo aqui, num lugar
+       so, e o que deixa o resto do arquivo nao saber se ha servidor. */
+    grupo.position.set(baseX, chaoEm(baseX, baseZ), baseZ)
 
     if (estado === 'sao') quadroSao(d)
     else if (estado === 'adoecendo') quadroDoente(d)
@@ -927,9 +1242,11 @@ export function criarZumbi({ scene, player, character, collision, hud,
     const faltam = DUR_DOENCA - tEstado
     const tr = faltam < DUR_TREMOR ? 1 - faltam / DUR_TREMOR : 0
     if (tr > 0) {
+      // tremida SOMADA por cima de onde o corpo esta (o servidor, ou eu
+      // mesmo): escrever a posicao absoluta aqui apagaria a do servidor
       const a = tr * tr * 0.035
-      grupo.position.x = CASA.x + Math.sin(tempo * 47) * a
-      grupo.position.z = CASA.z + Math.cos(tempo * 39) * a
+      grupo.position.x = baseX + Math.sin(tempo * 47) * a
+      grupo.position.z = baseZ + Math.cos(tempo * 39) * a
       P.chest.rotation.z += Math.sin(tempo * 53) * tr * 0.09
       P.head.rotation.z = Math.sin(tempo * 61) * tr * 0.12
     }
@@ -954,7 +1271,13 @@ export function criarZumbi({ scene, player, character, collision, hud,
     luz.color.setHSL(0.33 * (1 - p), 0.9, 0.5)
     luzPico = Math.max(luzPico, (1 - pulsoT) * (0.4 + p * 1.6))
 
-    if (tEstado >= DUR_DOENCA) pedir('zumbi')
+    /* SOZINHO o relogio da doenca e meu. Online quem conta os 10 s e o
+       servidor, e a virada chega no snapshot — se eu virasse aqui tambem, ele
+       viraria zumbi na minha tela um instante antes da do meu amigo, que e
+       exatamente o tipo de desencontro que a mudanca inteira existe pra
+       apagar. A barra continua andando pelo meu tEstado: ela e desenho, e
+       comecou a contar quando eu VI a doenca comecar. */
+    if (mandaNoCorpo && tEstado >= DUR_DOENCA) pedir('zumbi')
   }
 
   function quadroZumbi(dt) {
@@ -980,8 +1303,11 @@ export function criarZumbi({ scene, player, character, collision, hud,
       matBoca.opacity = 1
       const ab = 0.014 + f * 0.055
       boca.scale.set((0.050 + f * 0.022) * HEAD_S, ab * HEAD_S, 0.036 * HEAD_S)
-      grupo.position.x = CASA.x + Math.sin(tempo * 44) * f * 0.03
-      grupo.position.z = CASA.z + Math.cos(tempo * 51) * f * 0.03
+      // sacode SOMADO por cima de onde o corpo esta, nunca absoluto: online
+      // quem diz onde ele esta e o servidor (que tambem segura os
+      // ZUMBI_GRITO segundos do grito antes de sair andando)
+      grupo.position.x = baseX + Math.sin(tempo * 44) * f * 0.03
+      grupo.position.z = baseZ + Math.cos(tempo * 51) * f * 0.03
       luz.color.setHex(0x9be08a)
       luzPico = Math.max(luzPico, f * 3.4)
       return
@@ -1014,16 +1340,29 @@ export function criarZumbi({ scene, player, character, collision, hud,
       P.hips.rotation.y += Math.sin(tempo * 40) * f * 0.2
     }
 
-    if (dist > DIST_ATAQUE && vel > 0) {
+    /* ANDAR. Sozinho eu ando; ONLINE quem andou foi o servidor e eu descubro
+       o passo pela velocidade que observei entre dois snapshots. A passada, o
+       arrasto da perna e o balanco do tronco sao os mesmos nos dois casos —
+       eles sao desenho, e desenho e sempre daqui. */
+    const andando = mandaNoCorpo ? (dist > DIST_ATAQUE && vel > 0) : (velVista > 0.15)
+    if (mandaNoCorpo && andando) {
       // passo pequeno e desigual: a velocidade oscila um pouco (nao e um trem)
       const cadencia = 1 + Math.sin(faseAndar) * 0.18
       grupo.position.x += _dir.x * vel * cadencia * dt
       grupo.position.z += _dir.z * vel * cadencia * dt
-      // desvia de parede: quem resolve isso e o mundo, nao ele
+      /* Desvia de parede: quem resolve isso e o mundo, nao ele. ISTO E SO DO
+         MODO SOZINHO. O servidor nao tem colisao — ele so sabe a ALTURA do
+         chao — entao online o zumbi anda em LINHA RETA ate o jogador mais
+         proximo, atravessando parede se for o caso. Duplicar a geometria de
+         colisao do cliente no servidor seria criar uma segunda verdade sobre a
+         forma da cidade, que e a doenca que o protocolo unico existe pra
+         evitar. Ver passoZumbi() em servidor/sala.js. */
       if (collision && typeof collision.resolve === 'function') {
         collision.resolve(grupo.position, RAIO_ZUMBI)
       }
-      andar(dt, vel, 0.7)
+    }
+    if (andando) {
+      andar(dt, mandaNoCorpo ? vel : velVista, 0.7)
     } else {
       // parado colado em voce: ainda balanca, ainda ameaca
       vidaParado(dt, 2.2)
@@ -1031,14 +1370,24 @@ export function criarZumbi({ scene, player, character, collision, hud,
       P.armLUpper.rotation.x -= 0.15 + Math.cos(tempo * 6) * 0.12
     }
     grupo.position.y = chaoEm(grupo.position.x, grupo.position.z)
+    // o que a simulacao daqui andou vira a posicao oficial do corpo
+    if (mandaNoCorpo) { baseX = grupo.position.x; baseZ = grupo.position.z; velVista = vel }
 
-    // vira pra voce, com giro suave
+    // vira pra voce, com giro suave. Online o yaw ja veio do servidor, com a
+    // mesma interpolacao de angulo de todo NPC — girar de novo aqui brigaria
+    // com ele.
     const alvoYaw = Math.atan2(_dir.x, _dir.z)
-    yaw += deltaAngulo(yaw, alvoYaw) * Math.min(1, dt * 5.5)
+    if (mandaNoCorpo) yaw += deltaAngulo(yaw, alvoYaw) * Math.min(1, dt * 5.5)
     grupo.rotation.y = yaw
     olharJogador(dt, 1)
 
-    // --- encostou: vinheta vermelha e empurrao ------------------------------
+    /* --- encostou: vinheta vermelha e empurrao ------------------------------
+       ISTO CONTINUA 100% LOCAL, e nos dois modos, de proposito. O contrato diz
+       que "o cliente e dono so do proprio corpo": cada maquina decide quando o
+       zumbi encostou NO SEU jogador e empurra o SEU jogador. Mandar o empurrao
+       pelo servidor seria ele mexendo no corpo de alguem, que e a unica coisa
+       que ele nao faz neste jogo. E como a posicao do zumbi ja e a mesma nas
+       duas telas, os dois levam a paulada na mesma hora, cada um na sua vez. */
     esperaAtaque = Math.max(0, esperaAtaque - dt)
     if (player && dist <= DIST_ATAQUE && esperaAtaque <= 0) {
       esperaAtaque = ESPERA_ATAQUE
@@ -1166,6 +1515,7 @@ export function criarZumbi({ scene, player, character, collision, hud,
     // vermelho na tela do jogador
     vinhetaV = Math.max(0, vinhetaV - dtReal * 1.6)
     flashV = Math.max(0, flashV - dtReal * 2.6)
+    euAtirei = Math.max(0, euAtirei - dtReal)
     pintarTela()
   }
 
@@ -1177,6 +1527,7 @@ export function criarZumbi({ scene, player, character, collision, hud,
     corpo.dispose()
     if (grupo.parent) grupo.parent.remove(grupo)
     scene.remove(aviso, pulso, onda, clarao, luz, mancha)
+    if (poolLuz && typeof poolLuz.devolver === 'function') poolLuz.devolver(luz)
     for (const m of gotas) { scene.remove(m); m.material.dispose() }
     geoGota.dispose()
     geoBalao.dispose(); geoBarra.dispose(); geoBarraFundo.dispose()
@@ -1237,9 +1588,12 @@ export function criarZumbi({ scene, player, character, collision, hud,
 //   groundY(x, z)        altura do piso; sem ela o chao vira 0.16 (a calcada)
 //   interaction.setEnabled(id, bool)  pra apagar o "Falar com o rapaz"
 //   hud.toast(msg)       opcional
-//   rede.zumbiPedir(estado) + evento { tipo:'zumbi-estado', estado, x, z, yaw,
-//                        vida }  — NAO existem hoje: sem eles o modulo roda
-//                        sozinho, respondendo aos proprios pedidos.
+//   rede.zumbiPedir(acao, parte)  os dois pedidos ('adoecer' e 'tiro'); e a
+//                        existencia DELE que decide se este arquivo simula ou
+//                        so desenha
+//   rede.conectado       false = modo sozinho, simulo tudo aqui
+//   rede.npcs            Map id -> { x, z, yaw, estado } ja interpolado 100 ms
+//                        atras por cliente-rede.js; leio o ZUMBI_ID e obedeco
 //
 // O main deve:
 //   - chamar zumbi.atualizar(dt) todo quadro;

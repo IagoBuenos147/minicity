@@ -24,7 +24,16 @@
 // listas de NPC e objeto. Um cliente da versao 2 leria 14 bytes a menos e
 // montaria o mundo inteiro deslocado, calado. Por isso a versao sobe: e melhor
 // o servidor recusar e pedir pra recarregar do que rodar torto.
-export const VERSAO_PROTOCOLO = 3
+//
+// 4: o rapaz que vira zumbi virou NPC de verdade (id 1004) e o cerebro dele foi
+// pro servidor. Mudaram DUAS coisas que um cliente velho leria errado em
+// silencio: nasceu o pacote ZUMBI_TIRO (18) e o enum EST_NPC ganhou os valores
+// 5..9 (sao, adoecendo, zumbi, morto, sumido). Um cliente da versao 3 recebe o
+// NPC 1004 no BEMVINDO — ele nao ia sumir, ia aparecer como um NPC com pose
+// desconhecida — e nunca entenderia por que ele comecou a andar. Pior: ele
+// tambem nao saberia mandar ZUMBI_TIRO, entao atirava e nada acontecia. Melhor
+// recusar e pedir pra recarregar.
+export const VERSAO_PROTOCOLO = 4
 export const TICK_HZ = 15
 export const ATRASO_INTERP = 0.1      // segundos: o remoto e desenhado 100 ms atras
 export const MAX_JOGADORES = 20
@@ -79,10 +88,55 @@ export const NPCS = [
     ],
     opcoes: ['Comprar refrigerante', 'So olhando', 'Tchau'],
   },
+  {
+    // O RAPAZ DA PORTA DA MERCEARIA — o que adoece e vira zumbi.
+    //
+    // Ele e um NPC como os outros: id proprio na faixa 1000..1999, pose
+    // inicial aqui, posicao e estado mandados pelo servidor no snapshot. O que
+    // ele NAO tem e dialogo: falas e opcoes vazias de proposito, porque FALAR
+    // nele nao abre conversa nenhuma — comeca a doenca (ver sala.js). Um
+    // dialogo por cima disso poria dois baloes na tela ao mesmo tempo.
+    //
+    // A pose 'sao' nao existe nos outros NPCs: ela e a porta de entrada da
+    // maquina de estados do zumbi (EST_NPC.SAO).
+    id: 1004, chave: 'zumbi', nome: 'Rapaz',
+    x: -23.6, y: 0.16, z: -10.7, yaw: 0.22,
+    pose: 'sao', local: 'mercearia',
+    falas: [],
+    opcoes: [],
+  },
 ]
 
 export const NPC_POR_CHAVE = {}
 for (const n of NPCS) NPC_POR_CHAVE[n.chave] = n
+
+// --- os numeros do zumbi ----------------------------------------------------
+// Eles moram AQUI, e nao em src/npc/zumbi.js, porque agora os DOIS lados
+// precisam deles: o servidor pra rodar a maquina de estados (ele e o dono do
+// mundo) e o cliente pra fazer exatamente a mesma coisa quando esta SOZINHO,
+// sem servidor nenhum. Duas copias dos mesmos numeros divergiriam no dia em
+// que alguem afinasse a velocidade num arquivo so — e a diferenca apareceria
+// como "no online ele e mais rapido", que ninguem liga a um numero copiado.
+//
+// Este arquivo nao importa THREE, entao o servidor le isto sem carregar meio
+// motor grafico. As constantes de VISUAL (tempo de queda, do fade, da camera
+// lenta, das poses) continuam la em zumbi.js: elas nao atravessam a rede.
+export const ZUMBI_ID = 1004
+export const ZUMBI_DOENCA = 10.0        // s entre o "nao estou bem" e o grito
+export const ZUMBI_GRITO = 0.95         // s parado gritando, antes de sair andando
+export const ZUMBI_VEL = 4.5            // m/s: mais que andar (3.1), menos que correr (6.2)
+export const ZUMBI_DIST_ATAQUE = 1.15   // a partir daqui ele encosta em voce
+export const ZUMBI_VIDA_MAX = 3         // 3 tiros no corpo; a cabeca tira tudo de uma vez
+// Quanto tempo o corpo fica em cena depois do tiro final, antes de o servidor
+// dizer SUMIDO. E a soma do que o cliente ja gastava desenhando: a queda
+// (1.05), a espera deitado (2.6) e o fade (2.2).
+export const ZUMBI_SUMIR = 5.85
+// Raio do corpo dele contra parede. Subiu pra ca junto com os outros pelo
+// mesmo motivo: o cliente usa este numero no collision.resolve do modo
+// sozinho e o servidor usa no empurrao contra as caixas de src/world/layout.js.
+// Dois valores diferentes fariam o zumbi raspar a parede num modo e atravessar
+// no outro, e ninguem ligaria isso a um 0.40 copiado.
+export const ZUMBI_RAIO = 0.40
 
 // --- Objetos agarraveis (o anel verde) --------------------------------------
 // tipo define a forma e o tamanho; o cliente monta o mesh a partir disso.

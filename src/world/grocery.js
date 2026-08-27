@@ -7,6 +7,7 @@ import {
 } from './materials.js'
 import * as Props from './props.js'
 import { createNPC } from '../npc/npc.js'
+import { congelarPersonagem } from '../player/congelar.js'
 
 // ---------------------------------------------------------------------------
 // Interior da mercearia "MERCEARIA CENTRAL".
@@ -831,6 +832,15 @@ function buildClerk(g, colliders) {
   root.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
   root.add(makeApron())
   g.add(root)
+
+  // A Mara nasce vestida e nunca mais troca de aparencia (ninguem chama
+  // setAppearance/setPose nela), entao os ~75 meshes soltos dela viram um
+  // punhado de meshes por junta. O forno preserva as JUNTAS, que e onde npc.js
+  // escreve a respiracao, o balanco, o giro do braco e a piscada — a atendente
+  // continua se mexendo igual. Vem DEPOIS do avental, senao ele fica de fora.
+  if (npc.character && npc.character.parts) {
+    congelarPersonagem(root, { juntas: npc.character.parts })
+  }
 
   // colisor 0.6 x 0.6: o jogador para de atravessar a atendente
   colliders.push({

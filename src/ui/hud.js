@@ -147,8 +147,15 @@ const HELP_ROWS = [
   [['W', 'A', 'S', 'D'], 'Mover'],
   [['Shift'], 'Correr'],
   [['Espaco'], 'Pular'],
-  [['E'], 'Interagir'],
+  [['E'], 'Interagir / entrar no veiculo'],
   [['V'], 'Trocar camera'],
+  // A barra de itens e o unico jeito de descobrir que o anel, a arma de portal
+  // e o revolver existem: sem esta linha o jogador so acha por acidente.
+  [['1', '2', '3', '4'], 'Maos / anel / portal / revolver'],
+  [['Bt.Esq'], 'Atirar, agarrar, abrir portal'],
+  [['Bt.Dir'], 'Mirar (revolver) / segurar (anel)'],
+  [['R'], 'Recarregar o revolver'],
+  [['F3'], 'Painel de rede'],
   [['Tab'], 'Ajuda'],
   [['Esc'], 'Liberar mouse'],
 ]

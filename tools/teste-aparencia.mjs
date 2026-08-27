@@ -59,7 +59,13 @@ ok('o numero de opcoes bate com o contrato',
   Proto.APARENCIA_OPCOES.join(',') === '8,5,5,5,5,5,5,5,6,5,6,6,6,6,6,6,6,6,6,0',
   Proto.APARENCIA_OPCOES.join(','))
 
-ok('VERSAO_PROTOCOLO subiu para 3', VERSAO_PROTOCOLO === 3, String(VERSAO_PROTOCOLO))
+// A aparencia de 20 bytes foi o que levou a versao de 2 para 3; depois dela o
+// zumbi no servidor levou para 4. Este caso confere o PISO, e nao o numero
+// exato, porque o que ele tem a ver com aparencia e "a versao TEVE que subir
+// quando o pacote cresceu" — travar no numero do dia faria toda mudanca futura
+// de protocolo reprovar um teste de rosto, que nao e o assunto dele.
+ok('VERSAO_PROTOCOLO subiu por causa da aparencia de 20 bytes (>= 3)',
+  VERSAO_PROTOCOLO >= 3, String(VERSAO_PROTOCOLO))
 
 {
   const p = Proto.aparenciaPadrao()
@@ -90,8 +96,10 @@ ok('VERSAO_PROTOCOLO subiu para 3', VERSAO_PROTOCOLO === 3, String(VERSAO_PROTOC
   const m = Proto.lerEntrar(dv(b))
   // o nome tem bytes multi-octeto: se o offset da aparencia fosse contado em
   // CARACTERES e nao em BYTES, ela sairia deslocada exatamente aqui
+  // a versao conferida e a ATUAL, nao um numero escrito a mao: quem carimba e
+  // o proprio protocolo, e o que este caso prova e que ela sai e volta inteira
   ok('ENTRAR ida e volta (com nome utf8 de varios bytes)',
-    m && m.versao === 3 && m.nome === 'Zé do Açaí' && !difere(AMOSTRA, m.aparencia),
+    m && m.versao === VERSAO_PROTOCOLO && m.nome === 'Zé do Açaí' && !difere(AMOSTRA, m.aparencia),
     'versao ' + (m && m.versao) + '; ' + (difere(AMOSTRA, m && m.aparencia) || 'todos batem'))
 }
 {

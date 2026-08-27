@@ -178,6 +178,10 @@ export function criarAvatares(scene) {
     // o id tambem no userData: e por ele que se acha o boneco de um jogador
     // sem depender de parsear o nome
     personagem.root.userData.avatarId = id
+    // A aparencia DESENHADA fica visivel no proprio no da cena. Serve pra
+    // depurar e pro teste online conferir que o boneco foi mesmo refeito, e
+    // nao so que o pacote chegou.
+    personagem.root.userData.aparencia = j.aparencia || null
     scene.add(personagem.root)
 
     const placa = fazerPlaca(j.nome)
@@ -240,6 +244,7 @@ export function criarAvatares(scene) {
             a.personagem.setAppearance(paraAparencia(j.aparencia))
           }
           a.apDesenhada = j.aparencia
+          a.personagem.root.userData.aparencia = j.aparencia
         }
         // idem pro nome: canvas novo so quando o texto muda
         const nome = String(j.nome || '')

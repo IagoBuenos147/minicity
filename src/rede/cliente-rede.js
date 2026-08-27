@@ -68,7 +68,7 @@ const P = Proto.P
 // TICK_HZ entra so na conta do ping; ATRASO_INTERP e o atraso da interpolacao.
 // VERSAO_PROTOCOLO nao aparece aqui de proposito: quem carimba a versao no
 // pacote ENTRAR e o protocolo, que e quem sabe o formato.
-import { TICK_HZ, ATRASO_INTERP } from '../comum/mundo.js'
+import { TICK_HZ, ATRASO_INTERP, ZUMBI_ID } from '../comum/mundo.js'
 
 const TAU = Math.PI * 2
 
@@ -409,6 +409,50 @@ export function criarRede({ url, nome, aparencia } = {}) {
   rede.veiculoPos = function veiculoPos(veicId, x, y, z, yaw, rolagem) {
     if (!rede.conectado) return
     mandar(Proto.escreverVeiculoPos(veicId | 0, x, y, z, yaw || 0, rolagem || 0), false)
+  }
+
+  // --- o rapaz que vira zumbi (NPC 1004) -----------------------------------
+  //
+  // Ele nao tem sistema proprio aqui: e um NPC, e o estado e a posicao dele
+  // chegam no rede.npcs como os dos outros, ja interpolados 100 ms atras. Quem
+  // desenha (src/npc/zumbi.js) le rede.npcs.get(ZUMBI_ID) e dispara o visual
+  // nas TRANSICOES que observa. Por isso nao ha nenhum evento de zumbi neste
+  // arquivo: o que existe e este unico canal de SAIDA, o pedido.
+
+  /**
+   * O unico jeito de o cliente pedir alguma coisa sobre o zumbi. Duas acoes, e
+   * as duas sao PEDIDOS — quem decide o que acontece e o servidor:
+   *
+   *   zumbiPedir('adoecer')            falei com ele (FALAR no NPC 1004)
+   *   zumbiPedir('tiro', 'cabeca')     acertei um tiro (ZUMBI_TIRO)
+   *   zumbiPedir('tiro', 'corpo')
+   *
+   * Repare no que NAO da pra pedir: "vira zumbi", "morre", "vida 1". O estado
+   * dele nao e escrito daqui em nenhuma hipotese; ele so e LIDO do snapshot.
+   * Um cliente estragado que quisesse matar o NPC na tela dos outros teria que
+   * convencer o servidor de que acertou tres tiros, chegando perto.
+   *
+   * A existencia desta funcao e o que faz o `ehLocal()` do zumbi.js valer de
+   * verdade: sem servidor (ou sem conexao) ele continua resolvendo tudo
+   * sozinho, como sempre fez.
+   */
+  rede.zumbiPedir = function zumbiPedir(acao, parte) {
+    if (!rede.conectado) return false
+    const q = String(acao || '').toLowerCase()
+    if (q === 'adoecer' || q === 'adoecendo' || q === 'falar') {
+      // FALAR de sempre: pra sala isto e "apertei E nesta pessoa", e o que ela
+      // faz com o pedido (comecar a doenca, em vez de abrir dialogo) e assunto
+      // dela. Um pacote novo aqui seria um segundo nome para o mesmo pedido.
+      mandar(Proto.escreverFalar(ZUMBI_ID), true)
+      return true
+    }
+    if (q === 'tiro') {
+      const p = String(parte || '').toLowerCase() === 'cabeca'
+        ? Proto.PARTE_CABECA : Proto.PARTE_CORPO
+      mandar(Proto.escreverZumbiTiro(ZUMBI_ID, p), true)
+      return true
+    }
+    return false
   }
 
   /** Avisa que a montagem do helicoptero terminou naquele ponto. PEDIDO: quem

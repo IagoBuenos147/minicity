@@ -100,9 +100,29 @@ export function resumoDosArquivos(raiz) {
    Feito no servidor de proposito: se dependesse de alguem lembrar de editar o
    index.html a mao, ia esquecer justamente no deploy que importa. */
 const RE_ATRIBUTO = /\b(src|href)="(?!https?:|\/\/|data:|#)([^"?]+)"/g
+
+/* ...MENOS no que o build ja versionou pelo NOME.
+   Esta excecao nao e frescura: sem ela o jogo INICIA DUAS VEZES.
+   O Vite poe o resumo do conteudo no nome do arquivo (index-AGq9wq1K.js), e os
+   pedacos carregados sob demanda (carro, moto, skate) trazem o caminho do
+   pedaco principal ESCRITO DENTRO DO JS: import ... from "./index-AGq9wq1K.js".
+   O carimbo so alcanca o HTML; nunca o que esta dentro de um .js. Resultado: a
+   pagina carrega ".../index-AGq9wq1K.js?v=abc" e o pedaco do carro pede
+   ".../index-AGq9wq1K.js" - duas URLs, e modulo ES e identificado pela URL.
+   O navegador avalia o arquivo DE NOVO: dois jogos no ar, duas conexoes de
+   rede, dois jogadores com o mesmo nome na sala e um sosia parado do lado de
+   cada um. Foi medido com o teste online, nao e teoria.
+   Como o nome ja muda quando o conteudo muda, esses arquivos nao precisam do
+   carimbo pra nada. */
+const RE_JA_VERSIONADO = /-[A-Za-z0-9_-]{8,}\.(?:js|css)$/
+
 export function carimbarVersao(html, versao) {
-  return String(html).replace(RE_ATRIBUTO, (todo, atr, caminho) => atr + '="' + caminho + '?v=' + versao + '"')
+  return String(html).replace(RE_ATRIBUTO, (todo, atr, caminho) => {
+    if (RE_JA_VERSIONADO.test(caminho)) return todo
+    return atr + '="' + caminho + '?v=' + versao + '"'
+  })
 }
+
 
 /* A configuracao de compressao num lugar so, para dar para medir com e sem. */
 export function opcoesDeflate(ligada) {
@@ -199,10 +219,18 @@ export function subir(sala, opcoes = {}) {
         return
       }
 
-      /* Veio com a versao certa? Entao este conteudo nunca muda neste
-         endereco: pode guardar por um ano. Veio sem, ou com versao velha?
-         Entao nao guarda nada. */
+      /* Este conteudo nunca muda neste endereco? Entao pode guardar por um
+         ano. Duas formas de ter certeza disso, e as duas valem:
+           - veio com ?v= da versao ATUAL (arquivos soltos: favicon, som...);
+           - o resumo do conteudo esta no proprio NOME (assets/index-AGq9wq1K.js),
+             que e como o build versiona. Esses nao levam ?v= de proposito: o
+             carimbo so alcanca o HTML, e um .js pedido de dentro de outro .js
+             chegaria aqui sem ele. (Ver o comentario de carimbarVersao: e o que
+             fazia o jogo iniciar duas vezes.) Sem esta segunda forma o pacote
+             inteiro voltaria a ser baixado a cada F5.
+         Versao velha ou nenhuma das duas: nao guarda nada. */
       const carimbado = consulta.indexOf('v=' + versaoCache) >= 0
+        || RE_JA_VERSIONADO.test(rel)
       res.writeHead(200, {
         'Content-Type': TIPOS[ext] || 'application/octet-stream',
         'Cache-Control': carimbado ? 'public, max-age=31536000, immutable' : 'no-store',

@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { garantirServidor } from './servidor-dev.mjs'
 
 const URL_BASE = process.env.GAME_URL || 'http://localhost:5173'
 const CANDIDATES = [
@@ -75,6 +76,7 @@ try {
   // domcontentloaded, nao networkidle2: o cliente abre um WebSocket assim que
   // carrega, entao a rede nunca fica ociosa e o networkidle2 estoura o tempo
   // mesmo com a pagina funcionando.
+  await garantirServidor(URL_BASE)
   await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await page.waitForFunction('window.__game && window.__game.scene', { timeout: 60000 })
 
