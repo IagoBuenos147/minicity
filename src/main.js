@@ -19,6 +19,7 @@ import { criarRede } from './rede/cliente-rede.js'
 import { criarAvatares } from './rede/avatares.js'
 import { criarAnel } from './poder/anel.js'
 import { criarPortalGun } from './poder/portalgun.js'
+import { criarVeiculos } from './veiculos/veiculos.js'
 import { criarHotbar } from './ui/hotbar.js'
 import { ITEM_PORTAL_GUN, ITENS_PORTAL_GUN } from './comum/protocolo.js'
 import { criarDialogo } from './ui/dialogo.js'
@@ -113,6 +114,14 @@ const avatares = criarAvatares(scene)
 // vez de o cliente decidir sozinho que a conversa comecou.
 const NPC_DA_INTERACAO = { 'barber-talk': 1000, 'grocery-clerk': 1002 }
 
+// Como cada veiculo aparece no prompt do E. Sem isto sai "Entrar no moto".
+const NOME_VEICULO = {
+  carro: 'no carro',
+  moto: 'na moto',
+  skate: 'no skate',
+  helicoptero: 'no helicoptero',
+}
+
 const dialogo = criarDialogo({
   camera, rede,
   aoEscolher(i) {
@@ -135,10 +144,16 @@ rede.aoEvento = (ev) => {
     case 'dialogo': dialogo.abrir(ev); break
     case 'dialogo-fim': dialogo.fechar(ev.npcId); break
     case 'negado':
+      // 1 npc, 2 objeto, 3 veiculo. O veiculo NAO leva toast aqui: quem avisa
+      // e o proprio sistema de veiculos, e o jogador levaria a mensagem em
+      // dobro (uma delas falando de objeto, que nem e o caso).
       if (ev.oque === 1) hud.toast('Alguem ja esta falando com essa pessoa.')
-      else hud.toast('Esse objeto ja esta com outro jogador.')
+      else if (ev.oque === 2) hud.toast('Esse objeto ja esta com outro jogador.')
       anel.aoEventoDeRede(ev)
+      veiculos.aoEventoDeRede(ev)
       break
+    case 'veiculo-dono': case 'veiculo-pos': case 'heli-criado':
+      veiculos.aoEventoDeRede(ev); break
     case 'entrou': hud.toast(ev.nome + ' entrou'); break
     case 'saiu': hud.toast('um jogador saiu'); break
     case 'obj-dono': case 'obj-destruido': anel.aoEventoDeRede(ev); break
@@ -219,6 +234,17 @@ const portalgun = criarPortalGun({
 game.portalgun = portalgun
 if (portalgun.grupoNoMundo) scene.add(portalgun.grupoNoMundo)
 if (portalgun.interactable) interaction.add(portalgun.interactable)
+
+// --- veiculos --------------------------------------------------------------
+// Depois da cidade (precisa do groundY e dos colisores) e do anel (que cria o
+// helicoptero quando a montagem termina).
+const veiculos = criarVeiculos({
+  scene, camera, player, character, collision, rede, hud,
+  groundY: (x, z) => game.groundY(x, z),
+  interaction,
+})
+game.veiculos = veiculos
+scene.add(veiculos.grupo)
 
 // 1 maos, 2 anel, 3 arma de portal. O slot fica travado ate pegar o item.
 const hotbar = criarHotbar({
@@ -381,7 +407,18 @@ function frame() {
 
   // interacao
   if (!preview.active && !customizer.isOpen()) {
-    if (player.sitting) {
+    // Veiculo antes de tudo: dirigindo, o E sai do carro; a pe, ele entra no
+    // que estiver perto. Quem desenha o prompt de dentro do veiculo (velocidade
+    // + "E para sair") e o proprio sistema, la no atualizar().
+    const noVeiculo = veiculos.dirigindo
+    // sentado num banco, o E levanta: quem esta no banco nao esta entrando em
+    // carro nenhum, mesmo que tenha um estacionado ao lado
+    const perto = (noVeiculo || player.sitting) ? null : veiculos.veiculoPerto(player.position)
+    if (noVeiculo || perto) {
+      // "no carro", mas "na moto": cada veiculo tem seu artigo
+      if (perto) hud.setPrompt('Entrar ' + (NOME_VEICULO[perto.tipo] || ('no ' + perto.tipo)))
+      if (input.wasPressed('KeyE')) veiculos.entrarSair()
+    } else if (player.sitting) {
       hud.setPrompt('Levantar')
       if (input.wasPressed('KeyE')) player.standUp()
     } else {
@@ -428,6 +465,9 @@ function frame() {
     void st
   }
 
+  // Depois de player.update: dirigindo, o sistema escreve por cima da camera,
+  // do personagem e do prompt do HUD — e quem escreve por ultimo e quem manda.
+  veiculos.atualizar(dt)
   anel.atualizar(dt)
   portalgun.atualizar(dt)
   dialogo.atualizar(player.position)
@@ -453,7 +493,7 @@ function frame() {
     fpsAtual = Math.round(fpsCount / fpsAcc)
     hud.setFps(fpsAtual)
     hud.setRede(fpsAtual, rede.conectado ? rede.stats : null,
-    rede.conectado ? 'online' : (rede.recusado ? 'recusado' : 'sozinho')
+      rede.conectado ? 'online' : (rede.recusado ? 'recusado' : 'sozinho'))
     fpsAcc = 0; fpsCount = 0; fpsTimer = 0
   }
 }

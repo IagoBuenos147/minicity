@@ -35,9 +35,19 @@
 //    viajam por PORTAL_ABERTO / PORTAL_FECHADO no canal confiavel, e quem
 //    entra atrasado recebe um PORTAL_ABERTO de cada portal vivo logo depois do
 //    BEMVINDO (o mesmo papel que o BEMVINDO faz pelos objetos parados).
+//
+// 7. VEICULO TAMBEM NAO ENTRA NO SNAPSHOT, pelo motivo oposto ao do portal:
+//    ele se mexe DEMAIS, mas so quando alguem esta dirigindo, e quem simula a
+//    direcao e a maquina do dono. Por isso a pose viaja no VEICULO_POS que o
+//    dono manda a 15 Hz e o servidor REENVIA aos outros — e o unico pacote
+//    deste jogo que anda nos dois sentidos com o mesmo numero (16). Reemitir
+//    os mesmos 19 bytes com um numero 14x seria manter dois nomes para um
+//    formato so, que e exatamente o que a regra 2 do sala.js proibe. Quem
+//    entra atrasado recebe um VEICULO_DONO de cada veiculo ocupado (e um
+//    HELI_CRIADO de cada helicoptero vivo), pelo mesmo caminho do portal.
 // ---------------------------------------------------------------------------
 
-import { VERSAO_PROTOCOLO, TICK_HZ } from './mundo.js'
+import { VERSAO_PROTOCOLO, TICK_HZ, HELI_ID_MIN, HELI_ID_MAX } from './mundo.js'
 
 export { VERSAO_PROTOCOLO, TICK_HZ }
 
@@ -59,6 +69,10 @@ export const P = {
   DESTRUIU: 11,
   ABRIR_PORTAL: 12,
   PEGAR_ITEM: 13,
+  ENTRAR_VEICULO: 14,
+  SAIR_VEICULO: 15,
+  VEICULO_POS: 16,
+  CRIAR_HELI: 17,
 
   BEMVINDO: 128,
   RECUSA: 129,
@@ -73,6 +87,8 @@ export const P = {
   NEGADO: 138,
   PORTAL_ABERTO: 139,
   PORTAL_FECHADO: 140,
+  VEICULO_DONO: 141,
+  HELI_CRIADO: 142,
 }
 
 // Nome legivel do tipo, so pro painel F3 e pra depurar. Nao entra na rede.
@@ -87,6 +103,10 @@ export const RECUSA_CHEIO = 2
 // NEGADO.oque
 export const NEGADO_NPC = 1
 export const NEGADO_OBJETO = 2
+// 3 = veiculo ocupado. Existe pelo mesmo motivo do NEGADO_OBJETO: sem
+// resposta, quem apertou E num carro que ja tem motorista ficaria apertando E
+// sem nada acontecer e sem saber por que.
+export const NEGADO_VEICULO = 3
 
 // MEU_ESTADO.anim / jogador no SNAPSHOT
 export const ANIM = { PARADO: 0, ANDANDO: 1, CORRENDO: 2, NO_AR: 3, SENTADO: 4 }
@@ -115,6 +135,27 @@ export const PORTAL_ID_MAX = 3999
 /** True se o u16 esta na faixa de portal. Quem recebe um id fora dela descarta. */
 export function ehIdDePortal(id) {
   return (id | 0) >= PORTAL_ID_MIN && (id | 0) <= PORTAL_ID_MAX
+}
+
+// --- veiculo ----------------------------------------------------------------
+// Faixa 4000..4999: os tres estacionados tem id FIXO em MUNDO.VEICULOS, e o
+// helicoptero recebe o dele do SERVIDOR em MUNDO.HELI_ID_MIN..HELI_ID_MAX
+// (4100..4999) — a mesma regra do portal, e pelo mesmo motivo: id nao volta a
+// ser usado enquanto aquele veiculo existir, senao um VEICULO_DONO atrasado do
+// veiculo velho poria um motorista dentro do novo.
+export const VEICULO_ID_MIN = 4000
+export const VEICULO_ID_MAX = 4999
+
+export { HELI_ID_MIN, HELI_ID_MAX }
+
+/** True se o u16 esta na faixa de veiculo. Id fora dela e lixo: descarta. */
+export function ehIdDeVeiculo(id) {
+  return (id | 0) >= VEICULO_ID_MIN && (id | 0) <= VEICULO_ID_MAX
+}
+
+/** True se o veiculo e um helicoptero (a sub-faixa que o servidor distribui). */
+export function ehIdDeHeli(id) {
+  return (id | 0) >= HELI_ID_MIN && (id | 0) <= HELI_ID_MAX
 }
 
 // --- itens (PEGAR_ITEM e o byte de itens do BEMVINDO) -----------------------
@@ -146,11 +187,14 @@ export const MAX_NOME_BYTES = 32
 const MAX_LISTA = 255
 
 // --- canal: o que pode se perder e o que nao pode ---------------------------
-// So tres mensagens sao "o mais novo manda, perdeu tudo bem": as de fluxo
-// continuo a 15 Hz. Todo o resto e EVENTO — perder um evento deixa o mundo
+// So as mensagens de FLUXO CONTINUO a 15 Hz sao "o mais novo manda, perdeu
+// tudo bem": corpo, objeto na mao, veiculo e snapshot. Note que VEICULO_POS
+// entra aqui nos DOIS sentidos (o dono manda, o servidor reenvia) — e a mesma
+// pose, e ela vale o mesmo tanto: nada.
+// Todo o resto e EVENTO — perder um evento deixa o mundo
 // errado pra sempre (objeto que fica preso, dialogo que nunca fecha), entao
 // vai no canal confiavel.
-const NAO_CONFIAVEIS = new Set([P.MEU_ESTADO, P.OBJ_POS, P.SNAPSHOT])
+const NAO_CONFIAVEIS = new Set([P.MEU_ESTADO, P.OBJ_POS, P.SNAPSHOT, P.VEICULO_POS])
 
 /**
  * Aceita o tipo (numero) ou o pacote inteiro (DataView, ArrayBuffer ou
@@ -594,6 +638,116 @@ export function lerPegarItem(dvBruto) {
   return { item: dv.getUint8(1) }
 }
 
+/**
+ * 14 ENTRAR_VEICULO (confiavel): u16 veicId.
+ *
+ * PEDIDO, igualzinho ao PEGAR de objeto — e nao por acaso: um veiculo e um
+ * objeto que so uma pessoa pode usar por vez. O cliente NAO senta ao apertar
+ * E; ele espera o VEICULO_DONO voltar. Dois apertando E no mesmo carro no
+ * mesmo instante e resolvido em um lugar so: a ordem de chegada no servidor.
+ */
+export function escreverEntrarVeiculo(veicId) {
+  const { buf, dv } = novo(P.ENTRAR_VEICULO, 3)
+  dv.setUint16(1, veicId & 0xffff, true)
+  return buf
+}
+
+export function lerEntrarVeiculo(dvBruto) {
+  const dv = cabe(dvBruto, P.ENTRAR_VEICULO, 3)
+  if (!dv) return null
+  return { veicId: dv.getUint16(1, true) }
+}
+
+/**
+ * 15 SAIR_VEICULO (confiavel): u16 veicId.
+ *
+ * Sem posicao de proposito: onde o veiculo PAROU o servidor ja sabe, porque
+ * foi o proprio dono que mandou a ultima pose no VEICULO_POS. Deixar o cliente
+ * dizer "sai e o carro fica ali" abriria a mesma porta que o SOLTAR fecha.
+ * IDEMPOTENTE: sair de um veiculo que ja nao e meu nao faz nada.
+ */
+export function escreverSairVeiculo(veicId) {
+  const { buf, dv } = novo(P.SAIR_VEICULO, 3)
+  dv.setUint16(1, veicId & 0xffff, true)
+  return buf
+}
+
+export function lerSairVeiculo(dvBruto) {
+  const dv = cabe(dvBruto, P.SAIR_VEICULO, 3)
+  if (!dv) return null
+  return { veicId: dv.getUint16(1, true) }
+}
+
+/**
+ * 16 VEICULO_POS (NAO confiavel): u16 veicId, f32 x,y,z, i16 yaw,
+ * i16 rolagem. 19 bytes com o tipo.
+ *
+ * O UNICO pacote que anda nos dois sentidos (ver a regra 7 do cabecalho): o
+ * dono manda a 15 Hz e o servidor reenvia aos outros, byte por byte igual.
+ * So vale do dono — de qualquer outro o servidor ignora em silencio, como no
+ * OBJ_POS: nao houve pedido, entao nao ha o que negar.
+ *
+ * A ROLAGEM anda junto do yaw porque e ela que faz a moto parecer moto: o
+ * angulo de inclinacao na curva e metade do prazer de pilotar, e sem ele o
+ * piloto remoto faria as curvas em pe, deslizando de lado. i16 = rad * 1000,
+ * a mesma escala de todo angulo do protocolo. O passo (pitch) NAO viaja: ele
+ * sai do proprio movimento (mergulho no freio, subida do heli) e cada maquina
+ * o reconstroi do yaw e da velocidade, sem custar 2 bytes por tique.
+ */
+export function escreverVeiculoPos(veicId, x, y, z, yaw, rolagem) {
+  const { buf, dv } = novo(P.VEICULO_POS, 19)
+  dv.setUint16(1, veicId & 0xffff, true)
+  dv.setFloat32(3, f(x), true)
+  dv.setFloat32(7, f(y), true)
+  dv.setFloat32(11, f(z), true)
+  dv.setInt16(15, anguloParaI16(yaw), true)
+  dv.setInt16(17, anguloParaI16(rolagem), true)
+  return buf
+}
+
+export function lerVeiculoPos(dvBruto) {
+  const dv = cabe(dvBruto, P.VEICULO_POS, 19)
+  if (!dv) return null
+  return {
+    veicId: dv.getUint16(1, true),
+    x: dv.getFloat32(3, true),
+    y: dv.getFloat32(7, true),
+    z: dv.getFloat32(11, true),
+    yaw: i16ParaAngulo(dv.getInt16(15, true)),
+    rolagem: i16ParaAngulo(dv.getInt16(17, true)),
+  }
+}
+
+/**
+ * 17 CRIAR_HELI (confiavel): f32 x,y,z, i16 yaw. 15 bytes com o tipo.
+ *
+ * O mesmo desenho do ABRIR_PORTAL, e pela mesma razao: o cliente diz ONDE a
+ * montagem terminou, e QUEM DA O ID e o servidor (4100..4999). Se cada maquina
+ * inventasse o id do helicoptero que montou, dois jogadores montando ao mesmo
+ * tempo criariam dois helicopteros com o mesmo numero e um apagaria o outro.
+ * O cliente pode animar as pecas se encaixando enquanto o botao esta segurado
+ * — isso e 100% local —, mas o helicoptero de verdade so nasce no HELI_CRIADO.
+ */
+export function escreverCriarHeli(x, y, z, yaw) {
+  const { buf, dv } = novo(P.CRIAR_HELI, 15)
+  dv.setFloat32(1, f(x), true)
+  dv.setFloat32(5, f(y), true)
+  dv.setFloat32(9, f(z), true)
+  dv.setInt16(13, anguloParaI16(yaw), true)
+  return buf
+}
+
+export function lerCriarHeli(dvBruto) {
+  const dv = cabe(dvBruto, P.CRIAR_HELI, 15)
+  if (!dv) return null
+  return {
+    x: dv.getFloat32(1, true),
+    y: dv.getFloat32(5, true),
+    z: dv.getFloat32(9, true),
+    yaw: i16ParaAngulo(dv.getInt16(13, true)),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registros compartilhados pelo SNAPSHOT e pelo BEMVINDO
 // ---------------------------------------------------------------------------
@@ -1027,4 +1181,83 @@ export function lerPortalFechado(dvBruto) {
   const dv = cabe(dvBruto, P.PORTAL_FECHADO, 3)
   if (!dv) return null
   return { portalId: dv.getUint16(1, true) }
+}
+
+/**
+ * 141 VEICULO_DONO (confiavel): u16 veicId, u16 donoId (0 = livre),
+ * f32 x,y,z, i16 yaw. 19 bytes com o tipo.
+ *
+ * O irmao do OBJ_DONO, e leva a posicao pelo mesmo motivo que ele: a hora em
+ * que o motorista muda e exatamente a hora em que o veiculo PAROU onde parou.
+ * Se a pose viesse depois (ou nao viesse), existiria uma janela em que todo
+ * mundo ja viu o carro ficar sem dono e ninguem sabe onde ele ficou — e cada
+ * maquina desenharia o carro no ultimo lugar que ela lembra, que e diferente
+ * em cada tela porque cada uma perdeu um VEICULO_POS diferente.
+ *
+ * Sem rolagem aqui de proposito: veiculo parado e veiculo em pe. Mandar a
+ * inclinacao da ultima curva faria a moto ficar deitada no chao, sozinha.
+ *
+ * IDEMPOTENTE: receber duas vezes o mesmo dono so reafirma o que ja vale.
+ */
+export function escreverVeiculoDono(veicId, donoId, x, y, z, yaw) {
+  const { buf, dv } = novo(P.VEICULO_DONO, 19)
+  dv.setUint16(1, veicId & 0xffff, true)
+  dv.setUint16(3, donoId & 0xffff, true)
+  dv.setFloat32(5, f(x), true)
+  dv.setFloat32(9, f(y), true)
+  dv.setFloat32(13, f(z), true)
+  dv.setInt16(17, anguloParaI16(yaw), true)
+  return buf
+}
+
+export function lerVeiculoDono(dvBruto) {
+  const dv = cabe(dvBruto, P.VEICULO_DONO, 19)
+  if (!dv) return null
+  return {
+    veicId: dv.getUint16(1, true),
+    donoId: dv.getUint16(3, true),
+    x: dv.getFloat32(5, true),
+    y: dv.getFloat32(9, true),
+    z: dv.getFloat32(13, true),
+    yaw: i16ParaAngulo(dv.getInt16(17, true)),
+  }
+}
+
+/**
+ * 142 HELI_CRIADO (confiavel): u16 veicId (4100..4999), u16 dono,
+ * f32 x,y,z, i16 yaw. 19 bytes com o tipo.
+ *
+ * "dono" aqui e QUEM MONTOU, nao quem esta pilotando. Os dois nunca se
+ * confundem porque quem pilota e SEMPRE o VEICULO_DONO e mais ninguem: o
+ * helicoptero nasce LIVRE, pronto para entrar com E — inclusive para quem
+ * chegou correndo enquanto o outro montava. O campo existe para a maquina de
+ * cada um saber de quem foi o clarao verde, que e efeito local.
+ *
+ * Quem entra atrasado recebe um destes por helicoptero vivo logo depois do
+ * BEMVINDO (e, se ele estiver ocupado, o VEICULO_DONO logo em seguida) — o
+ * mesmo caminho do PORTAL_ABERTO, entao o cliente tem UM codigo so para
+ * "apareceu um helicoptero".
+ */
+export function escreverHeliCriado(veicId, dono, x, y, z, yaw) {
+  const { buf, dv } = novo(P.HELI_CRIADO, 19)
+  dv.setUint16(1, veicId & 0xffff, true)
+  dv.setUint16(3, dono & 0xffff, true)
+  dv.setFloat32(5, f(x), true)
+  dv.setFloat32(9, f(y), true)
+  dv.setFloat32(13, f(z), true)
+  dv.setInt16(17, anguloParaI16(yaw), true)
+  return buf
+}
+
+export function lerHeliCriado(dvBruto) {
+  const dv = cabe(dvBruto, P.HELI_CRIADO, 19)
+  if (!dv) return null
+  return {
+    veicId: dv.getUint16(1, true),
+    dono: dv.getUint16(3, true),
+    x: dv.getFloat32(5, true),
+    y: dv.getFloat32(9, true),
+    z: dv.getFloat32(13, true),
+    yaw: i16ParaAngulo(dv.getInt16(17, true)),
+  }
 }

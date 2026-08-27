@@ -13,7 +13,9 @@
 // O QUE O SERVIDOR NUNCA ACEITA DO CLIENTE:
 //   - posicao de NPC (nem olha);
 //   - posicao de objeto que nao seja dele (OBJ_POS de quem nao e dono: lixo);
-//   - a posicao final de um objeto solto (a queda e decidida AQUI).
+//   - a posicao final de um objeto solto (a queda e decidida AQUI);
+//   - pose de veiculo que nao seja dele (VEICULO_POS de quem nao dirige: lixo);
+//   - o id do helicoptero que ele montou (o id sai DAQUI, como o do portal).
 //
 // ROBUSTEZ: cada mensagem e escrita como se o pacote pudesse se perder,
 // duplicar e chegar fora de ordem. Toda mensagem confiavel e IDEMPOTENTE:
@@ -26,6 +28,7 @@ import {
   RAIO_PERDER_DIALOGO,
   NPCS, AGARRAVEIS, TIPOS_AGARRAVEL,
   PORTAL_DURACAO,
+  VEICULOS, HELI_ID_MIN, HELI_ID_MAX,
   distXZ, olharPara,
 } from '../src/comum/mundo.js'
 import { LEVELS, WORLD } from '../src/config.js'
@@ -48,6 +51,7 @@ const {
   ENTRAR, MEU_ESTADO, MINHA_APARENCIA, FALAR, SAIR_DIALOGO, ESCOLHA,
   PEGAR, SOLTAR, ARREMESSAR, OBJ_POS, DESTRUIU,
   ABRIR_PORTAL, PEGAR_ITEM,
+  ENTRAR_VEICULO, SAIR_VEICULO, VEICULO_POS, CRIAR_HELI,
 } = Proto.P
 
 const TIPOS = { ...Proto.P }
@@ -56,6 +60,7 @@ const RECUSA_VERSAO = Proto.RECUSA_VERSAO
 const RECUSA_CHEIO = Proto.RECUSA_CHEIO
 const NEGADO_NPC = Proto.NEGADO_NPC
 const NEGADO_OBJETO = Proto.NEGADO_OBJETO
+const NEGADO_VEICULO = Proto.NEGADO_VEICULO
 
 // estados de objeto
 const REPOUSO = Proto.EST_OBJ.REPOUSO
@@ -232,9 +237,31 @@ export function criarSala(opcoes = {}) {
     })
   }
 
+  /* Veiculos, por id (4000..4999). Os tres estacionados nascem com a sala e
+     tem id fixo em MUNDO.VEICULOS; os helicopteros entram neste mesmo Map
+     quando alguem monta um, com id dado aqui. Um Map so de proposito: entrar,
+     sair e mandar pose e o MESMO codigo para carro e para helicoptero — o que
+     muda entre eles e como se dirige, e isso e assunto do cliente.
+
+     VEICULO NAO ENTRA NO SNAPSHOT. A pose vem do dono no VEICULO_POS e e
+     reenviada aos outros; parado, ele fica exatamente onde o ultimo
+     VEICULO_DONO disse. */
+  const veiculos = new Map()
+  for (const v of VEICULOS) {
+    veiculos.set(v.id, {
+      id: v.id,
+      tipo: v.tipo,
+      heli: false,
+      criador: 0,                  // so o helicoptero tem: quem montou
+      x: v.x, y: v.y, z: v.z, yaw: v.yaw,
+      dono: 0,                     // 0 = livre, ninguem dirigindo
+    })
+  }
+
   let tick = 0
   let ultimoId = 0
   let ultimoPortalId = PORTAL_ID_MIN - 1
+  let ultimoHeliId = HELI_ID_MIN - 1
 
   /* Id de jogador 1..999. Ele NAO volta a ser usado enquanto o dono anterior
      estiver online — e por isso que o laco anda para frente em vez de procurar
@@ -257,6 +284,18 @@ export function criarSala(opcoes = {}) {
     for (let i = 0; i < (PORTAL_ID_MAX - PORTAL_ID_MIN + 1); i++) {
       ultimoPortalId = ultimoPortalId >= PORTAL_ID_MAX ? PORTAL_ID_MIN : ultimoPortalId + 1
       if (!portais.has(ultimoPortalId)) return ultimoPortalId
+    }
+    return 0
+  }
+
+  /* Id de helicoptero 4100..4999, pela MESMA regra do id de portal: anda
+     sempre para frente e nunca devolve um numero que ja esta em uso. Um
+     helicoptero nao e destruido neste jogo, entao na pratica os ids so andam;
+     a volta ao inicio existe pelo mesmo cuidado dos outros dois lacos. */
+  function novoHeliId() {
+    for (let i = 0; i < (HELI_ID_MAX - HELI_ID_MIN + 1); i++) {
+      ultimoHeliId = ultimoHeliId >= HELI_ID_MAX ? HELI_ID_MIN : ultimoHeliId + 1
+      if (!veiculos.has(ultimoHeliId)) return ultimoHeliId
     }
     return 0
   }
@@ -301,6 +340,14 @@ export function criarSala(opcoes = {}) {
 
   function pacotePortalAberto(p) {
     return Proto.escreverPortalAberto(p.id, p.dono, p.x, p.y, p.z, p.yaw)
+  }
+
+  function pacoteVeiculoDono(v) {
+    return Proto.escreverVeiculoDono(v.id, v.dono, v.x, v.y, v.z, v.yaw)
+  }
+
+  function pacoteHeliCriado(v) {
+    return Proto.escreverHeliCriado(v.id, v.criador, v.x, v.y, v.z, v.yaw)
   }
 
   // --- entrada e saida ----------------------------------------------------
@@ -358,6 +405,7 @@ export function criarSala(opcoes = {}) {
       npcEmDialogo: 0,      // id do NPC que ele esta ocupando (0 = nenhum)
       objetoNaMao: 0,       // id do objeto que ele esta segurando (0 = nenhum)
       portalId: 0,          // id do portal aberto por ele (0 = nenhum)
+      veiculo: 0,           // id do veiculo que ele dirige (0 = a pe)
     }
     con.jogador = jogador
     jogadores.set(id, jogador)
@@ -376,6 +424,21 @@ export function criarSala(opcoes = {}) {
        pelos objetos parados. Mandar o evento (em vez de inventar um campo no
        BEMVINDO) deixa o cliente com UM caminho so para "portal apareceu". */
     for (const p of portais.values()) con.enviar(pacotePortalAberto(p), true)
+
+    /* Veiculo tambem nao entra no snapshot, pelo motivo oposto ao do portal
+       (ver a regra 7 do protocolo). Entao quem chega agora precisa de:
+       - um HELI_CRIADO por helicoptero vivo, senao os que foram montados antes
+         dele nao existiriam na tela dele;
+       - um VEICULO_DONO por veiculo OCUPADO, senao ele veria o carro parado no
+         ponto de estacionamento enquanto outro jogador o dirige pela cidade.
+       Veiculo livre e parado nao precisa de nada: a pose inicial dele ja esta
+       em MUNDO.VEICULOS nos dois lados. O HELI_CRIADO vai antes do
+       VEICULO_DONO do mesmo helicoptero porque nao se poe motorista num
+       helicoptero que ainda nao apareceu. */
+    for (const v of veiculos.values()) {
+      if (v.heli) con.enviar(pacoteHeliCriado(v), true)
+      if (v.dono) con.enviar(pacoteVeiculoDono(v), true)
+    }
 
     log('entrou #' + id + ' ' + nome + '  (' + jogadores.size + '/' + MAX_JOGADORES + ')')
     return jogador
@@ -406,6 +469,26 @@ export function criarSala(opcoes = {}) {
     o.dono = 0
     o.estado = REPOUSO
     paraTodos(pacoteObjDono(o), true)
+  }
+
+  /* Tira este jogador do veiculo que ele dirige e avisa TODOS que o veiculo
+     ficou livre, onde ele parou. E a mesma funcao para o SAIR_VEICULO, para
+     entrar em outro veiculo e para a queda de conexao — um caminho so, entao
+     nao existe caso em que o carro fica preso num motorista que nao esta mais
+     aqui. IDEMPOTENTE: chamar duas vezes nao manda VEICULO_DONO duas vezes.
+
+     Repare que a pose NAO e recalculada: ela e a ultima que o dono mandou no
+     VEICULO_POS. E de proposito — quem simulava a direcao era a maquina dele,
+     e o servidor nao tem uma fisica de carro para "decidir melhor". O que ele
+     decide, e isso e o que importa, e que essa pose e a oficial para todos. */
+  function largarVeiculo(jogador) {
+    const veicId = jogador.veiculo
+    jogador.veiculo = 0
+    if (!veicId) return
+    const v = veiculos.get(veicId)
+    if (!v || v.dono !== jogador.id) return
+    v.dono = 0
+    paraTodos(pacoteVeiculoDono(v), true)
   }
 
   /* Fecha um portal pelo id e avisa todos. IDEMPOTENTE: id que nao existe
@@ -442,6 +525,10 @@ export function criarSala(opcoes = {}) {
        um buraco verde no meio da rua sem dono, e o dono ja nao esta aqui para
        receber o PORTAL_FECHADO. */
     fecharPortalDoJogador(jogador)
+    /* O veiculo do ausente e liberado NA HORA, onde ele parou. Um carro
+       trancado num motorista que fechou a aba ficaria trancado para sempre —
+       nao ha tempo esgotando nem nada que o libere depois. */
+    largarVeiculo(jogador)
     const objId = jogador.objetoNaMao
     jogador.objetoNaMao = 0
     if (objId) {
@@ -683,6 +770,97 @@ export function criarSala(opcoes = {}) {
         return
       }
 
+      /* ENTRAR NUM VEICULO E UM PEDIDO — o mesmo desenho do PEGAR, porque o
+         problema e o mesmo: uma coisa, uma pessoa. Dois apertando E no mesmo
+         carro chegam um depois do outro AQUI; o primeiro acha livre e senta, o
+         segundo acha ocupado e leva NEGADO. Nao existe empate porque nao
+         existe outro lugar decidindo isso. */
+      case ENTRAR_VEICULO: {
+        const m = Proto.lerEntrarVeiculo(dv)
+        if (!m) return
+        const v = veiculos.get(m.veicId)
+        if (!v) return
+        // ja sou o motorista (pacote duplicado, ou apertou E de novo): so
+        // reafirma o estado para ele. Idempotente.
+        if (v.dono === jogador.id) { paraUm(jogador, pacoteVeiculoDono(v), true); return }
+        if (v.dono) { paraUm(jogador, Proto.escreverNegado(NEGADO_VEICULO, v.id), true); return }
+        /* Um jogador dirige NO MAXIMO um veiculo: entrar noutro larga o
+           anterior, exatamente como a mao larga o objeto velho no PEGAR. Sem
+           isto, sair do carro para a moto deixaria o carro ocupado por um
+           motorista que esta a 20 m dali. */
+        largarVeiculo(jogador)
+        v.dono = jogador.id
+        jogador.veiculo = v.id
+        paraTodos(pacoteVeiculoDono(v), true)
+        return
+      }
+
+      /* Sair de um veiculo que nao e meu nao faz nada e nao responde nada:
+         nao houve pedido de posse, entao nao ha o que negar. */
+      case SAIR_VEICULO: {
+        const m = Proto.lerSairVeiculo(dv)
+        if (!m) return
+        const v = veiculos.get(m.veicId)
+        if (!v || v.dono !== jogador.id) return
+        largarVeiculo(jogador)
+        return
+      }
+
+      /* Enquanto ele dirige, a maquina dele manda a pose e o servidor REENVIA
+         aos outros — veiculo nao entra no snapshot (regra 7 do protocolo). De
+         QUALQUER outro isto e ignorado em silencio, igual ao OBJ_POS: e a
+         mesma linha (v.dono !== jogador.id) que impede um cliente estragado de
+         dirigir o carro dos outros.
+
+         Reescrevo os bytes em vez de repassar os que chegaram porque assim o
+         que sai da sala e sempre pose SANEADA (sem NaN, sem infinito) e no
+         formato que este servidor conhece. Sao 19 bytes 15 vezes por segundo
+         por motorista: nao custa nada perto de ter que confiar no que chegou.
+
+         Canal NAO confiavel, e o proprio dono fica de fora do reenvio: ele ja
+         desenhou aquilo — receber a propria pose 100 ms atrasada so serviria
+         para brigar com o que ele ja tem na tela. */
+      case VEICULO_POS: {
+        const m = Proto.lerVeiculoPos(dv)
+        if (!m) return
+        const v = veiculos.get(m.veicId)
+        if (!v || v.dono !== jogador.id) return
+        if (!finito(m.x, METADE_MAPA) || !finito(m.y, 500) || !finito(m.z, METADE_MAPA)) return
+        v.x = m.x; v.y = m.y; v.z = m.z
+        v.yaw = Number.isFinite(m.yaw) ? m.yaw : 0
+        const rolagem = Number.isFinite(m.rolagem) ? m.rolagem : 0
+        paraTodos(Proto.escreverVeiculoPos(v.id, v.x, v.y, v.z, v.yaw, rolagem), false, jogador)
+        return
+      }
+
+      /* CRIAR_HELI e um PEDIDO, como ABRIR_PORTAL: o cliente diz onde a
+         montagem terminou; QUEM DA O ID E O SERVIDOR. O helicoptero nasce
+         LIVRE — o contrato diz que ele "fica pronto para entrar com E", entao
+         quem montou entra pelo mesmo ENTRAR_VEICULO de todo mundo. */
+      case CRIAR_HELI: {
+        const m = Proto.lerCriarHeli(dv)
+        if (!m) return
+        if (!finito(m.x, METADE_MAPA) || !finito(m.y, 500) || !finito(m.z, METADE_MAPA)) return
+        /* Alcance: a mesma sanidade do SOLTAR e do ABRIR_PORTAL. Nao e
+           anti-trapaca (ninguem disputa nada aqui), e so nao deixar um cliente
+           estragado montar um helicoptero do outro lado da cidade. */
+        if (distXZ(m.x, m.z, jogador.x, jogador.z) > 30) return
+        const id = novoHeliId()
+        if (!id) return          // 900 helicopteros vivos: nao inventa id
+        const v = {
+          id,
+          tipo: 'helicoptero',
+          heli: true,
+          criador: jogador.id,
+          x: m.x, y: m.y, z: m.z,
+          yaw: Number.isFinite(m.yaw) ? m.yaw : 0,
+          dono: 0,
+        }
+        veiculos.set(id, v)
+        paraTodos(pacoteHeliCriado(v), true)
+        return
+      }
+
       default:
         return   // tipo desconhecido: cliente mais novo, ou lixo. Ignora.
     }
@@ -778,13 +956,14 @@ export function criarSala(opcoes = {}) {
     REPOUSO, SEGURO, VOANDO, DESTRUIDO,
     PORTAL_DURACAO, PORTAL_ID_MIN, PORTAL_ID_MAX,
     ITEM_PORTAL_GUN: Proto.ITEM_PORTAL_GUN,
+    NEGADO_VEICULO, HELI_ID_MIN, HELI_ID_MAX,
   }
 
   const sala = {
     C,
     entrar, sair, passo, aoMensagem, aoPacote, lerEntrar,
-    jogadores, npcs, objetos, portais,
-    fecharPortal,
+    jogadores, npcs, objetos, portais, veiculos,
+    fecharPortal, largarVeiculo,
     alturaDoChao,
     get tick() { return tick },
   }
@@ -802,9 +981,11 @@ const REDE_MD = {
   ENTRAR: 1, MEU_ESTADO: 2, MINHA_APARENCIA: 3, FALAR: 4, SAIR_DIALOGO: 5,
   ESCOLHA: 6, PEGAR: 7, SOLTAR: 8, ARREMESSAR: 9, OBJ_POS: 10, DESTRUIU: 11,
   ABRIR_PORTAL: 12, PEGAR_ITEM: 13,
+  ENTRAR_VEICULO: 14, SAIR_VEICULO: 15, VEICULO_POS: 16, CRIAR_HELI: 17,
   BEMVINDO: 128, RECUSA: 129, SNAPSHOT: 130, ENTROU: 131, SAIU: 132,
   APARENCIA: 133, DIALOGO: 134, DIALOGO_FIM: 135, OBJ_DONO: 136,
   OBJ_DESTRUIDO: 137, NEGADO: 138, PORTAL_ABERTO: 139, PORTAL_FECHADO: 140,
+  VEICULO_DONO: 141, HELI_CRIADO: 142,
 }
 
 /* Assincrona porque servidor.js ja chama assim (e chamava um import()

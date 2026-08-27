@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { criarMontagem } from '../veiculos/helicoptero.js'
+import { HELI_MONTAGEM } from '../comum/mundo.js'
 import { PLAYER } from '../config.js'
 import { ANEL as ANEL_MUNDO, TICK_HZ, AGARRAVEL_POR_ID, TIPOS_AGARRAVEL } from '../comum/mundo.js'
 import {
@@ -179,6 +181,13 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
   let equipado = false
   let tempo = 0
   let alvoId = 0                 // id sob a mira (0 = nenhum)
+
+  // --- montagem do helicoptero ---------------------------------------------
+  // Com o anel na mao e NADA agarrado, segurar o botao direito monta um
+  // helicoptero no ponto mirado. E de proposito que demora: o pedido era
+  // "algo que requer um pouco de tempo e segurando o anel para criar".
+  let montagem = null            // { obj, x, y, z, yaw, t }
+  let segurandoDireito = false
   let seguroId = 0               // id na mao (0 = nenhum)
   let pedidoId = 0               // id pedido ao servidor, aguardando resposta
   let pedidoT = 0
@@ -294,6 +303,84 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
       o = o.parent
     }
     return 0
+  }
+
+  // --- montagem do helicoptero ---------------------------------------------
+
+  const _mp = new THREE.Vector3()
+  const _md = new THREE.Vector3()
+
+  /** Ponto de chao a uns 7 m na frente de quem esta mirando. */
+  function pontoDeMontagem(out) {
+    camera.getWorldPosition(_mp)
+    camera.getWorldDirection(_md)
+    _md.y = 0
+    if (_md.lengthSq() < 1e-6) _md.set(0, 0, -1)
+    _md.normalize()
+    out.x = _mp.x + _md.x * 7
+    out.z = _mp.z + _md.z * 7
+    out.y = chaoEm(out.x, out.z)
+    // pra onde o bicho vai olhar: a mesma direcao de quem montou
+    out.yaw = Math.atan2(_md.x, _md.z)
+    return out
+  }
+
+  const _alvoMont = { x: 0, y: 0, z: 0, yaw: 0 }
+
+  function comecarMontagem() {
+    if (montagem || seguroId || voo) return
+    pontoDeMontagem(_alvoMont)
+    // chao ocupado nao serve: o helicoptero nasceria dentro de uma parede
+    if (collision && typeof collision.isFree === 'function' &&
+        !collision.isFree(_alvoMont.x, _alvoMont.z, 3.2)) {
+      if (hud && hud.toast) hud.toast('Sem espaco aqui pro helicoptero.')
+      return
+    }
+    let obj = null
+    try {
+      obj = criarMontagem(scene, _alvoMont.x, _alvoMont.y, _alvoMont.z, _alvoMont.yaw)
+    } catch (err) { console.warn('montagem do helicoptero falhou:', err); return }
+    if (!obj) return
+    montagem = { obj, x: _alvoMont.x, y: _alvoMont.y, z: _alvoMont.z, yaw: _alvoMont.yaw, t: 0 }
+    if (hud && hud.toast) hud.toast('Segure para montar o helicoptero...')
+  }
+
+  function cancelarMontagem() {
+    if (!montagem) return
+    try { montagem.obj.cancelar() } catch (err) { void err }
+    montagem = null
+  }
+
+  function atualizarMontagem(dt) {
+    if (!montagem) return
+    // soltou o botao, largou o anel ou pegou algo: cancela
+    if (!segurandoDireito || !equipado || seguroId) { cancelarMontagem(); return }
+    montagem.t += dt
+    const p = Math.min(1, montagem.t / HELI_MONTAGEM)
+    try { montagem.obj.atualizar(dt, p) } catch (err) { void err }
+    if (p < 1) return
+
+    // pronto: entrega o grupo montado pro sistema de veiculos
+    let pronto = null
+    try { pronto = montagem.obj.concluir() } catch (err) { void err }
+    const m = montagem
+    montagem = null
+    segurandoDireito = false
+    const sis = jogoVeiculos()
+    if (sis && typeof sis.criarHelicoptero === 'function') {
+      sis.criarHelicoptero(m.x, m.y, m.z, pronto, m.yaw)
+    } else if (pronto && pronto.parent !== scene) {
+      // sem sistema de veiculos, ao menos deixa o helicoptero na cena
+      scene.add(pronto)
+    }
+    if (hud && hud.toast) hud.toast('Helicoptero pronto. Aperte E para entrar.')
+    tremerImpulso(0.9)
+  }
+
+  /** O sistema de veiculos e opcional: o anel nao pode depender dele. */
+  function jogoVeiculos() {
+    const g = (typeof window !== 'undefined' && window.__game) || null
+    return g && g.veiculos ? g.veiculos : null
   }
 
   function atualizarMira() {
@@ -695,11 +782,20 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
     } else if (e.button === 2) {
       e.preventDefault()
       if (seguroId) recolocar()
+      else { segurandoDireito = true; comecarMontagem() }
     }
+  }
+
+  function onMouseUp(e) {
+    if (e.button !== 2) return
+    segurandoDireito = false
+    // soltou antes do fim: as pecas se desfazem
+    if (montagem && montagem.t < HELI_MONTAGEM) cancelarMontagem()
   }
   function onContextMenu(e) { if (jogando()) e.preventDefault() }
 
   window.addEventListener('mousedown', onMouseDown)
+  window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('contextmenu', onContextMenu)
 
   // =========================================================================
@@ -912,6 +1008,10 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
     if (dt > 0.1) dt = 0.1
     tempo += dt
 
+    // a montagem do helicoptero anda mesmo com objeto na mao? nao: ela so
+    // existe com a mao vazia, e atualizarMontagem cancela sozinha nesse caso
+    atualizarMontagem(dt)
+
     // --- a conexao caiu no meio da telecinese? ------------------------------
     // Interessa a BORDA (estava conectado e caiu), nao o estado: antes do
     // BEMVINDO tambem nao ha conexao, e ali nao ha nada pra limpar.
@@ -1058,6 +1158,7 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
   // =========================================================================
   function dispose() {
     window.removeEventListener('mousedown', onMouseDown)
+    window.removeEventListener('mouseup', onMouseUp)
     window.removeEventListener('contextmenu', onContextMenu)
     feixe.dispose(); contornoMira.dispose(); contornoObj.dispose()
     clarao.dispose(); choque.dispose(); quebra.dispose()
@@ -1083,6 +1184,11 @@ export function criarAnel({ scene, camera, player, character, collision, rede, h
     controlaLocalmente,
     atualizar,
     aoEventoDeRede,
+    // a montagem do helicoptero tambem por fora do mouse: o clique direito
+    // exige ponteiro travado, e teste headless (e um gamepad, um dia) nao tem
+    montarHelicoptero() { segurandoDireito = true; comecarMontagem() },
+    pararMontagem() { segurandoDireito = false; cancelarMontagem() },
+    get montando() { return montagem ? montagem.t / HELI_MONTAGEM : 0 },
     tremor,                  // {x,y} em RADIANOS, pra somar na rotacao da camera
     dispose,
     get equipado() { return equipado },

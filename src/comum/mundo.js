@@ -131,6 +131,47 @@ export const PORTAL_DURACAO = 25
 // Raio de travessia: quem chegar mais perto que isso do centro, atravessa.
 export const PORTAL_RAIO = 1.45
 
+// --- Veiculos ---------------------------------------------------------------
+// Faixa de id: 4000..4999. Os tres primeiros ficam estacionados na rua
+// principal, em frente as lojas, a poucos passos do ponto onde o jogo comeca —
+// e o "patio de testes" pedido: da pra chegar neles andando em 5 segundos.
+// O helicoptero NAO entra aqui: ele nasce quando alguem cria com o anel, e o
+// servidor da o id na hora (4100..4999).
+export const VEICULOS = [
+  { id: 4000, tipo: 'carro', x: 3.2, y: 0, z: -5.4, yaw: Math.PI / 2 },
+  { id: 4001, tipo: 'moto', x: 7.0, y: 0, z: -5.4, yaw: Math.PI / 2 },
+  { id: 4002, tipo: 'skate', x: 10.2, y: 0, z: -5.4, yaw: Math.PI / 2 },
+]
+export const VEICULO_POR_ID = {}
+for (const v of VEICULOS) VEICULO_POR_ID[v.id] = v
+
+export const HELI_ID_MIN = 4100
+export const HELI_ID_MAX = 4999
+// Quanto tempo segurando o anel pra montar o helicoptero, em segundos.
+export const HELI_MONTAGEM = 3.4
+
+// Como cada um dirige. Numeros em metros e segundos.
+// O carro e o mais rapido em reta e o que menos vira; o skate e o contrario.
+export const DIRIGIR = {
+  carro: {
+    velMax: 22, re: 7, acel: 11, freio: 20, atrito: 2.2,
+    giroMax: 0.62, giroVel: 2.6, agarra: 0.86, inclina: 0.13, alturaCam: 2.5, distCam: 7.2,
+  },
+  moto: {
+    velMax: 26, re: 5, acel: 15, freio: 22, atrito: 2.6,
+    giroMax: 0.78, giroVel: 3.4, agarra: 0.93, inclina: 0.55, alturaCam: 2.1, distCam: 5.6,
+  },
+  skate: {
+    velMax: 9.5, re: 2.5, acel: 4.2, freio: 7, atrito: 1.1,
+    giroMax: 0.9, giroVel: 3.0, agarra: 0.97, inclina: 0.22, alturaCam: 1.9, distCam: 4.6,
+  },
+  helicoptero: {
+    velMax: 24, re: 8, acel: 9, freio: 10, atrito: 1.4,
+    giroMax: 1.5, giroVel: 2.0, agarra: 1, inclina: 0.34, alturaCam: 4.2, distCam: 11,
+    subida: 7.5, tetoY: 60,
+  },
+}
+
 // --- O anel verde, no chao da barbearia -------------------------------------
 export const ANEL = { x: 25.8, y: 0.20, z: -16.0 }
 

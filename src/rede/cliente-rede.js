@@ -340,6 +340,47 @@ export function criarRede({ url, nome, aparencia } = {}) {
     mandar(Proto.escreverDestruiu(objId | 0, x, y, z), true)
   }
 
+  // --- veiculos ------------------------------------------------------------
+  //
+  // O mesmo desenho do anel: PEDIR e esperar. Quem senta no carro nao e este
+  // arquivo, e o 'veiculo-dono' que voltar — se o cliente sentasse ao apertar
+  // E, dois jogadores sentariam no mesmo carro por 100 ms cada um na sua tela,
+  // e um dos dois teria que ser arrancado de la depois.
+
+  /** Pede pra entrar num veiculo. Confiavel: perder isso e apertar E e nao
+   *  acontecer nada. Resposta: 'veiculo-dono' (ou 'negado', se ja tem dono). */
+  rede.entrarVeiculo = function entrarVeiculo(veicId) {
+    if (!rede.conectado) return
+    mandar(Proto.escreverEntrarVeiculo(veicId | 0), true)
+  }
+
+  /** Pede pra sair. Nao manda posicao: onde o veiculo parou o servidor ja sabe
+   *  pelo ultimo veiculoPos que EU mandei. */
+  rede.sairVeiculo = function sairVeiculo(veicId) {
+    if (!rede.conectado) return
+    mandar(Proto.escreverSairVeiculo(veicId | 0), true)
+  }
+
+  /** A 15 Hz enquanto eu dirijo. NAO confiavel: o proximo ja diz tudo o que o
+   *  perdido diria. So vale se o servidor tiver dito que sou o dono; se nao
+   *  for, ele ignora em silencio e nada acontece. Nao guardo o que mandei
+   *  (como faco com est.meusObj) porque o veiculo que EU dirijo e desenhado
+   *  pela fisica local, que nunca passou por aqui — e o servidor tambem nao
+   *  me devolve a minha propria pose. */
+  rede.veiculoPos = function veiculoPos(veicId, x, y, z, yaw, rolagem) {
+    if (!rede.conectado) return
+    mandar(Proto.escreverVeiculoPos(veicId | 0, x, y, z, yaw || 0, rolagem || 0), false)
+  }
+
+  /** Avisa que a montagem do helicoptero terminou naquele ponto. PEDIDO: quem
+   *  da o id (4100..4999) e cria o helicoptero pra todo mundo e o servidor, e
+   *  ele volta como 'heli-criado'. As pecas voando e o clarao verde sao 100%
+   *  locais e nao passam por aqui. */
+  rede.criarHeli = function criarHeli(x, y, z, yaw) {
+    if (!rede.conectado) return
+    mandar(Proto.escreverCriarHeli(x, y, z, yaw || 0), true)
+  }
+
   // --- recepcao ------------------------------------------------------------
 
   function aoReceber(v) {
@@ -522,6 +563,50 @@ export function criarRede({ url, nome, aparencia } = {}) {
       if (!p) return
       if (Proto.ehIdDePortal && !Proto.ehIdDePortal(p.portalId)) return
       emitir({ tipo: 'portal-fechado', id: p.portalId })
+      return
+    }
+
+    if (tipo === P.VEICULO_DONO) {
+      const d = Proto.lerVeiculoDono(v)
+      if (!d) return
+      // a faixa 4000..4999 ja diz que o u16 e um veiculo: fora dela e lixo
+      if (Proto.ehIdDeVeiculo && !Proto.ehIdDeVeiculo(d.veicId)) return
+      emitir({
+        tipo: 'veiculo-dono', veicId: d.veicId | 0, donoId: d.donoId | 0,
+        x: d.x, y: d.y, z: d.z, yaw: d.yaw,
+      })
+      return
+    }
+
+    /* A pose de quem dirige, reenviada pelo servidor (veiculo nao entra no
+       snapshot). O MEU veiculo nunca chega aqui: o servidor nao me devolve a
+       minha propria pose, e se um dia devolvesse eu estaria desenhando 100 ms
+       atras do que a minha fisica ja calculou. Quem interpola isso e o sistema
+       de veiculos, que e quem sabe o que e um carro. */
+    if (tipo === P.VEICULO_POS) {
+      const p = Proto.lerVeiculoPos(v)
+      if (!p) return
+      if (Proto.ehIdDeVeiculo && !Proto.ehIdDeVeiculo(p.veicId)) return
+      emitir({
+        tipo: 'veiculo-pos', veicId: p.veicId | 0,
+        x: p.x, y: p.y, z: p.z, yaw: p.yaw, rolagem: p.rolagem,
+      })
+      return
+    }
+
+    /* Nasceu um helicoptero. 'dono' aqui e QUEM MONTOU (pro clarao verde na
+       tela de todos), nunca quem pilota — o helicoptero nasce livre e quem
+       senta nele diz o 'veiculo-dono'. Chega tambem, um por helicoptero vivo,
+       logo depois do BEMVINDO, pra quem entrou atrasado: o mesmo caminho, e
+       por isso o mesmo codigo do outro lado. */
+    if (tipo === P.HELI_CRIADO) {
+      const h = Proto.lerHeliCriado(v)
+      if (!h) return
+      if (Proto.ehIdDeHeli && !Proto.ehIdDeHeli(h.veicId)) return
+      emitir({
+        tipo: 'heli-criado', veicId: h.veicId | 0, dono: h.dono | 0,
+        x: h.x, y: h.y, z: h.z, yaw: h.yaw,
+      })
       return
     }
 

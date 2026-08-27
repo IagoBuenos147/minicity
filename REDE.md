@@ -29,6 +29,10 @@ Faixas de id (`src/comum/mundo.js`):
 - **portais**: 3000..3999, dados pelo servidor ao abrir. O id **não é
   reaproveitado enquanto aquele portal estiver aberto** — reusar o número faria
   um `PORTAL_FECHADO` atrasado do portal velho apagar o novo.
+- **veículos**: 4000..4999. Os três estacionados têm id **fixo** em
+  `MUNDO.VEICULOS`; o helicóptero recebe o dele do servidor em **4100..4999**
+  (`MUNDO.HELI_ID_MIN`/`HELI_ID_MAX`), pela mesma regra do portal — o número
+  **não volta a ser usado enquanto aquele veículo existir**.
 
 ## Quem manda em quê
 
@@ -55,7 +59,7 @@ Escreva tudo como se o pacote pudesse se perder, duplicar e chegar fora de ordem
 
 Todo pacote começa com **1 byte de tipo**. Little-endian. `DataView`.
 
-`VERSAO_PROTOCOLO = 1`. Se não bater, o servidor recusa e o cliente mostra a
+`VERSAO_PROTOCOLO = 2` (`src/comum/mundo.js`). Se não bater, o servidor recusa e o cliente mostra a
 tela de recusa pedindo recarregar.
 
 ## Cliente → servidor
@@ -75,6 +79,10 @@ tela de recusa pedindo recarregar.
 | 11 | `DESTRUIU` | confiável | `u16 objId`, `f32 x,y,z` (onde bateu) |
 | 12 | `ABRIR_PORTAL` | confiável | `f32 x,y,z` (onde acertou), `i16 yaw`(rad×1000) — **pedido**: o id, o tempo e o aviso são do servidor |
 | 13 | `PEGAR_ITEM` | confiável | `u8 item` (1 = arma de portal) |
+| 14 | `ENTRAR_VEICULO` | confiável | `u16 veicId` — **pedido**: quem diz se entrou é o `VEICULO_DONO` que voltar |
+| 15 | `SAIR_VEICULO` | confiável | `u16 veicId` — sem posição: o servidor já tem a última que o dono mandou |
+| 16 | `VEICULO_POS` | não confiável | `u16 veicId`, `f32 x,y,z`, `i16 yaw`, `i16 rolagem` — só vale do **dono**; o servidor **reenvia aos outros** (ver abaixo) |
+| 17 | `CRIAR_HELI` | confiável | `f32 x,y,z`, `i16 yaw` — **pedido**: o id (4100..4999) é do servidor |
 
 `anim`: 0 parado, 1 andando, 2 correndo, 3 no ar, 4 sentado.
 `flags` bit 0: está sentado; bit 1: anel equipado.
@@ -96,6 +104,8 @@ tela de recusa pedindo recarregar.
 | 138 | `NEGADO` | confiável | `u8 oque` (1 npc ocupado, 2 objeto ocupado), `u16 id` |
 | 139 | `PORTAL_ABERTO` | confiável | `u16 portalId` (3000..3999), `u16 dono`, `f32 x,y,z`, `i16 yaw` |
 | 140 | `PORTAL_FECHADO` | confiável | `u16 portalId` — **idempotente**: id que não existe mais não faz nada |
+| 141 | `VEICULO_DONO` | confiável | `u16 veicId`, `u16 donoId` (0 = livre), `f32 x,y,z`, `i16 yaw` — a pose é **onde o veículo parou**, e vai junto pelo mesmo motivo do `OBJ_DONO` |
+| 142 | `HELI_CRIADO` | confiável | `u16 veicId` (4100..4999), `u16 dono` (**quem montou**, não quem pilota), `f32 x,y,z`, `i16 yaw` |
 
 ### Jogador dentro do SNAPSHOT
 `u16 id`, `f32 x,y,z`, `i16 yaw`, `u8 anim`, `u8 flags`
@@ -110,6 +120,12 @@ Só entram os que **não estão parados no lugar de origem**:
 `u16 id`, `f32 x,y,z`, `i16 rotY`, `u16 dono` (0 = livre), `u8 estado`
 
 `estado`: 0 em repouso, 1 seguro, 2 voando, 3 destruído.
+
+### Veículo — **não entra no SNAPSHOT**
+A pose viaja no `VEICULO_POS` que o dono manda a 15 Hz e o **servidor reenvia
+aos outros** (nunca de volta ao próprio dono). É o **único pacote que anda nos
+dois sentidos com o mesmo número**: são os mesmos 19 bytes, e reemitir a mesma
+pose com um número `14x` seria manter dois nomes para um formato só.
 
 ---
 
@@ -231,6 +247,37 @@ Quem atravessa sai em `MUNDO.PORTAL_DESTINO`, dentro da barbearia.
 
 ---
 
+# Veículos
+
+Regras de rede — **as mesmas dos objetos agarráveis**, com a diferença de que a
+pose não passa pelo snapshot:
+
+- Todo veículo tem **dono** (quem dirige). Livre = parado, onde o último
+  `VEICULO_DONO` disse.
+- **Entrar é um pedido** (`ENTRAR_VEICULO`). O servidor confere se está livre,
+  marca o dono e **avisa todos**. Dois pedindo ao mesmo tempo: o servidor diz
+  quem entrou; o outro leva `NEGADO` com `oque = 3`.
+- Um jogador dirige **no máximo um veículo**: entrar em outro **larga o
+  primeiro**, onde ele parou — a mesma regra de "uma mão, um objeto".
+- Enquanto dirige, a máquina do dono manda `VEICULO_POS` a 15 Hz e os outros
+  **interpolam 100 ms atrás**. De quem **não é o dono**, o servidor **ignora em
+  silêncio** — não houve pedido, então não há o que negar.
+- **Sair** (`SAIR_VEICULO`) e **cair a conexão** liberam o veículo **na hora** e
+  avisam todos. Nada pode ficar preso em quem não está mais aqui.
+- O helicóptero é **criado pelo anel** (`CRIAR_HELI`, depois de
+  `MUNDO.HELI_MONTAGEM` segundos segurando). **Quem dá o id é o servidor**, em
+  4100..4999, e ele nasce **livre**: quem montou entra com `E` pelo mesmo
+  `ENTRAR_VEICULO` de todo mundo. As peças chegando, o brilho verde e o clarão
+  são **100% locais**.
+- **Quem entra atrasado** recebe, logo depois do `BEMVINDO`, um `HELI_CRIADO`
+  por helicóptero vivo e um `VEICULO_DONO` por veículo **ocupado** — o mesmo
+  papel que o `PORTAL_ABERTO` faz pelos portais. Veículo livre e parado não
+  precisa de nada: a pose inicial já está em `MUNDO.VEICULOS` nos dois lados.
+
+`NEGADO.oque`: 1 npc ocupado, 2 objeto ocupado, **3 veículo ocupado**.
+
+---
+
 # Painel F3
 
 FPS · ms de rede (ida e volta) · jogadores conectados · quantos NPCs e objetos
@@ -249,6 +296,8 @@ src/comum/mundo.js          ids estáveis: NPCS e AGARRAVEIS (sem THREE, roda no
 src/rede/transporte.js      copiado do mago-pvp
 src/rede/transporte-ws.js   copiado do mago-pvp
 src/rede/cliente-rede.js    conexão, envio 15 Hz, buffer de snapshots, interpolação 100 ms
+src/veiculos/veiculos.js    carro, moto, skate e helicóptero: entrar/sair, física, câmera
+tools/teste-protocolo-veiculos.mjs  ida e volta das mensagens de veículo + regras da sala
 src/rede/avatares.js        bonecos dos outros jogadores (usa createCharacter)
 src/poder/anel.js           o anel verde: visual, mira, agarrar, arremessar
 implantar/minicity.service  systemd
