@@ -1,0 +1,55 @@
+# =========================================================
+# minicity.service - deixa o Mini City RP rodando depois que voce
+# fecha o SSH.
+#
+# Por que systemd e nao "nohup node servidor.js &":
+#   - volta sozinho se o processo morrer (Restart=always);
+#   - volta sozinho se a instancia reiniciar (WantedBy=multi-user.target);
+#   - o log fica no journal, com data, em vez de um arquivo solto;
+#   - "systemctl stop" manda SIGTERM, e o servidor fecha as conexoes
+#     direito em vez de sumir no meio de um tique.
+#
+# ATENCAO: esta maquina ja roda o mago-pvp na porta 8001 (conferido no ar em
+# 27/08/2026). Este arquivo
+# nao encosta nele. Nos somos a porta 8001, pasta /home/ubuntu/minicity.
+#
+# Instalar (na Lightsail, uma vez so):
+#   sudo cp /home/ubuntu/minicity/implantar/minicity.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now minicity
+#
+# Ver se esta de pe:
+#   systemctl status minicity
+#   journalctl -u minicity -f
+# =========================================================
+[Unit]
+Description=Mini City RP (porta 8002)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/minicity
+ExecStart=/usr/bin/node servidor.js
+Restart=always
+RestartSec=2
+
+# NADA de porta escrita no codigo: entra por aqui. 8002 e do vizinho.
+Environment=PORTA=8002
+Environment=HOST=0.0.0.0
+Environment=NODE_ENV=production
+
+# A instancia e pequena e JA TEM outro jogo nela. Este teto e de proposito
+# mais baixo que o do mago-pvp (380M): se a gente vazar memoria, o systemd
+# mata e reinicia SO O NOSSO processo, em vez de deixar o Linux escolher a
+# vitima - que poderia ser o vizinho ou o proprio SSH.
+MemoryMax=300M
+
+# o log vai para o journal, com data e com nome nosso
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=minicity
+
+[Install]
+WantedBy=multi-user.target
