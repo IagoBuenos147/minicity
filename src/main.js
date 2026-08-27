@@ -453,4 +453,23 @@ function frame() {
     fpsAtual = Math.round(fpsCount / fpsAcc)
     hud.setFps(fpsAtual)
     hud.setRede(fpsAtual, rede.conectado ? rede.stats : null,
-      rede.conectado ? 'online' : (rede.recusado ? 'recu
+    rede.conectado ? 'online' : (rede.recusado ? 'recusado' : 'sozinho')
+    fpsAcc = 0; fpsCount = 0; fpsTimer = 0
+  }
+}
+
+frame()
+
+// Conectar SO agora, com o mundo montado e o laco rodando.
+// Conectando antes, a montagem da cidade (varios segundos numa maquina fraca)
+// bloqueia a thread com a conexao ja aberta: o navegador engasga com a fila de
+// snapshots que ninguem le e derruba o socket. Aqui nao existe essa janela.
+rede.conectar().then(() => {
+  hud.toast('Conectado. ' + meuNome)
+}).catch(() => {
+  // Sem servidor o jogo nao morre: fica um single player normal.
+  hud.toast('Sem servidor: jogando sozinho.')
+})
+
+// expoe pra debug no console
+window.__game = game

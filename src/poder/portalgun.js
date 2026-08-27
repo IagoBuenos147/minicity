@@ -34,7 +34,7 @@ import { criarClarao, COR_VERDE } from './efeitos.js'
 const DIST_TIRO = 3.0          // metros a frente do jogador
 const RECUO_PAREDE = 0.62      // o portal encosta na parede, nao entra nela
 const DIST_MIN = 1.25          // nunca abre em cima do proprio jogador
-const ALTURA_CENTRO = 1.34     // centro do oval: a base quase raspa o chao
+const ALTURA_CENTRO = 1.62     // centro do oval: a base quase raspa o chao
 const TEMPO_MORTO = 1.5        // segundos sem poder atravessar de novo
 const RECARGA = 0.6            // segundos entre dois tiros
 const ALTURA_TRAVESSIA = 1.7   // folga vertical pra contar como "entrou"

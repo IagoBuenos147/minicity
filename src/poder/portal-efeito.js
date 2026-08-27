@@ -26,9 +26,11 @@ import { texturaFagulha } from './efeitos.js'
 // Sobra de proposito: o brilho que VAZA pra fora da borda precisa morrer ANTES
 // do fim do plano. Se ele ainda estiver aceso na aresta, o quad recorta o
 // vazamento e o portal aparece dentro de um RETANGULO esverdeado.
-// Raio visivel = MEIA_L * R_DISCO = 1.14 m, que e o MUNDO.PORTAL_RAIO (1.15).
-const MEIA_L = 1.9
-const MEIA_A = 2.0
+// Raio visivel = MEIA_L * R_DISCO = 1.44 m, que e o MUNDO.PORTAL_RAIO (1.45).
+// Portal grande de proposito: na referencia ele quase toma a parede, e um
+// portal pequeno demais nao convida a atravessar.
+const MEIA_L = 2.4
+const MEIA_A = 2.55
 const R_DISCO = 0.60
 const N_GOTAS = 20        // respingos em volta da borda
 

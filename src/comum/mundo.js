@@ -129,7 +129,7 @@ export const PORTAL_DESTINO = { x: 22, y: 0.16, z: -14.2, yaw: Math.PI }
 // Quanto tempo um portal fica aberto, em segundos. O servidor e quem conta.
 export const PORTAL_DURACAO = 25
 // Raio de travessia: quem chegar mais perto que isso do centro, atravessa.
-export const PORTAL_RAIO = 1.15
+export const PORTAL_RAIO = 1.45
 
 // --- O anel verde, no chao da barbearia -------------------------------------
 export const ANEL = { x: 25.8, y: 0.20, z: -16.0 }
