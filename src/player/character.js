@@ -135,6 +135,20 @@ const SLEEVE_PROFILE = [
 // perfis em escala 1.0, entao a pele nunca aparece atravessando o tecido.
 const NU_S = 0.965
 
+// FOLGA DO ACESSORIO: quanto colar, relogio e anel precisam subir pra ficar POR
+// FORA do tecido. A roupa assenta na mesma superficie da pele em escala 1.0,
+// entao acessorio desenhado no raio do corpo nasce DENTRO do pano.
+// O NUMERO E O DE roupas.js (o FORA_DA_ROUPA declarado no topo daquele
+// arquivo), copiado a mao: nenhuma peca le ctx.foraDaRoupa ainda, todas usam a
+// constante local delas. Enquanto forem duas declaracoes elas TEM que dizer o
+// mesmo valor. Quem calibrou foi o lado de la — 4 mm alem da peca mais larga do
+// catalogo, porque acima disso o colar comeca a boiar na frente do peito nu e
+// abaixo o depth buffer perde a briga de longe. Engordar so este lado nao
+// arruma nada hoje e vira o defeito no dia em que as pecas passarem a ler daqui.
+// Quem for unificar apaga a copia de roupas.js e le por ctx.foraDaRoupa, nunca
+// o contrario.
+const FORA_DA_ROUPA = 0.004
+
 // ===========================================================================
 // MAO COM DEDOS
 // ===========================================================================
@@ -337,7 +351,14 @@ export function createCharacter(opts = {}) {
       cabeca: 0, olhos: 0, pupila: 0, nariz: 0, boca: 0, barba: 0, cabelo: 0,
       pele: 0, corCabelo: 1, sobrancelha: 0, skin: corPele(0),
       chapeu: 0, calcado: 1, blusa: 1, calca: 0, colar: 0, anelAcess: 0,
-      tatuagem: 0, relogio: 0, jaqueta: 0,
+      tatuagem: 0, relogio: 0,
+      // 'jaqueta' NAO E MAIS DESENHADA. Jaqueta, blazer, terno e moletom
+      // entraram no catalogo de BLUSAS e as duas abas viraram uma so. O campo
+      // continua existindo porque o pacote de aparencia tem 20 bytes fixos e um
+      // deles e este — ele viaja sempre 0. Nao "conserte" a falta do slot: a
+      // ausencia e proposital, mexer no formato binario por causa de um byte
+      // dormindo custa mais do que deixa-lo dormir.
+      jaqueta: 0,
     },
     typeof AP.defaultAppearance === 'function' ? AP.defaultAppearance() : null,
   )
@@ -542,10 +563,13 @@ export function createCharacter(opts = {}) {
   // desenha ja nasce no espaco daquela junta e anda junto com a animacao.
   // Peca que precisa de mais de um ponto (os dois pes, os dois bracos) usa
   // ctx.montar() — ver ANCORA/montar mais abaixo.
+  // NAO existe slot 'jaqueta': casaco e blusa sao a MESMA peca agora, montada
+  // no slot 'blusa'. O campo continua na aparencia (byte de rede), so nao tem
+  // ancora nem catalogo — sem slot, nada de reconstruir e nada de desenhar.
   const ANCORA = {
     cabelo: head, olhos: face, sobrancelha: face, boca: face, nariz: face,
     barba: face,
-    chapeu: head, colar: neck, blusa: torso, jaqueta: torso, calca: hips,
+    chapeu: head, colar: neck, blusa: torso, calca: hips,
     calcado: legR.foot, anelAcess: armL.hand, relogio: armL.low,
     tatuagem: chest,
   }
@@ -610,6 +634,13 @@ export function createCharacter(opts = {}) {
         HEAD, HEAD_S, DEDOS, DEDO_ANELAR,
       },
       partes: parts,
+      // Folga que o tecido ocupa por fora da pele, em metros. Colar e relogio
+      // SOMAM isto no proprio raio pra encostar por cima da roupa em vez de
+      // atravessar ela; o anel usa quando a manga e comprida. Hoje nenhuma peca
+      // le daqui — roupas.js ainda usa a constante dele —, entao trocar o valor
+      // neste arquivo nao move nada na tela. Antes de confiar neste campo,
+      // apague a copia de la (ver o comentario do FORA_DA_ROUPA la em cima).
+      foraDaRoupa: FORA_DA_ROUPA,
       /** Pendura um objeto em outra junta (os dois pes, os dois bracos...). */
       montar(obj, nomeDaParte) {
         const p = parts[nomeDaParte]
@@ -673,7 +704,7 @@ export function createCharacter(opts = {}) {
       case 'anelAcess': return ROUPAS.ANEIS
       case 'tatuagem': return ROUPAS.TATUAGENS
       case 'relogio': return ROUPAS.RELOGIOS
-      case 'jaqueta': return ROUPAS.JAQUETAS
+      // ROUPAS.JAQUETAS nao e mais consultado: as jaquetas moram em BLUSAS.
       default: return null
     }
   }
@@ -691,7 +722,20 @@ export function createCharacter(opts = {}) {
     if (obj) slots[kind].add(obj)
   }
 
-  /** Some com a pele que estiver debaixo de alguma roupa. */
+  /**
+   * Some com a pele que estiver debaixo de alguma roupa.
+   *
+   * Roda SEMPRE por inteiro e SEMPRE depois de todos os rebuild() do lote — as
+   * duas coisas sao a mesma regra vista de dois lados. A tabela `esconde` e
+   * global (uma peca esconde 'torso', outra esconde 'braco'), entao cobertura
+   * por peca nao existe: se a blusa fosse coberta na hora em que e construida,
+   * a peca montada depois — que ainda nao declarou nada — sobrescreveria a
+   * pele que a anterior tinha acabado de esconder, ou pior, deixaria escondido
+   * um braco que a peca nova nao cobre mais.
+   * Por isso o primeiro laco RESSUSCITA todo mundo antes de esconder de novo:
+   * a visibilidade e sempre recalculada do zero a partir do estado atual dos
+   * slots, nunca acumulada.
+   */
   function aplicarCobertura() {
     for (const g in nu) for (const m of nu[g]) m.visible = true
     for (const k in esconde) {
@@ -705,15 +749,17 @@ export function createCharacter(opts = {}) {
   }
 
   // --- cabeca ---------------------------------------------------------------
-  // O formato do cranio nao e um slot: e a geometria da propria cabeca. Ele
-  // pode chegar por tres caminhos diferentes conforme o appearance.js reformado
-  // (funcao dedicada, catalogo com geo(), ou makeHeadGeometry com formato).
+  // O formato do cranio nao e um slot: e a geometria da propria cabeca. O
+  // caminho de verdade e o catalogo CABECAS; makeHeadGeometry so entra se um
+  // dia o catalogo sumir. Nao volte a testar nomes que appearance.js nao
+  // exporta (makeHeadGeometryFor, HEADS): num namespace de modulo o acesso
+  // devolve undefined em runtime, mas o rollup acusa "is not exported by" a
+  // cada build e o aviso legitimo do proximo se perde no meio dos falsos.
   let headMesh = null
 
   function geoDaCabeca() {
     const forma = app.cabeca | 0
-    if (typeof AP.makeHeadGeometryFor === 'function') return AP.makeHeadGeometryFor(forma, 30, 24)
-    const cat = AP.CABECAS || AP.HEADS
+    const cat = AP.CABECAS
     if (Array.isArray(cat) && cat.length) {
       const e = cat[Math.max(0, Math.min(cat.length - 1, forma))]
       // geometry() tambem ATIVA o formato no appearance.js, que e do que os
@@ -762,10 +808,19 @@ export function createCharacter(opts = {}) {
     },
   }]
 
+  // A ORDEM aqui nao e decorativa: e a ordem em que os slots sao construidos,
+  // na montagem inicial E no rebuild parcial do setAppearance (que percorre
+  // esta mesma lista). Em camadas, de dentro pra fora:
+  //   rosto -> pele pintada -> tecido -> acessorio.
+  // O acessorio vem POR ULTIMO de proposito: colar, relogio e anel se apoiam na
+  // folga do tecido (ctx.foraDaRoupa) e so fazem sentido depois que a peca de
+  // tronco existe. Com o acessorio nascendo antes da blusa e que ele voltava a
+  // aparecer enterrado no pano.
   const ORDEM = [
     'cabelo', 'olhos', 'sobrancelha', 'boca', 'nariz', 'barba',
-    'blusa', 'calca', 'calcado', 'jaqueta', 'chapeu', 'colar', 'anelAcess',
-    'tatuagem', 'relogio',
+    'tatuagem',
+    'blusa', 'calca', 'calcado', 'chapeu',
+    'colar', 'relogio', 'anelAcess',
   ]
 
   // De quais campos cada slot depende. Trocar de camisa nao pode reconstruir o
@@ -789,7 +844,8 @@ export function createCharacter(opts = {}) {
     anelAcess: ['anelAcess'],
     tatuagem: ['tatuagem', 'skin'],
     relogio: ['relogio'],
-    jaqueta: ['jaqueta', 'shirt'],
+    // Sem entrada pra 'jaqueta': trocar esse campo nao reconstroi nada, porque
+    // nao ha mais slot pra ele. Quem quer casaco escolhe uma BLUSA.
   }
 
   function applyColors() {
@@ -812,11 +868,16 @@ export function createCharacter(opts = {}) {
       rebuild(kind)
       mexeu = true
     }
+    // FORA do laco: mesmo trocando um campo so, a cobertura reaplicada e a
+    // INTEIRA, nunca a do campo que mudou. Trocar jaqueta por regata mexe na
+    // pele do braco, que pertence a peca ANTERIOR — cobertura parcial deixaria
+    // o braco escondido debaixo de uma manga que nao existe mais.
     if (mexeu) aplicarCobertura()
     return app
   }
 
-  // montagem inicial
+  // montagem inicial: cabeca, todos os slots na ORDEM de camadas e SO ENTAO a
+  // cobertura, pela mesma razao do setAppearance.
   rebuildCabeca()
   for (const kind of ORDEM) rebuild(kind)
   aplicarCobertura()

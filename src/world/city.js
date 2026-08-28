@@ -3224,9 +3224,35 @@ export function buildCity() {
     })
   }
 
+  /**
+   * O ponto esta no CORREDOR DA PORTA de algum lote?
+   *
+   * O mobiliario de rua e distribuido por ritmo fixo (a cada 8 m), sem olhar
+   * pra o que ha atras da calcada — e por isso um jornaleiro nasceu bem na
+   * frente da porta da casa velha e uma conifera de 2.4 m de raio na da
+   * barbearia. Nao da pra resolver caso a caso na lista: a lista e ritmo, e o
+   * ritmo e o que faz a rua nao parecer arrumada a mao.
+   *
+   * Entao a regra e aqui, uma vez, pra todos os lotes: nada nasce no retangulo
+   * que vai da porta ate 3.5 m pra fora dela. E o corredor por onde o jogador
+   * entra, e tambem o eixo de onde qualquer camera fotografa a fachada.
+   */
+  function naFrenteDaPorta(x, z) {
+    for (let i = 0; i < LOTES.length; i++) {
+      const b = LOTES[i]
+      const meia = b.door.width / 2 + 1.4
+      if (x < b.door.center - meia || x > b.door.center + meia) continue
+      if (b.facade === 'z0') { if (z > b.z0 - 3.5 && z < b.z0 + 0.5) return true }
+      else if (z > b.z1 - 0.5 && z < b.z1 + 3.5) return true
+    }
+    return false
+  }
+
   function placeProp(name, x, z, ry, args, wantLight) {
     const fn = Props[name]
     if (typeof fn !== 'function') return null   // prop ainda nao existe -> pula
+    // porta livre: ver naFrenteDaPorta acima
+    if (naFrenteDaPorta(x, z)) return null
     let o = null
     try { o = fn.apply(null, args || []) } catch (e) { o = null }
     if (!o || !o.isObject3D) return null
@@ -3381,10 +3407,18 @@ export function buildCity() {
   // --- arvores de rua nos canteiros da calcada -----------------------------
   const streetTrees = [
     [LAMP_OFF, -8 - 34, 0], [LAMP_OFF, 42, 0], [-LAMP_OFF, -44, 0], [-LAMP_OFF, 22, 0],
-    // 44 e nao 22: em 22 a copa (2.4 m de raio) tapava METADE da porta do
-    // cassino e o comeco do letreiro. A fachada mais chamativa do mapa nao pode
-    // nascer com um pinheiro na frente.
-    [44, LAMP_OFF, 0], [-34, -LAMP_OFF, 0], [46, -LAMP_OFF, 0], [-46, LAMP_OFF, 0],
+    // Aqui havia uma arvore de rua em (22, 9.4), e ela saiu da lista.
+    //
+    // A calcada sul da avenida (z = 9.4) e a vitrine do jogo: nela ficam a
+    // fachada do CASSINO (x 14..34, a mais chamativa do mapa) e a da CASA
+    // VELHA (x 38..50, onde a cena de abertura para pra olhar). Uma conifera
+    // tem 2.4 m de raio de copa e 10 m de altura — em 22 ela tapava metade da
+    // porta do cassino, e movida pra 44 tapava a casa inteira de qualquer
+    // altura de olho, que foi o que obrigou a cutscene a subir 10 m no ar.
+    // Nao ha ponto livre nessa calcada que nao esbarre num poste (16, 32, 48),
+    // num banco (36) ou na outra arvore (38). Entao ela sai: onze arvores de
+    // rua em vez de doze, e as duas fachadas que importam ficam limpas.
+    [-34, -LAMP_OFF, 0], [46, -LAMP_OFF, 0], [-46, LAMP_OFF, 0],
     [LAMP_OFF, -26, 0], [-LAMP_OFF, -28, 0], [38, LAMP_OFF, 0], [-18, -LAMP_OFF, 0],
   ]
   streetTrees.forEach((t, i) => {

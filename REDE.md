@@ -53,6 +53,11 @@ Escreva tudo como se o pacote pudesse se perder, duplicar e chegar fora de ordem
 - Toda mensagem confiável precisa ser **idempotente**: receber duas vezes não
   pode causar efeito duplo (em especial `OBJ_DESTRUIDO`).
 - Snapshot que chega atrasado (tick menor que o último aplicado) é descartado.
+- **A recusa chega antes do fecho.** A sala recusa mandando `RECUSA` e fechando
+  na linha seguinte; com `terminate()` (que destrói o socket sem esvaziar o que
+  já foi escrito) o pacote que *explica* a recusa morria no buffer e o jogador
+  via só a conexão cair. `rede-ws.js` usa `close()`, com `terminate()` como rede
+  de segurança de 1 s.
 
 ## UM CORPO POR NOME (e o fim do sósia)
 
@@ -101,12 +106,15 @@ Coberto por `node tools/teste-nome-unico.mjs` (10 casos) e pelo caso
 
 Todo pacote começa com **1 byte de tipo**. Little-endian. `DataView`.
 
-`VERSAO_PROTOCOLO = 4` (`src/comum/mundo.js`). Se não bater, o servidor recusa e o cliente mostra a
+`VERSAO_PROTOCOLO = 6` (`src/comum/mundo.js`). Se não bater, o servidor recusa e o cliente mostra a
 tela de recusa pedindo recarregar.
 
-Por que ela já subiu três vezes: **2** o `BEMVINDO` ganhou o byte de itens; **3**
+Por que ela já subiu quatro vezes: **2** o `BEMVINDO` ganhou o byte de itens; **3**
 a aparência passou de 6 para 20 bytes; **4** o rapaz que vira zumbi virou o NPC
-**1004**, nasceu o `ZUMBI_TIRO` e o enum de estado de NPC ganhou os valores 5..9.
+**1004**, nasceu o `ZUMBI_TIRO` e o enum de estado de NPC ganhou os valores 5..9;
+**5** nasceram o `REINICIAR` e o `MUNDO_REINICIADO` (a tecla F8); **6** nasceu o
+LOBBY (`PRONTO`, `COMECAR`, `MEU_NOME`, `SALA_ESTADO`) e a sala passou de 20
+para **4** jogadores.
 
 ## Cliente → servidor
 
@@ -130,6 +138,10 @@ a aparência passou de 6 para 20 bytes; **4** o rapaz que vira zumbi virou o NPC
 | 16 | `VEICULO_POS` | não confiável | `u16 veicId`, `f32 x,y,z`, `i16 yaw`, `i16 rolagem` — só vale do **dono**; o servidor **reenvia aos outros** (ver abaixo) |
 | 17 | `CRIAR_HELI` | confiável | `f32 x,y,z`, `i16 yaw` — **pedido**: o id (4100..4999) é do servidor |
 | 18 | `ZUMBI_TIRO` | confiável | `u16 npcId`, `u8 parte` (1 cabeça, 2 corpo) — **pedido**: quem tira a vida é o servidor. **Nunca** vai vida no pacote |
+| 19 | `REINICIAR` | confiável | — — **pedido** de voltar o mundo ao início (a tecla F8, apertada duas vezes). Sem corpo: "volta tudo" é uma coisa só |
+| 20 | `PRONTO` | confiável | `u8 pronto` (1/0) — apertei (ou desapertei) PRONTO na criação de personagem |
+| 21 | `COMECAR` | confiável | — — **pedido do anfitrião** para tirar a sala do lobby. Sem "quem": quem pediu já é conhecido pela conexão |
+| 22 | `MEU_NOME` | confiável | `u8 len`, nome utf8 — o nome digitado na criação. Volta para todos como um `ENTROU` |
 
 `anim`: 0 parado, 1 andando, 2 correndo, 3 no ar, 4 sentado.
 `flags` bit 0: está sentado; bit 1: anel equipado.
@@ -153,6 +165,8 @@ a aparência passou de 6 para 20 bytes; **4** o rapaz que vira zumbi virou o NPC
 | 140 | `PORTAL_FECHADO` | confiável | `u16 portalId` — **idempotente**: id que não existe mais não faz nada |
 | 141 | `VEICULO_DONO` | confiável | `u16 veicId`, `u16 donoId` (0 = livre), `f32 x,y,z`, `i16 yaw` — a pose é **onde o veículo parou**, e vai junto pelo mesmo motivo do `OBJ_DONO` |
 | 142 | `HELI_CRIADO` | confiável | `u16 veicId` (4100..4999), `u16 dono` (**quem montou**, não quem pilota), `f32 x,y,z`, `i16 yaw` |
+| 143 | `MUNDO_REINICIADO` | confiável | `u16 quem` (id de quem pediu; 0 = o próprio servidor) — vai para a **sala inteira**, e cada cliente se recarrega |
+| 144 | `SALA_ESTADO` | confiável | `u8 fase`, `u16 anfitrião`, `u8 n`, n × (`u16 id`, `u8 pronto`) — a **foto inteira** da sala |
 
 ### Jogador dentro do SNAPSHOT
 `u16 id`, `f32 x,y,z`, `i16 yaw`, `u8 anim`, `u8 flags`
@@ -403,6 +417,108 @@ inteira sozinho, exatamente como antes, respondendo aos próprios pedidos pelo
 **mesmo caminho** do evento de rede. A decisão é tomada **a cada quadro**
 (`ehLocal()`), não uma vez na abertura: se a conexão cair no meio da
 perseguição, a simulação local assume de onde o servidor parou.
+
+---
+
+# Reiniciar o mundo (tecla F8)
+
+Duas batidas em `F8` (a segunda dentro de 4 s) devolvem a sala ao estado do
+primeiro minuto: **sem helicóptero montado, sem zumbi, sem objeto quebrado, sem
+portal aberto e sem a arma de portal no bolso de ninguém**.
+
+## Por que o servidor, e não o cliente
+
+Ele é o dono do mundo. Se o cliente apagasse o zumbi sozinho, o `SNAPSHOT`
+seguinte — que sai 15 vezes por segundo com o estado oficial de cada NPC — o
+traria de volta em menos de 100 ms, e o jogador concluiria, com razão, que a
+tecla não funciona. Então: **`REINICIAR` é um pedido**, como o `PEGAR` e o
+`ABRIR_PORTAL`.
+
+## Por que o cliente RECARREGA a página
+
+Porque o estado espalhado pelo cliente é grande e cheio de cantos: o helicóptero
+montado, o zumbi no meio da transformação, o vaso já destruído, a arma na mão, o
+portal aberto, o carro estacionado noutro lugar, o slot destravado na barra.
+Cada módulo precisaria de um `reiniciar()` próprio, e bastaria **um** esquecido
+para a tecla mentir. Recarregar reconstrói tudo pelo mesmo caminho do primeiro
+carregamento — o único caminho que já está testado.
+
+Sem servidor (jogando sozinho) não há o que pedir: recarregar **já é** o mundo
+inicial, porque a cidade é gerada de forma determinística.
+
+## O que o servidor desfaz
+
+| Coisa | Volta a |
+|---|---|
+| NPCs | estado e pose de origem, sem diálogo, vida cheia — o rapaz da mercearia deixa de ser zumbi |
+| Objetos agarráveis | posição de origem, sem dono, `REPOUSO` — inclusive os **destruídos**, que são o único estado irreversível do jogo |
+| Veículos | os três estacionados voltam à vaga e ficam livres; os **helicópteros montados somem** |
+| Portais | todos fechados |
+| Itens por nome | zerados, então a arma de portal volta a estar largada na cidade |
+
+**O que NÃO volta, de propósito**: a aparência de cada jogador. Reiniciar o
+mundo não é motivo para alguém perder o cabelo que escolheu no barbeiro.
+
+## Duas batidas, e não uma
+
+Isto apaga o progresso da **sala inteira**, inclusive o dos outros jogadores.
+Uma tecla de função encostada por acidente não pode custar isso a todo mundo. O
+`MUNDO_REINICIADO` leva o id de quem pediu justamente para ninguém ver o mundo
+voltar ao começo sozinho, sem nome e sem aviso.
+
+Coberto por `node tools/teste-reiniciar.mjs` (14 casos, do pacote ao Map da
+sala) e pelos dois casos de `F8` em `tools/smoke.mjs`.
+
+---
+
+# O LOBBY (de 2 a 4 pessoas)
+
+A sala tem **três fases**, e ela inteira está numa fase só — não existe metade da
+sala no lobby e a outra metade jogando:
+
+| Fase | O que é |
+|---|---|
+| `LOBBY` (0) | esperando gente entrar. Só o **anfitrião** vê o botão de começar |
+| `CRIANDO` (1) | todos na tela de criação de personagem. O servidor conta os prontos |
+| `JOGANDO` (2) | o jogo rodando |
+
+**Anfitrião** é o *primeiro que entrou*, e não "quem criou o servidor" — o
+servidor está sempre no ar. Quando ele sai, o mais antigo dos que ficaram herda;
+sala vazia volta para o lobby, e aí a próxima pessoa que entrar começa uma
+partida nova sem ninguém precisar reiniciar processo nenhum.
+
+## Por que a foto inteira, e não um delta
+
+`SALA_ESTADO` manda a lista completa a cada mudança. São no máximo 4 jogadores:
+`5 + 3×4 = 17` bytes, e o pacote é raro (entra alguém, alguém aperta pronto, a
+fase vira). Manter dois lados concordando sobre uma *sequência* de "fulano ficou
+pronto" custaria mais — e um pacote perdido deixaria a tela de todo mundo
+mentindo sobre quem já está pronto.
+
+O **nome** de cada jogador não vem neste pacote: ele já é mantido pelos `ENTROU`
+/ `APARENCIA`, e repetir aqui seria uma segunda verdade sobre a mesma coisa.
+
+## Regras que o servidor faz valer
+
+- `COMECAR` só funciona **do anfitrião** e **a partir do LOBBY**. Pedir daqui não
+  é poder.
+- `PRONTO` é o **estado**, não um incremento: mandar duas vezes o mesmo valor não
+  conta duas vezes, e dá para desmarcar — quem apertou sem querer não pode
+  segurar a sala de refém por ter mudado de ideia.
+- Quem entra com o jogo **já rolando** nasce pronto: ele não está segurando
+  ninguém, e esperar por um "pronto" que a tela dele nunca vai pedir travaria a
+  sala inteira.
+- Trocar de nome leva junto a **aparência e os itens** (os dois são guardados por
+  nome): sem isso o jogador perderia a roupa que acabou de escolher no instante
+  em que digitasse a primeira letra.
+
+## O cliente não conecta sozinho
+
+Abrir a página **não** entra na sala. Quem conecta é o botão COOP do menu. Quem
+vai jogar solo não tem por que aparecer no mundo de ninguém, e a sala tem 4
+vagas — ocupar uma só por ter aberto a aba tira a vaga de quem ia jogar.
+
+Coberto por `node tools/teste-lobby.mjs` (28 casos).
 
 ---
 

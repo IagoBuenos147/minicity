@@ -33,6 +33,16 @@ const CSS = `
   text-shadow: none;
 }
 
+/* --- fora do jogo (menu, criacao de personagem, cutscene) ---
+   O HUD inteiro some, MENOS os toasts: eles sao o unico canal de aviso que o
+   jogo tem, e uma mensagem de "sala cheia" ou "sem servidor" precisa aparecer
+   justamente enquanto o jogador esta no menu. */
+#hud.fora-do-jogo #hud-status,
+#hud.fora-do-jogo #hud-help,
+#hud.fora-do-jogo #hud-cross,
+#hud.fora-do-jogo #hud-prompt,
+#hud.fora-do-jogo .mcrp-f3 { display: none !important; }
+
 /* --- crosshair --- */
 #hud-cross {
   position: absolute; left: 50%; top: 50%;
@@ -178,14 +188,16 @@ const HELP_ROWS = [
   [['Espaco'], 'Pular'],
   [['E'], 'Interagir / entrar no veiculo'],
   [['V'], 'Trocar camera'],
-  // A barra de itens e o unico jeito de descobrir que o anel, a arma de portal
-  // e o revolver existem: sem esta linha o jogador so acha por acidente.
-  [['1', '2', '3', '4'], 'Maos / anel / portal / revolver'],
-  [['Bt.Esq'], 'Atirar, agarrar, abrir portal'],
-  [['Bt.Dir'], 'Mirar (revolver) / segurar (anel)'],
+  // A barra de itens e o unico jeito de descobrir que o revolver existe: sem
+  // esta linha o jogador so acha por acidente. (O anel verde e a arma de
+  // portal sairam do jogo; estao em backup/poder/.)
+  [['1', '2'], 'Maos / revolver'],
+  [['Bt.Esq'], 'Atirar'],
+  [['Bt.Dir'], 'Mirar'],
   [['R'], 'Recarregar o revolver'],
   [['C'], 'Trocar a estacao: sol / chuva / neve'],
   [['F3'], 'Painel de rede'],
+  [['F8', 'F8'], 'Reiniciar o mundo (aperte duas vezes)'],
   [['Tab'], 'Ajuda'],
   [['Esc'], 'Liberar mouse'],
 ]
@@ -417,6 +429,17 @@ export function createHUD() {
       // fichas so aparecem depois de existir uma pela primeira vez
       fichaBox.style.display = (f > 0 || money.dataset.viuFicha === '1') ? '' : 'none'
       if (f > 0) money.dataset.viuFicha = '1'
+    },
+
+    /**
+     * Estou DENTRO do jogo? false esconde o HUD inteiro (camera, fps, ajuda,
+     * mira, prompt, painel F3) e deixa so os toasts. Chamado pelo main a cada
+     * troca de estado: menu, criacao de personagem e cutscene nao sao o jogo, e
+     * ver "Camera 1a pessoa" por cima da placa de neon do menu e a diferenca
+     * entre um jogo e uma demo tecnica.
+     */
+    setJogando(v) {
+      root.classList.toggle('fora-do-jogo', !v)
     },
 
     setFps(n) {

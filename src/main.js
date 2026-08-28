@@ -42,7 +42,7 @@ import { buildCity } from './world/city.js'
 import { buildBarbershop } from './world/barbershop.js'
 import { buildGrocery } from './world/grocery.js'
 import { bakeStatic } from './world/bake.js'
-import { BARBER, GROCERY, CASINO, FILLERS, WALL_T } from './world/layout.js'
+import { BARBER, GROCERY, CASINO, CASA, FILLERS, WALL_T } from './world/layout.js'
 import { createCharacter } from './player/character.js'
 import { defaultAppearance } from './player/appearance.js'
 import { createPlayerController } from './player/controller.js'
@@ -50,8 +50,6 @@ import { createHUD } from './ui/hud.js'
 import { createCustomizer } from './ui/customizer.js'
 import { criarRede } from './rede/cliente-rede.js'
 import { criarAvatares } from './rede/avatares.js'
-import { criarAnel } from './poder/anel.js'
-import { criarPortalGun } from './poder/portalgun.js'
 import { criarVeiculos } from './veiculos/veiculos.js'
 import { criarHotbar } from './ui/hotbar.js'
 import { criarClima } from './world/clima.js'
@@ -59,11 +57,14 @@ import { criarNeve } from './world/neve.js'
 import { buildCasino } from './world/casino.js'
 import { criarCarteira } from './cassino/carteira.js'
 import { criarCassinoUI } from './ui/cassino-ui.js'
+import { buildCasaVelha } from './world/casa-velha.js'
+import { criarProvador } from './ui/provador.js'
+import { criarCriacao } from './ui/criacao.js'
+import { criarMenu, lerOpcoes } from './ui/menu.js'
+import { criarAbertura } from './cena/abertura.js'
+import { criarTutorial, MISSOES_INICIAIS } from './ui/tutorial.js'
 import { criarRevolver } from './armas/revolver.js'
-import { criarZumbi } from './npc/zumbi.js'
-import { ITEM_PORTAL_GUN, ITENS_PORTAL_GUN } from './comum/protocolo.js'
 import { criarDialogo } from './ui/dialogo.js'
-import { buildAgarraveis } from './world/agarraveis.js'
 import { TICK_HZ, NPCS } from './comum/mundo.js'
 
 // ---------------------------------------------------------------------------
@@ -79,9 +80,9 @@ const interaction = createInteractionSystem()
 const hud = createHUD()
 const lighting = createLighting(scene, renderer)
 
-// Pool de luzes de efeito. DUAS PointLight reais pra cena inteira: o anel, o
-// objeto levitado, a arma de portal, o portal, o clarao do tiro e a aura do
-// zumbi disputam essas duas por quadro (ver src/render/luzes-efeito.js). Elas
+// Pool de luzes de efeito. DUAS PointLight reais pra cena inteira: o clarao do
+// tiro do revolver e quem as usa hoje (o anel e a arma de portal, que dividiam
+// o pool com ele, sairam pro backup). Elas
 // nascem aqui, junto com a cena, porque a quantidade de luzes da cena tem que
 // ser CONSTANTE — o three recompila todos os materiais quando ela muda.
 const poolLuz = criarPoolDeEfeito(scene, 2, camera)
@@ -116,7 +117,7 @@ const game = {
     // servidor nunca guardava nada.
     if (rede && typeof rede.enviarAparencia === 'function') rede.enviarAparencia(appearance)
     // em 1a pessoa a cabeca continua escondida
-    character.setVisibleBody(player.mode === 'third' || preview.active)
+    character.setVisibleBody(player.mode === 'third')
   },
 
   openCustomizer(kind, opts) {
@@ -147,7 +148,10 @@ game.customizer = customizer
 // ONLINE. Mundo compartilhado: o servidor e dono do mundo, eu sou dono so do
 // meu corpo. Se o servidor nao responder, o jogo continua jogavel sozinho.
 // ===========================================================================
-const meuNome = (() => {
+// 'let' e nao 'const': o nome deixou de ser so o que estava no localStorage
+// quando a pagina abriu. Agora o jogador o digita na tela de criacao de
+// personagem e pode troca-lo de novo nas opcoes do menu.
+let meuNome = (() => {
   // ?nome=Fulano ganha de tudo: e assim que da pra abrir DUAS janelas na mesma
   // maquina pra testar o multiplayer sozinho. Sem isso as duas leem o mesmo
   // localStorage, entram com o mesmo nome, e o servidor (que so aceita um
@@ -185,7 +189,6 @@ const NOME_VEICULO = {
   carro: 'no carro',
   moto: 'na moto',
   skate: 'no skate',
-  helicoptero: 'no helicoptero',
 }
 
 const dialogo = criarDialogo({
@@ -214,24 +217,35 @@ rede.aoEvento = (ev) => {
       // e o proprio sistema de veiculos, e o jogador levaria a mensagem em
       // dobro (uma delas falando de objeto, que nem e o caso).
       if (ev.oque === 1) hud.toast('Alguem ja esta falando com essa pessoa.')
-      else if (ev.oque === 2) hud.toast('Esse objeto ja esta com outro jogador.')
-      anel.aoEventoDeRede(ev)
       veiculos.aoEventoDeRede(ev)
       break
-    case 'veiculo-dono': case 'veiculo-pos': case 'heli-criado':
+    case 'veiculo-dono': case 'veiculo-pos':
       veiculos.aoEventoDeRede(ev); break
-    case 'entrou': hud.toast(ev.nome + ' entrou'); break
-    case 'saiu': hud.toast('um jogador saiu'); break
-    case 'obj-dono': case 'obj-destruido': anel.aoEventoDeRede(ev); break
-    case 'portal-aberto': case 'portal-fechado': portalgun.aoEventoDeRede(ev); break
-    case 'bemvindo':
-      // o servidor guarda o inventario por nome: quem volta ja chega com a arma
-      if ((ev.itens | 0) & ITENS_PORTAL_GUN) {
-        hotbar.marcarDisponivel(2, true)
-        // quem volta ja com a arma nao pode ve-la de novo largada na cidade
-        if (typeof portalgun.marcarPego === 'function') portalgun.marcarPego()
+    case 'mundo-reiniciado': {
+      // Quem apertou pode ter sido eu; o servidor manda o id pra ninguem ficar
+      // com o mundo voltando ao inicio sozinho, sem explicacao.
+      const j = rede.jogadores.get(ev.quem)
+      const quem = ev.quem === rede.meuId ? 'Voce' : (j ? j.nome : 'Alguem')
+      recomecarDoZero(quem + ' reiniciou o mundo.')
+      break
+    }
+    case 'recusado':
+      // 1 = versao, 2 = sala cheia. Sem esta mensagem, quem esta com o .js
+      // velho em cache simplesmente cai no modo sozinho e passa a tarde
+      // achando que o servidor caiu -- e o VERSAO_PROTOCOLO acabou de subir
+      // pra 5 por causa da tecla F8, entao isso vai acontecer com alguem.
+      if (ev.motivo === 1) {
+        hud.toast('Sua versao do jogo esta velha. Recarregue a pagina '
+          + '(Ctrl+F5) pra voltar pro servidor.', 12000)
+      } else if (ev.motivo === 2) {
+        hud.toast('O servidor esta cheio. Jogando sozinho por enquanto.', 8000)
       }
-      // ...e guarda o VISUAL tambem. Sem aplicar aqui, quem recarrega a pagina
+      break
+    case 'sala-estado': aoEstadoDaSala(); break
+    case 'entrou': if (estado === 'jogo') hud.toast(ev.nome + ' entrou'); break
+    case 'saiu': hud.toast('um jogador saiu'); break
+    case 'bemvindo':
+      // O servidor guarda o VISUAL por nome. Sem aplicar aqui, quem recarrega a pagina
       // perde a cara que escolheu, mesmo com o servidor tendo guardado certo.
       if (ev.aparencia) {
         Object.assign(appearance, ev.aparencia)
@@ -303,6 +317,20 @@ if (barber && barber.group) console.info('barbearia:', bakeStatic(barber.group))
 if (grocery && grocery.group) console.info('mercearia:', bakeStatic(grocery.group))
 if (casino && casino.group) console.info('cassino:', bakeStatic(casino.group))
 
+// A CASA VELHA — o primeiro estabelecimento, e o cenario da segunda cena de
+// abertura. Mesmo desenho do cassino: ela traz a propria casca porque a fachada
+// dela tambem olha pra -Z, e o buildShell de city.js so sabe desenhar vitrine
+// virada pra +Z.
+const casa = buildCasaVelha(game)
+game.casa = casa      // exposto pra depuracao e pra ferramenta de foto
+mount(casa, 'casa-velha')
+if (casa && Array.isArray(casa.occluders)) {
+  for (const o of casa.occluders) {
+    collision.addOccluder(o.minX, o.minY, o.minZ, o.maxX, o.maxY, o.maxZ, o.tag || 'casa')
+  }
+}
+if (casa && casa.group) console.info('casa velha:', bakeStatic(casa.group))
+
 // Altura do chao: calcada (0.16), parque, beco e piso das lojas. Sem isso o
 // personagem anda com os pes enterrados no concreto.
 if (city && typeof city.groundY === 'function') {
@@ -312,35 +340,8 @@ if (city && typeof city.groundY === 'function') {
   game.groundY = () => 0
 }
 
-// Objetos que o anel levita. Ficam FORA do forno de geometria: eles se mexem.
-const agarraveis = buildAgarraveis()
-scene.add(agarraveis.group)
-
-// O anel so pode nascer depois dos objetos: ele precisa saber quais meshes
-// sao agarraveis, e o groundY so existe depois que a cidade foi montada.
-const anel = criarAnel({
-  scene, camera, player, character, collision, rede, hud,
-  groundY: (x, z) => game.groundY(x, z),
-  interaction, poolLuz,
-})
-game.anel = anel
-if (anel.grupoNoChao) scene.add(anel.grupoNoChao)
-if (anel.interactable) interaction.add(anel.interactable)
-for (const [id, mesh] of agarraveis.meshes) anel.registrarObjeto(id, mesh)
-
-// --- arma de portal + barra de itens ---------------------------------------
-const portalgun = criarPortalGun({
-  scene, camera, player, character, collision, rede, hud,
-  groundY: (x, z) => game.groundY(x, z),
-  interaction, poolLuz,
-})
-game.portalgun = portalgun
-if (portalgun.grupoNoMundo) scene.add(portalgun.grupoNoMundo)
-if (portalgun.interactable) interaction.add(portalgun.interactable)
-
 // --- veiculos --------------------------------------------------------------
-// Depois da cidade (precisa do groundY e dos colisores) e do anel (que cria o
-// helicoptero quando a montagem termina).
+// Depois da cidade: precisa do groundY e dos colisores.
 const veiculos = criarVeiculos({
   scene, camera, player, character, collision, rede, hud,
   groundY: (x, z) => game.groundY(x, z),
@@ -349,7 +350,7 @@ const veiculos = criarVeiculos({
 game.veiculos = veiculos
 scene.add(veiculos.grupo)
 
-// --- chuva, revolver e o NPC que vira zumbi --------------------------------
+// --- clima, neve e revolver ------------------------------------------------
 // Comeca no SOL: a cidade se ve inteira, e a tecla C (documentada no painel de
 // ajuda) leva pra chuva e pra neve. Comecar chovendo escondia metade do mapa de
 // quem abria o jogo pela primeira vez.
@@ -380,31 +381,11 @@ game.revolver = revolver
 if (revolver.grupoNoMundo) scene.add(revolver.grupoNoMundo)
 if (revolver.interactable) interaction.add(revolver.interactable)
 
-const zumbi = criarZumbi({
-  scene, player, character, collision, hud, rede,
-  groundY: (x, z) => game.groundY(x, z), interaction, poolLuz,
-})
-game.zumbi = zumbi
-if (zumbi.grupo) scene.add(zumbi.grupo)
-if (zumbi.interactable) interaction.add(zumbi.interactable)
-
-// O tiro do revolver so vira dano porque alguem liga uma ponta na outra: o
-// revolver diz ONDE acertou, o zumbi diz se aquilo era cabeca ou corpo.
-revolver.aoAcerto = (info) => {
-  if (!info || !info.objeto) return
-  const u = zumbi.grupo && zumbi.grupo.userData
-  const parte = u && typeof u.parteAtingida === 'function' ? u.parteAtingida(info.objeto) : null
-  if (parte) zumbi.levarTiro(parte, info)
-}
-
-// 1 maos, 2 anel, 3 arma de portal, 4 revolver. Slot travado ate pegar o item.
+// 1 maos, 2 revolver. O slot do revolver fica travado ate acharem a arma.
+// (Os slots do anel verde e da arma de portal sairam junto com os modulos.)
 const hotbar = criarHotbar({
   aoTrocar(indice, chave) {
-    if (chave !== 'anel' && anel.equipado) anel.desequipar()
-    if (chave !== 'portal' && portalgun.equipado) portalgun.desequipar()
     if (chave !== 'revolver' && revolver.equipado) revolver.desequipar()
-    if (chave === 'anel' && !anel.equipado) anel.equipar()
-    if (chave === 'portal' && !portalgun.equipado) portalgun.equipar()
     if (chave === 'revolver' && !revolver.equipado) revolver.equipar()
   },
 })
@@ -422,16 +403,14 @@ const cassinoUI = criarCassinoUI({ game, carteira, mundo: casino })
 // interface: world/casino.js nao importa a UI, so pede ao game.
 game.cassino = cassinoUI
 
-hotbar.marcarDisponivel(1, false)
-hotbar.marcarDisponivel(2, false)
-hotbar.marcarDisponivel(3, false)   // revolver: so depois de achar no beco
+hotbar.marcarDisponivel(1, false)   // revolver: so depois de achar no beco
 
 /** Chamado quando um item e pego: libera o slot e ja poe na mao. */
 game.pegouItem = (chave) => {
-  const i = hotbar.indiceDe ? hotbar.indiceDe(chave) : (chave === 'anel' ? 1 : 2)
+  const i = hotbar.indiceDe ? hotbar.indiceDe(chave) : 1
+  if (i < 0) return
   hotbar.marcarDisponivel(i, true)
   hotbar.selecionar(i)
-  if (chave === 'portal' && rede.conectado) rede.pegarItem(ITEM_PORTAL_GUN)
 }
 
 // Occluders da camera: caixas COM altura, so do que realmente tapa a visao.
@@ -459,199 +438,422 @@ scene.traverse((o) => {
   if (o.userData && typeof o.userData.update === 'function') propUpdates.push(o.userData.update)
 })
 
-// --- Camera de preview (customizacao) --------------------------------------
-// Onde a camera fica em cada categoria que o customizador abre. O customizer
-// chama game.beginPreview(foco) a cada troca de aba.
-//   y     altura do alvo acima dos pes (quando nao ha 'parte')
-//   dist  distancia da camera ao alvo
-//   alto  quanto a camera sobe alem do alvo
-//   parte junta do character a seguir (mao, pe): melhor que altura fixa
-const FOCOS = {
-  rosto: { y: 1.60, dist: 1.15, alto: 0.04, fov: 40 },
-  corpo: { y: 1.00, dist: 3.30, alto: 0.25, fov: 52 },
-  pescoco: { y: 1.38, dist: 1.05, alto: 0.02, fov: 42 },
-  pes: { y: 0.16, dist: 1.40, alto: 0.55, fov: 46, parte: 'footL' },
-  mao: { y: 0.90, dist: 0.75, alto: 0.05, fov: 40, parte: 'handL' },
-  braco: { y: 1.15, dist: 1.15, alto: 0.05, fov: 44, parte: 'armLLower' },
-  // nomes antigos, pra nao quebrar quem ainda chama assim
-  head: { y: 1.60, dist: 1.15, alto: 0.04, fov: 40 },
-  body: { y: 1.00, dist: 3.30, alto: 0.25, fov: 52 },
-}
+// ---------------------------------------------------------------------------
+// O PALCO (provador) — no lugar da camera de preview que existia aqui.
+//
+// Antes, customizar era apontar a camera DO JOGO pro boneco onde ele estivesse.
+// A queixa do dono do projeto foi exata: "fica sempre mostrando moveis na frente
+// do player ou a camera nao mostra 100% o player e nao fica centralizada". E nao
+// havia enquadramento que resolvesse, porque o estorvo era o CENARIO — a cadeira
+// do barbeiro, o espelho, o balcao da loja de roupa.
+//
+// Agora o painel mostra uma CENA SEPARADA (src/ui/provador.js): fundo liso,
+// pedestal e luz de tres pontos. Nao ha movel pra entrar na frente porque nao ha
+// movel nenhum. As mesmas funcoes de sempre (game.beginPreview/endPreview)
+// continuam existindo — o que mudou foi o que elas fazem por dentro.
+// ---------------------------------------------------------------------------
+const provador = criarProvador({ renderer })
+game.provador = provador
 
-const preview = { active: false, focus: 'rosto', t: 0, savedMode: 'third', yaw: 0, pitch: 0.05, slotAntes: -1 }
-const _pv = new THREE.Vector3()
-const _pf = new THREE.Vector3()
-
-// --- girar a camera do provador/barbeiro arrastando o mouse ---------------
-let arrastando = false
-let arrasteX = 0
-let arrasteY = 0
-
-function preMouseDown(e) {
-  if (!preview.active || e.button !== 0) return
-  // clique no painel do customizador nao gira a camera
-  if (e.target && e.target.closest && e.target.closest('.mcrp-customizer, [class*="customizer"], button')) return
-  arrastando = true
-  arrasteX = e.clientX
-  arrasteY = e.clientY
-}
-function preMouseMove(e) {
-  if (!arrastando || !preview.active) return
-  preview.yaw -= (e.clientX - arrasteX) * 0.008
-  preview.pitch = Math.max(-0.75, Math.min(0.85, preview.pitch - (e.clientY - arrasteY) * 0.006))
-  arrasteX = e.clientX
-  arrasteY = e.clientY
-}
-function preMouseUp() { arrastando = false }
-
-window.addEventListener('mousedown', preMouseDown)
-window.addEventListener('mousemove', preMouseMove)
-window.addEventListener('mouseup', preMouseUp)
+let palcoAtivo = false
 
 function startPreview(focus) {
-  const jaAberto = preview.active
-  preview.active = true
-  preview.focus = focus || 'rosto'
-  preview.t = 0
-  // trocar de aba NAO reseta o angulo: o jogador girou pra ver de costas e
-  // perderia isso a cada categoria
-  if (!jaAberto) { preview.yaw = 0; preview.pitch = 0.05 }
-  arrastando = false
-  preview.savedMode = player.mode
-  // Guarda o que estava na mao e ESVAZIA a mao: a arma de 1a pessoa e filha da
-  // camera, entao no close do rosto ela apareceria gigante na frente do
-  // barbeiro. Volta pro mesmo slot ao fechar o painel.
-  if (!jaAberto) {
-    preview.slotAntes = hotbar && typeof hotbar.selecionado === 'number' ? hotbar.selecionado : -1
-    if (hotbar && preview.slotAntes > 0) hotbar.selecionar(0)
-  }
+  palcoAtivo = true
+  provador.setAparencia(appearance)
+  provador.focar(focus || 'corpo')
   player.setLocked(true)
-  character.setVisibleBody(true)
   input.exitLock()
+  // O HUD inteiro sai: com o palco na tela, "Camera 1a pessoa", o FPS, o
+  // objetivo do tutorial e a lista de controles ficam POR CIMA do boneco que a
+  // pessoa esta customizando. Os toasts continuam (setJogando nao os esconde).
+  hud.setJogando(false)
   hud.setCrosshair(false)
   hud.setPrompt(null)
+  hotbar.mostrar(false)
+  // O tutorial tem raiz DOM propria (nao esta dentro do #hud), entao o
+  // setJogando nao o alcanca: sem esta linha o cartao de objetivo fica por
+  // cima do boneco que a pessoa esta customizando.
+  tutorial.mostrar(false)
 }
 
 function stopPreview() {
-  if (!preview.active) return
-  preview.active = false
-  // devolve pra mao o que estava equipado antes de sentar na cadeira
-  if (hotbar && preview.slotAntes > 0) {
-    hotbar.selecionar(preview.slotAntes)
-    preview.slotAntes = -1
-  }
+  if (!palcoAtivo) return
+  palcoAtivo = false
   player.setLocked(false)
-  character.setVisibleBody(preview.savedMode === 'third')
-  hud.setCrosshair(preview.savedMode === 'first')
-  // volta o FOV que o controller usa no modo salvo
-  camera.fov = preview.savedMode === 'first' ? CAMERA.FOV_FP : CAMERA.FOV_TP
-  camera.updateProjectionMatrix()
-  // fechar o painel e um gesto do usuario, entao da pra re-travar o mouse na hora
-  if (started) { try { input.requestLock() } catch (err) { void err } }
+  hud.setCrosshair(player.mode === 'first')
+  // O HUD so volta se o que vem depois for o JOGO. Saindo do palco pra
+  // cutscene (o caminho da criacao de personagem), quem manda e o
+  // comecarPartida, que o mantem escondido.
+  if (estado === 'jogo') {
+    hud.setJogando(true)
+    hotbar.mostrar(true)
+    tutorial.mostrar(true)
+    try { input.requestLock() } catch (err) { void err }
+  }
 }
 
-function updatePreview(dt) {
-  preview.t += dt
-  const root = character.root
+// Arrastar com o mouse gira o pedestal. Fica aqui, e nao no provador, porque o
+// ponteiro so esta LIVRE quando alguma UI do jogo esta aberta — e quem sabe
+// disso e o main.
+let arrastando = false
+let arrasteX = 0
 
-  // --- 1) o mouse gira a camera em volta do personagem --------------------
-  // Antes isto era uma orbita automatica por seno: o jogador nao controlava
-  // nada e nao conseguia se ver de costas.
-  // (o giro vem de arrastar com o mouse; ver os listeners de preview abaixo.
-  //  Aqui nao da pra usar input.mouseDelta: no preview o ponteiro fica LIVRE
-  //  pra clicar nos botoes do painel, e sem pointer lock nao ha delta.)
+function palcoMouseDown(e) {
+  if (!palcoAtivo || e.button !== 0) return
+  if (e.target && e.target.closest && e.target.closest('button, input, .mcrp-cz, .mcrp-cri')) return
+  arrastando = true
+  arrasteX = e.clientX
+}
+function palcoMouseMove(e) {
+  if (!arrastando || !palcoAtivo) return
+  provador.girar((e.clientX - arrasteX) * 0.009)
+  arrasteX = e.clientX
+}
+function palcoMouseUp() { arrastando = false }
 
-  // --- 2) alvo e distancia conforme a parte que esta sendo mexida ---------
-  const f = FOCOS[preview.focus] || FOCOS.rosto
-  const py = root.position.y
-  let alvoY = py + f.y
-  let distBase = f.dist
+window.addEventListener('mousedown', palcoMouseDown)
+window.addEventListener('mousemove', palcoMouseMove)
+window.addEventListener('mouseup', palcoMouseUp)
 
-  // partes que moram numa junta (mao, pe) sao seguidas de verdade, senao a
-  // camera aponta pro ar quando o boneco muda de proporcao
-  if (f.parte && character.parts && character.parts[f.parte]) {
-    character.parts[f.parte].getWorldPosition(_pf)
-    alvoY = _pf.y
-  }
+// ---------------------------------------------------------------------------
+// O FLUXO DO JOGO
+//
+//   menu -> (solo)  criacao -> abertura -> jogo
+//        -> (coop)  lobby -> criacao -> [todos prontos] -> abertura -> jogo
+//
+// UM estado, e o laco de desenho decide o que fazer com ele. A alternativa
+// (varias flags booleanas: emMenu, emCriacao, started) e a que estava aqui e
+// era a origem do "tela inicial pedindo dois cliques": duas flags podiam
+// discordar e ninguem percebia.
+// ---------------------------------------------------------------------------
+let estado = 'menu'          // 'menu' | 'criacao' | 'abertura' | 'jogo'
+/* MODO FOTO. Quando ligado, o laco NAO mexe na camera: nem o passeio do menu,
+   nem o controller do jogador. E o que as ferramentas de tools/shot-*.mjs
+   precisam pra enquadrar uma tomada e ela sobreviver ao proximo quadro — sem
+   isto, o passeio do menu reescrevia a camera entre o enquadramento e o clique
+   e toda foto saia do mesmo lugar. Nao ha caminho de UI que ligue isto. */
+let modoFoto = false
+/* A cutscene so existe enquanto roda: ver comecarPartida. */
+let abertura = null
+let modoDeJogo = 'solo'      // 'solo' | 'coop'
+let conectando = null        // a promessa da conexao, pra nao pedir duas vezes
 
-  _pf.set(root.position.x, alvoY, root.position.z)
-  if (f.parte && character.parts && character.parts[f.parte]) {
-    character.parts[f.parte].getWorldPosition(_pf)
-  }
+const tutorial = criarTutorial({})
+game.tutorial = tutorial
 
-  // --- 3) posicao na orbita ------------------------------------------------
-  // O angulo e relativo a FRENTE do personagem: preview.yaw 0 = DE FRENTE.
-  // Cuidado com o sinal, que ja esteve errado e mostrava a nuca:
-  //   o corpo e desenhado com root.rotation.y = bodyYaw = yaw + PI (o modelo
-  //   nasce olhando pro +Z local, e esse PI e a correcao disso), enquanto a
-  //   frente do jogador e _fwd = (-sin yaw, -cos yaw) — ver controller.js.
-  //   Logo (sin(bodyYaw), cos(bodyYaw)) == (-sin yaw, -cos yaw) == a frente.
-  // Somar mais um PI aqui punha a camera do outro lado.
-  const ang = root.rotation.y + preview.yaw
-  const cp = Math.cos(preview.pitch)
-  _pv.set(
-    _pf.x + Math.sin(ang) * cp * distBase,
-    _pf.y + Math.sin(preview.pitch) * distBase + f.alto,
-    _pf.z + Math.cos(ang) * cp * distBase,
+// A camera passeia pela cidade enquanto o menu esta na frente. E o unico
+// motivo de a cidade continuar sendo desenhada la atras: um menu com fundo
+// preto nao mostra o jogo que a pessoa esta prestes a jogar.
+const PASSEIO = { r: 46, y: 15, alvo: new THREE.Vector3(6, 2, 2), vel: 0.045 }
+let passeioT = 0
+
+function passearPelaCidade(dt) {
+  passeioT += dt * PASSEIO.vel
+  camera.position.set(
+    PASSEIO.alvo.x + Math.cos(passeioT) * PASSEIO.r,
+    PASSEIO.y + Math.sin(passeioT * 0.7) * 3.2,
+    PASSEIO.alvo.z + Math.sin(passeioT) * PASSEIO.r,
   )
-
-  // --- 4) NAO ATRAVESSA PAREDE --------------------------------------------
-  // Era a reclamacao: "a camera ta bugando e entrando dentro da construcao".
-  // Mesmo teste da camera de 3a pessoa: encurta o braco ate o obstaculo.
-  if (collision && typeof collision.segmentHit === 'function') {
-    const t = collision.segmentHit(_pf, _pv, 0.2)
-    if (t < 1) {
-      const d = Math.max(0.35, distBase * t - 0.12)
-      _pv.set(
-        _pf.x + Math.sin(ang) * cp * d,
-        _pf.y + Math.sin(preview.pitch) * d + f.alto,
-        _pf.z + Math.cos(ang) * cp * d,
-      )
-    }
-  }
-  // nem afunda no chao
-  const chao = game.groundY(_pv.x, _pv.z) + 0.22
-  if (_pv.y < chao) _pv.y = chao
-
-  camera.position.lerp(_pv, 1 - Math.pow(0.0015, dt))
-  camera.lookAt(_pf)
-  camera.fov += (f.fov - camera.fov) * Math.min(1, dt * 6)
+  camera.lookAt(PASSEIO.alvo)
+  camera.fov = 58
   camera.updateProjectionMatrix()
+  lighting.setTarget(PASSEIO.alvo)
 }
 
-// --- Tela inicial ----------------------------------------------------------
-let started = false
-// a tela inicial ja lista os controles; o painel do HUD sairia duplicado atras
-hud.showHelp(false)
-hud.showStart(() => {
-  started = true
-  input.requestLock()
-  hud.hideStart()
-  hud.showHelp(true)
+/** Conecta uma vez so e devolve sempre a mesma promessa. */
+function conectar() {
+  if (!conectando) {
+    conectando = rede.conectar().catch((e) => { conectando = null; throw e })
+  }
+  return conectando
+}
+
+const criacao = criarCriacao({
+  provador,
+  aparencia: appearance,
+  opcoes: {
+    // Preview ao vivo: o palco mostra a peca no MESMO instante em que o card e
+    // clicado. Sem isto o jogador escolhe no escuro.
+    aoMudar(ap) {
+      Object.assign(appearance, ap)
+      character.setAppearance(appearance)
+      provador.setAparencia(appearance)
+      if (rede.conectado) rede.enviarAparencia(appearance)
+    },
+    aoNome(n) {
+      meuNome = n || meuNome
+      try { localStorage.setItem('mcrp-nome', meuNome) } catch (err) { void err }
+      if (rede.conectado) rede.enviarNome(meuNome)
+    },
+    aoPronto(v) {
+      if (modoDeJogo === 'coop') {
+        // No coop quem decide quando o jogo comeca e o SERVIDOR: ele conta os
+        // prontos e vira a fase. Aqui so sai o aviso.
+        rede.marcarPronto(v)
+        return
+      }
+      if (v) comecarPartida()
+    },
+  },
 })
+game.criacao = criacao
+
+const menu = criarMenu({
+  opcoes: {
+    aoSolo() {
+      modoDeJogo = 'solo'
+      menu.fechar()
+      abrirCriacao()
+    },
+    aoCoop() {
+      modoDeJogo = 'coop'
+      menu.abrir('lobby')
+      menu.setMensagem('Conectando...')
+      conectar().then(() => {
+        menu.setSala({ fase: rede.sala.fase, anfitriao: rede.sala.anfitriao,
+          meuId: rede.meuId, jogadores: rede.sala.jogadores })
+        menu.setMensagem('')
+      }).catch(() => {
+        menu.setMensagem('Sem servidor. Da pra jogar solo.')
+      })
+    },
+    aoComecar() { rede.pedirComecar() },
+    aoVoltar(de) {
+      // Sair da sala e sair de VERDADE: ficar conectado no lobby depois de
+      // voltar pro menu deixaria o anfitriao esperando por um fantasma.
+      if (de === 'lobby' && rede.conectado) { rede.fechar(); conectando = null }
+    },
+    aoSair() {
+      // Nao da pra fechar uma aba que o script nao abriu. Entao: avisa e
+      // devolve pro menu, que e o mais honesto que existe aqui.
+      hud.toast('Pra sair, feche a aba do navegador.', 4000)
+    },
+    aoTrocarOpcao(chave, valor) { aplicarOpcao(chave, valor) },
+  },
+})
+game.menu = menu
+
+/** As opcoes do menu que o JOGO precisa aplicar (o menu ja guardou sozinho). */
+function aplicarOpcao(chave, valor) {
+  if (chave === 'sensibilidade' && player.setSensibilidade) player.setSensibilidade(valor)
+  else if (chave === 'inverterY' && player.setInverterY) player.setInverterY(valor)
+  else if (chave === 'sombras') {
+    renderer.shadowMap.enabled = valor !== 'baixa'
+    lighting.sun.castShadow = valor !== 'baixa'
+  } else if (chave === 'nome') {
+    meuNome = String(valor || '').slice(0, 16) || meuNome
+    try { localStorage.setItem('mcrp-nome', meuNome) } catch (err) { void err }
+    if (rede.conectado) rede.enviarNome(meuNome)
+  }
+}
+for (const k in lerOpcoes()) aplicarOpcao(k, lerOpcoes()[k])
+
+function abrirCriacao() {
+  estado = 'criacao'
+  hud.setJogando(false)
+  hud.showHelp(false)
+  hotbar.mostrar(false)
+  startPreview('corpo')
+  criacao.abrir({
+    modo: modoDeJogo,
+    nome: meuNome,
+    prontos: 0,
+    total: modoDeJogo === 'coop' ? Math.max(2, rede.sala.jogadores.length) : 1,
+  })
+  if (modoDeJogo === 'coop') criacao.setJogadores(rede.sala.jogadores)
+}
+
+/** A cutscene, e depois o jogo. Um caminho so pros dois modos. */
+function comecarPartida(elencoForcado) {
+  if (estado === 'abertura' || estado === 'jogo') return
+  // O menu tambem fecha: no coop a sala pode pular do LOBBY direto pra
+  // JOGANDO (quando quem chega atrasado entra numa partida ja rolando), e ai
+  // quem estava olhando o lobby veria a cutscene atras da placa de neon.
+  menu.fechar()
+  criacao.fechar()
+  stopPreview()
+  estado = 'abertura'
+  hud.setJogando(false)
+
+  // Quem aparece sentado no sofa: eu sempre, e os outros do jeito que ELES se
+  // customizaram (a aparencia de cada um ja chegou pelo ENTROU/APARENCIA).
+  const elenco = Array.isArray(elencoForcado) && elencoForcado.length ? elencoForcado : []
+  if (elenco.length) return montarCutscene(elenco)
+  const souAnfitriao = !rede.conectado || rede.sala.anfitriao === rede.meuId
+  elenco.push({ id: rede.meuId || 1, nome: meuNome, aparencia: appearance, anfitriao: souAnfitriao })
+  for (const j of rede.jogadores.values()) {
+    if (!j.id || j.id === rede.meuId) continue
+    elenco.push({
+      id: j.id, nome: j.nome || 'Jogador', aparencia: j.aparencia,
+      anfitriao: rede.sala.anfitriao === j.id,
+    })
+  }
+
+  // A cutscene e criada AQUI, e nao no boot, por um motivo so: o elenco dela e
+  // quem esta na sala AGORA. criarAbertura monta o porao inteiro (sofa, TV,
+  // garrafas e um character por jogador) a partir da lista que recebe, e no
+  // boot essa lista ainda seria so eu. Criada aqui, ela nasce com todo mundo
+  // ja customizado; no fim ela mesma se descarta.
+  montarCutscene(elenco)
+}
+
+/** Cria o porao com este elenco e roda a cutscene ate o fim. */
+function montarCutscene(elenco) {
+  if (abertura) abertura.dispose()
+  abertura = criarAbertura({
+    renderer,
+    cena: scene,
+    camera,
+    jogadores: elenco,
+    casa: (casa && casa.poseDaCutscene) || null,
+  })
+  game.abertura = abertura
+
+  abertura.iniciar(() => {
+    estado = 'jogo'
+    hud.setJogando(true)
+    hud.showHelp(true)
+    hotbar.mostrar(true)
+    player.teleport(CASA.door.center, CASA.z0 - 3.2, 0)
+    tutorial.definir(MISSOES_INICIAIS)
+    tutorial.mostrar(true)
+    try { input.requestLock() } catch (err) { void err }
+    hud.toast(rede.conectado ? ('Online. ' + meuNome) : 'Jogando sozinho.')
+  }, elenco)
+}
+
+// O servidor virou a fase da sala: e ele quem manda no coop.
+function aoEstadoDaSala() {
+  const f = rede.sala.fase
+  menu.setSala({ fase: f, anfitriao: rede.sala.anfitriao, meuId: rede.meuId,
+    jogadores: rede.sala.jogadores })
+  if (estado === 'criacao') {
+    criacao.setJogadores(rede.sala.jogadores)
+    criacao.setProntos(
+      rede.sala.jogadores.filter((j) => j.pronto).length,
+      rede.sala.jogadores.length,
+    )
+  }
+  if (modoDeJogo !== 'coop') return
+  if (f === 'criando' && estado === 'menu') { menu.fechar(); abrirCriacao() }
+  if (f === 'jogando' && (estado === 'criacao' || estado === 'menu')) comecarPartida()
+}
 
 /** Ha alguma janela de UI por cima do jogo? Enquanto houver, o mouse fica
- *  LIVRE e o mundo nao escuta clique nenhum. Uma funcao so pra os tres lugares
- *  que perguntam isso -- antes eram tres condicoes escritas na mao, e o painel
- *  do cassino teria entrado em duas e faltado na terceira. */
+ *  LIVRE e o mundo nao escuta clique nem tecla. Uma funcao so pros lugares que
+ *  perguntam isso — antes eram condicoes escritas na mao, e cada tela nova
+ *  entrava em algumas e faltava noutras. */
 function uiAberta() {
-  return customizer.isOpen() || preview.active || (cassinoUI && cassinoUI.aberto)
+  return customizer.isOpen() || palcoAtivo || (cassinoUI && cassinoUI.aberto)
+    || (menu && menu.aberto) || (criacao && criacao.aberto)
 }
 
+menu.abrir('principal')
+hud.setJogando(false)
+hud.showHelp(false)
+hotbar.mostrar(false)
+
+/* Atalhos do FLUXO pra ferramenta de foto, pro teste de fumaca e pro console.
+   Nao ha caminho de UI que chame isto: o jogador passa pelos botoes do menu. */
+game.fluxo = {
+  get estado() { return estado },
+  solo() { modoDeJogo = 'solo'; menu.fechar(); abrirCriacao() },
+  criacao: abrirCriacao,
+  comecar: comecarPartida,      // aceita um elenco falso (ferramenta de foto)
+  menu() { estado = 'menu'; hud.setJogando(false); menu.abrir('principal') },
+  /**
+   * Pula direto pro JOGO, sem menu, sem criacao e sem cutscene.
+   *
+   * Existe pro teste de fumaca e pras ferramentas de foto: elas precisam do
+   * mundo jogavel em dois segundos, e passar pelo fluxo inteiro sao mais de
+   * vinte segundos de cutscene por execucao. Nenhum caminho de UI chega aqui —
+   * o jogador entra pelos botoes do menu, sempre.
+   */
+  jogar(opcoes) {
+    if (abertura) { abertura.dispose(); abertura = null }
+    menu.fechar()
+    criacao.fechar()
+    stopPreview()
+    estado = 'jogo'
+    modoFoto = false
+    hud.setJogando(true)
+    hud.showHelp(true)
+    hotbar.mostrar(true)
+    player.teleport(2, 9, 0)
+    tutorial.definir(MISSOES_INICIAIS)
+    tutorial.mostrar(true)
+    // { online: true } entra na sala tambem: e o que o teste de dois
+    // navegadores (tools/teste-online.mjs) precisa, ja que o jogo deixou de
+    // conectar sozinho ao abrir a pagina.
+    if (opcoes && opcoes.online) {
+      modoDeJogo = 'coop'
+      return conectar()
+    }
+    return Promise.resolve()
+  },
+
+  /** Congela a camera pra fotografia (tools/shot-*.mjs). */
+  foto(v) {
+    modoFoto = v !== false
+    if (modoFoto) { menu.fechar(); criacao.fechar(); stopPreview(); estado = 'jogo'; hud.setJogando(false) }
+  },
+}
+
+// Esc/Espaco pulam a cutscene.
+window.addEventListener('keydown', (e) => {
+  if (estado !== 'abertura') return
+  if (e.code === 'Escape' || e.code === 'Space') abertura.pular()
+})
+
 renderer.domElement.addEventListener('click', () => {
-  if (!started) return
+  if (estado !== 'jogo') return
   if (uiAberta()) return
   input.requestLock()
 })
 
-// O gatilho da arma de portal. O anel escuta o proprio mousedown; a arma nao,
-// porque quem sabe se ela esta selecionada na barra e o main.
-window.addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return
-  if (!started || uiAberta()) return
-  if (!input.isLocked()) return          // so com o ponteiro travado
-  if (portalgun.equipado) portalgun.atirar()
-})
+// ---------------------------------------------------------------------------
+// REINICIAR O MUNDO (F8, apertado duas vezes)
+//
+// POR QUE RECARREGAR A PAGINA em vez de "desfazer" cada coisa: porque o estado
+// espalhado pelo cliente e grande e cheio de cantos — a arma na mao, o carro
+// estacionado noutro lugar, o slot destravado na barra, o dialogo aberto. Cada
+// modulo precisaria de um reiniciar() proprio, e bastaria UM esquecido pra a
+// tecla mentir. Recarregar reconstroi tudo pelo mesmo caminho do primeiro
+// carregamento, que e o unico caminho que ja esta testado.
+//
+// O mundo COMPARTILHADO nao volta por recarregar: quem o desfaz e o servidor
+// (sala.reiniciarMundo). Por isso a ordem online e: pedir -> o servidor
+// reinicia e avisa TODOS -> cada cliente recarrega. Sozinho, sem servidor, nao
+// ha nada pra pedir e recarregar ja e o mundo inicial.
+//
+// DOIS toques, e nao um: isto apaga o progresso da SALA INTEIRA, inclusive o
+// dos outros jogadores. Uma tecla de funcao encostada por acidente nao pode
+// custar isso a todo mundo.
+// ---------------------------------------------------------------------------
+const REINICIO_JANELA = 4        // segundos pra confirmar
+let reinicioPedidoEm = -999
+
+function recomecarDoZero(aviso) {
+  hud.toast(aviso || 'Reiniciando o mundo...', 3000)
+  try { input.exitLock() } catch (err) { void err }
+  // um respiro pra o toast ser lido antes de a tela recomecar
+  setTimeout(() => { try { location.reload() } catch (err) { void err } }, 700)
+}
+
+function pedirReinicio() {
+  // primeiro toque: so avisa o que vai acontecer
+  if (game.time - reinicioPedidoEm > REINICIO_JANELA) {
+    reinicioPedidoEm = game.time
+    hud.toast('Aperte F8 de novo para REINICIAR O MUNDO: veiculos, NPCs e '
+      + 'itens voltam ao inicio.', REINICIO_JANELA * 1000)
+    return
+  }
+  reinicioPedidoEm = -999
+  // Online, quem reinicia e o servidor: aqui so sai o pedido, e o recarregar
+  // vem no MUNDO_REINICIADO que volta pra sala inteira (inclusive pra mim).
+  if (rede.conectado && rede.reiniciarMundo()) return
+  recomecarDoZero('Reiniciando o mundo...')
+}
 
 // --- Loop ------------------------------------------------------------------
 let helpOn = true
@@ -660,16 +862,80 @@ let fpsAtual = 0
 let fpsAcc = 0, fpsCount = 0, fpsTimer = 0
 const clock = engine.clock
 
+/** O FPS e o painel de rede, medidos em qualquer estado. */
+function medirFps(dt) {
+  fpsAcc += dt; fpsCount++
+  fpsTimer += dt
+  if (fpsTimer < 0.5) return
+  fpsAtual = Math.round(fpsCount / fpsAcc)
+  hud.setFps(fpsAtual)
+  hud.setRede(fpsAtual, rede.conectado ? rede.stats : null,
+    rede.conectado ? 'online' : (rede.recusado ? 'recusado' : 'sozinho'))
+  fpsAcc = 0; fpsCount = 0; fpsTimer = 0
+}
+
 function frame() {
   requestAnimationFrame(frame)
   const dt = Math.min(clock.getDelta(), 0.05)
   game.time += dt
 
+  // ---- MENU: a cidade continua viva la atras -------------------------------
+  // Desenhar a cidade em vez de um fundo chapado custa o mesmo quadro que o
+  // jogo ja custa, e mostra o jogo que a pessoa esta prestes a jogar.
+  if (estado === 'menu') {
+    if (!modoFoto) passearPelaCidade(dt)
+    lighting.update(dt)
+    clima.atualizar(dt, camera.position)
+    neve.setCobertura(clima.cobertura)
+    neve.atualizar(dt)
+    for (let i = 0; i < moduleUpdates.length; i++) moduleUpdates[i](dt, game)
+    for (let i = 0; i < propUpdates.length; i++) propUpdates[i](dt, game)
+    engine.render()
+    input.endFrame()
+    medirFps(dt)
+    return
+  }
+
+  // ---- CRIACAO DE PERSONAGEM: so o palco ----------------------------------
+  // A cidade nao e desenhada aqui de proposito: o palco tem fundo proprio e
+  // desenhar as duas coisas seria pagar a cidade inteira pra ela ficar
+  // escondida atras de um veu preto.
+  if (estado === 'criacao') {
+    criacao.atualizar(dt)
+    criacao.render()
+    input.endFrame()
+    medirFps(dt)
+    return
+  }
+
+  // ---- CUTSCENE DE ABERTURA ------------------------------------------------
+  if (estado === 'abertura') {
+    abertura.atualizar(dt)
+    if (abertura.parte === 2) {
+      // parte 2 e na CIDADE: passa pelo engine.render() pra sair com o mesmo
+      // acabamento de cor do resto do jogo, e nao pelo renderer cru
+      lighting.setTarget(camera.position)
+      lighting.update(dt)
+      clima.atualizar(dt, camera.position)
+      neve.setCobertura(clima.cobertura)
+      neve.atualizar(dt)
+      for (let i = 0; i < moduleUpdates.length; i++) moduleUpdates[i](dt, game)
+      engine.render()
+    } else {
+      abertura.render()
+    }
+    input.endFrame()
+    medirFps(dt)
+    return
+  }
+
+  // ---- JOGO ----------------------------------------------------------------
   // ajuda (Tab)
   if (input.wasPressed('Tab')) hud.showHelp(helpOn = !helpOn)
   if (input.wasPressed('F3')) hud.toggleF3()
   // C = clima. Sol -> chuva -> neve -> sol. Uma tecla so, como foi pedido: com
   // tres teclas separadas o jogador teria que decorar qual e qual.
+  if (input.wasPressed('F8') && !uiAberta()) pedirReinicio()
   if (input.wasPressed('KeyC') && !uiAberta()) {
     const nova = clima.proximaEstacao()
     hud.toast(NOME_ESTACAO[nova] || nova)
@@ -678,16 +944,14 @@ function frame() {
   if (!uiAberta()) {
     if (input.wasPressed('Digit1')) hotbar.selecionar(0)
     if (input.wasPressed('Digit2')) hotbar.selecionar(1)
-    if (input.wasPressed('Digit3')) hotbar.selecionar(2)
-    if (input.wasPressed('Digit4')) hotbar.selecionar(3)
   }
 
-  if (!preview.active) {
+  // Com o palco aberto o jogador NAO anda: quem esta escolhendo uma camisa nao
+  // pode sair andando pela loja com a camera dentro do provador.
+  if (!palcoAtivo && !modoFoto) {
     player.update(dt)
     hud.setMode(player.mode)
     hud.setCrosshair(player.mode === 'first')
-  } else {
-    updatePreview(dt)
   }
 
   // interacao
@@ -713,9 +977,7 @@ function frame() {
         // Pegar um item destrava o slot na barra e ja poe na mao.
         // Sem 'return' aqui: isto roda DENTRO do frame, e sair cedo pularia o
         // render e a luz deste quadro (um engasgo visivel ao pegar o item).
-        const item = hit.id === 'anel-verde' ? 'anel'
-          : hit.id === 'portal-gun' ? 'portal'
-            : /revolver/.test(hit.id) ? 'revolver' : null
+        const item = /revolver/.test(hit.id) ? 'revolver' : null
         const npcId = item ? 0 : NPC_DA_INTERACAO[hit.id]
         if (item) {
           interaction.trigger(game)
@@ -744,7 +1006,7 @@ function frame() {
     const st = player.getState ? player.getState() : {}
     const anim = player.sitting ? 4
       : (!player.grounded ? 3 : (player.speed > 3.4 ? 2 : (player.speed > 0.2 ? 1 : 0)))
-    const flags = (player.sitting ? 1 : 0) | (anel.equipado ? 2 : 0)
+    const flags = (player.sitting ? 1 : 0)
     rede.enviarMeuEstado(
       player.position.x, player.position.y, player.position.z,
       character.root.rotation.y, anim, flags,
@@ -755,10 +1017,7 @@ function frame() {
   // Depois de player.update: dirigindo, o sistema escreve por cima da camera,
   // do personagem e do prompt do HUD — e quem escreve por ultimo e quem manda.
   veiculos.atualizar(dt)
-  anel.atualizar(dt)
-  portalgun.atualizar(dt)
   revolver.atualizar(dt)
-  zumbi.atualizar(dt)
   clima.atualizar(dt, player.position)
   // A neve acumulada segue a cobertura que o clima calculou neste quadro: quem
   // decide quanto ja caiu e o clima, quem desenha o resultado e a neve.
@@ -772,44 +1031,37 @@ function frame() {
   // fim — antes disso metade dos efeitos ainda nao mexeu na propria luz.
   poolLuz.atualizar()
 
-  // tranco de camera do anel (agarrar/arremessar), somado depois da camera
-  for (const t of [anel.tremor, portalgun.tremor]) {
-    if (t && (t.x || t.y)) { camera.rotation.x += t.x; camera.rotation.y += t.y }
-  }
-
   lighting.setTarget(player.position)
   lighting.update(dt)
 
   for (let i = 0; i < moduleUpdates.length; i++) moduleUpdates[i](dt, game)
   for (let i = 0; i < propUpdates.length; i++) propUpdates[i](dt, game)
 
-  engine.render()
-  input.endFrame()
+  tutorial.atualizar(dt, game)
 
-  // fps
-  fpsAcc += dt; fpsCount++
-  fpsTimer += dt
-  if (fpsTimer >= 0.5) {
-    fpsAtual = Math.round(fpsCount / fpsAcc)
-    hud.setFps(fpsAtual)
-    hud.setRede(fpsAtual, rede.conectado ? rede.stats : null,
-      rede.conectado ? 'online' : (rede.recusado ? 'recusado' : 'sozinho'))
-    fpsAcc = 0; fpsCount = 0; fpsTimer = 0
+  // O PALCO substitui a cidade enquanto o painel de customizacao esta aberto.
+  // O mundo continua sendo SIMULADO acima (NPC, clima, veiculo) — o que muda e
+  // so quem e desenhado. Parar a simulacao junto faria o jogador voltar do
+  // barbeiro e encontrar a cidade congelada no instante em que ele sentou.
+  if (palcoAtivo) {
+    provador.atualizar(dt)
+    provador.render()
+  } else {
+    engine.render()
   }
+  input.endFrame()
+  medirFps(dt)
 }
 
 frame()
 
-// Conectar SO agora, com o mundo montado e o laco rodando.
-// Conectando antes, a montagem da cidade (varios segundos numa maquina fraca)
-// bloqueia a thread com a conexao ja aberta: o navegador engasga com a fila de
-// snapshots que ninguem le e derruba o socket. Aqui nao existe essa janela.
-rede.conectar().then(() => {
-  hud.toast('Conectado. ' + meuNome)
-}).catch(() => {
-  // Sem servidor o jogo nao morre: fica um single player normal.
-  hud.toast('Sem servidor: jogando sozinho.')
-})
+// O JOGO NAO CONECTA MAIS SOZINHO AO ABRIR.
+//
+// Antes, a pagina abria e ja entrava na sala. Com o menu isso ficou errado por
+// dois motivos: quem vai jogar SOLO nao tem por que aparecer no mundo de
+// ninguem, e quem vai jogar COOP escolhe a hora de entrar (a sala tem 4 vagas,
+// e ocupar uma so por ter aberto a aba tira a vaga de quem ia jogar).
+// Quem conecta e o botao COOP do menu, por conectar() logo acima.
 
 // expoe pra debug no console
 window.__game = game

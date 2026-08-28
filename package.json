@@ -12,7 +12,9 @@
     "smoke": "node tools/smoke.mjs",
     "teste-cassino": "node tools/teste-cassino.mjs",
     "teste-nome-unico": "node tools/teste-nome-unico.mjs",
+    "teste-lobby": "node tools/teste-lobby.mjs",
     "shot-clima": "node tools/shot-clima.mjs",
+    "shot-tela": "node tools/shot-tela.mjs",
     "online": "npm run build && node servidor.js",
     "servidor": "node servidor.js",
     "teste-online": "node tools/teste-online.mjs"

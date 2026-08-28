@@ -33,10 +33,15 @@
 // desconhecida — e nunca entenderia por que ele comecou a andar. Pior: ele
 // tambem nao saberia mandar ZUMBI_TIRO, entao atirava e nada acontecia. Melhor
 // recusar e pedir pra recarregar.
-export const VERSAO_PROTOCOLO = 4
+export const VERSAO_PROTOCOLO = 6
 export const TICK_HZ = 15
 export const ATRASO_INTERP = 0.1      // segundos: o remoto e desenhado 100 ms atras
-export const MAX_JOGADORES = 20
+// QUATRO, e nao vinte. O jogo passou a ter LOBBY: o dono do projeto pediu
+// "um servidor somente que cabe de 2 a 4 pessoas". O numero e o teto da sala e
+// tambem o denominador do contador de prontos ("2/4 prontos") que aparece na
+// tela de criacao de personagem — por isso ele mora aqui, nos dois lados, e nao
+// numa constante de UI.
+export const MAX_JOGADORES = 4
 export const RAIO_OUVIR_DIALOGO = 12  // metros: quem esta mais perto ve o balao
 export const RAIO_PERDER_DIALOGO = 14 // se afastar mais que isso, o servidor libera
 
@@ -88,55 +93,23 @@ export const NPCS = [
     ],
     opcoes: ['Comprar refrigerante', 'So olhando', 'Tchau'],
   },
-  {
-    // O RAPAZ DA PORTA DA MERCEARIA — o que adoece e vira zumbi.
-    //
-    // Ele e um NPC como os outros: id proprio na faixa 1000..1999, pose
-    // inicial aqui, posicao e estado mandados pelo servidor no snapshot. O que
-    // ele NAO tem e dialogo: falas e opcoes vazias de proposito, porque FALAR
-    // nele nao abre conversa nenhuma — comeca a doenca (ver sala.js). Um
-    // dialogo por cima disso poria dois baloes na tela ao mesmo tempo.
-    //
-    // A pose 'sao' nao existe nos outros NPCs: ela e a porta de entrada da
-    // maquina de estados do zumbi (EST_NPC.SAO).
-    id: 1004, chave: 'zumbi', nome: 'Rapaz',
-    x: -23.6, y: 0.16, z: -10.7, yaw: 0.22,
-    pose: 'sao', local: 'mercearia',
-    falas: [],
-    opcoes: [],
-  },
 ]
 
 export const NPC_POR_CHAVE = {}
 for (const n of NPCS) NPC_POR_CHAVE[n.chave] = n
 
-// --- os numeros do zumbi ----------------------------------------------------
-// Eles moram AQUI, e nao em src/npc/zumbi.js, porque agora os DOIS lados
-// precisam deles: o servidor pra rodar a maquina de estados (ele e o dono do
-// mundo) e o cliente pra fazer exatamente a mesma coisa quando esta SOZINHO,
-// sem servidor nenhum. Duas copias dos mesmos numeros divergiriam no dia em
-// que alguem afinasse a velocidade num arquivo so — e a diferenca apareceria
-// como "no online ele e mais rapido", que ninguem liga a um numero copiado.
+// O RAPAZ QUE VIRAVA ZUMBI FOI APAGADO DO JOGO.
 //
-// Este arquivo nao importa THREE, entao o servidor le isto sem carregar meio
-// motor grafico. As constantes de VISUAL (tempo de queda, do fade, da camera
-// lenta, das poses) continuam la em zumbi.js: elas nao atravessam a rede.
-export const ZUMBI_ID = 1004
-export const ZUMBI_DOENCA = 10.0        // s entre o "nao estou bem" e o grito
-export const ZUMBI_GRITO = 0.95         // s parado gritando, antes de sair andando
-export const ZUMBI_VEL = 4.5            // m/s: mais que andar (3.1), menos que correr (6.2)
-export const ZUMBI_DIST_ATAQUE = 1.15   // a partir daqui ele encosta em voce
-export const ZUMBI_VIDA_MAX = 3         // 3 tiros no corpo; a cabeca tira tudo de uma vez
-// Quanto tempo o corpo fica em cena depois do tiro final, antes de o servidor
-// dizer SUMIDO. E a soma do que o cliente ja gastava desenhando: a queda
-// (1.05), a espera deitado (2.6) e o fade (2.2).
-export const ZUMBI_SUMIR = 5.85
-// Raio do corpo dele contra parede. Subiu pra ca junto com os outros pelo
-// mesmo motivo: o cliente usa este numero no collision.resolve do modo
-// sozinho e o servidor usa no empurrao contra as caixas de src/world/layout.js.
-// Dois valores diferentes fariam o zumbi raspar a parede num modo e atravessar
-// no outro, e ninguem ligaria isso a um 0.40 copiado.
-export const ZUMBI_RAIO = 0.40
+// Ele era o NPC 1004 e trazia junto um bloco de constantes aqui (velocidade,
+// tempo de doenca, vida, raio) mais uma maquina de estados inteira no
+// servidor. Saiu tudo a pedido do dono do projeto. O que FICOU de proposito:
+// os valores 5..9 do enum EST_NPC em protocolo.js (SAO, ADOECENDO, ZUMBI,
+// MORTO, SUMIDO). Tirar valor de enum de um formato binario que ja esta no ar
+// e trocar um risco pequeno (cinco numeros que ninguem usa) por um grande
+// (dois lados do socket discordando do significado de um byte).
+//
+// Se um dia ele voltar: o codigo do cliente esta no historico do git, no
+// commit anterior a esta remocao.
 
 // --- Objetos agarraveis (o anel verde) --------------------------------------
 // tipo define a forma e o tamanho; o cliente monta o mesh a partir disso.
@@ -152,41 +125,13 @@ export const TIPOS_AGARRAVEL = {
 
 // Posicoes escolhidas a dedo em chao livre: calcada da rua principal, beco,
 // praca e frente das lojas. Nenhuma cai dentro de parede ou em cima de movel.
+// A LISTA ESTA VAZIA de proposito. Estes objetos existiam pra o ANEL VERDE
+// levitar, e o anel saiu do jogo (esta em backup/poder/anel.js). Sem ele eles
+// seriam so caixotes que o servidor sincroniza 15 vezes por segundo pra
+// ninguem tocar. O FORMATO fica: TIPOS_AGARRAVEL acima, os pacotes OBJ_* em
+// protocolo.js e o Map de objetos em sala.js continuam inteiros, entao devolver
+// o anel e devolver as linhas desta lista.
 export const AGARRAVEIS = [
-  // calcada norte da rua principal, entre as duas lojas (chao 0.16)
-  { id: 2000, tipo: 'caixote', x: 12.4, y: 0.52, z: -10.2 },
-  { id: 2001, tipo: 'caixa', x: 13.6, y: 0.37, z: -9.4 },
-  { id: 2002, tipo: 'lata', x: 10.8, y: 0.57, z: -10.6 },
-  { id: 2003, tipo: 'cone', x: 9.2, y: 0.49, z: -9.2 },
-  { id: 2004, tipo: 'caixote', x: -12.6, y: 0.52, z: -10.4 },
-  { id: 2005, tipo: 'engradado', x: -13.8, y: 0.39, z: -9.6 },
-  { id: 2006, tipo: 'lata', x: -10.6, y: 0.57, z: -10.8 },
-  { id: 2007, tipo: 'vaso', x: -9.4, y: 0.43, z: -9.4 },
-  // calcada sul, do outro lado da rua principal
-  { id: 2008, tipo: 'caixote', x: 11.5, y: 0.52, z: 9.8 },
-  { id: 2009, tipo: 'cone', x: 13.2, y: 0.49, z: 10.6 },
-  { id: 2010, tipo: 'caixa', x: -11.8, y: 0.37, z: 9.6 },
-  { id: 2011, tipo: 'lata', x: -13.4, y: 0.57, z: 10.8 },
-  // beco do quadrante sudeste (chao 0.05)
-  { id: 2012, tipo: 'caixote', x: 34.9, y: 0.41, z: 16.5 },
-  { id: 2013, tipo: 'caixote', x: 34.9, y: 1.13, z: 16.5 },
-  { id: 2014, tipo: 'engradado', x: 35.1, y: 0.28, z: 19.2 },
-  { id: 2015, tipo: 'lata', x: 34.7, y: 0.46, z: 22.4 },
-  { id: 2016, tipo: 'caixa', x: 35.2, y: 0.26, z: 25.1 },
-  { id: 2017, tipo: 'engradado', x: 34.8, y: 0.28, z: 28.3 },
-  // praca (chao 0.11)
-  { id: 2018, tipo: 'vaso', x: -22.5, y: 0.38, z: 18.4 },
-  { id: 2019, tipo: 'vaso', x: -38.5, y: 0.38, z: 18.4 },
-  { id: 2020, tipo: 'caixa', x: -30.4, y: 0.32, z: 31.2 },
-  { id: 2021, tipo: 'lata', x: -18.6, y: 0.52, z: 29.4 },
-  { id: 2022, tipo: 'cone', x: -42.2, y: 0.44, z: 27.6 },
-  { id: 2023, tipo: 'caixote', x: -45.6, y: 0.47, z: 15.8 },
-  // dentro da barbearia, perto do anel (chao 0.16)
-  { id: 2024, tipo: 'caixa', x: 26.5, y: 0.37, z: -14.2 },
-  { id: 2025, tipo: 'lata', x: 28.4, y: 0.57, z: -13.6 },
-  // dentro da mercearia
-  { id: 2026, tipo: 'engradado', x: -32.5, y: 0.39, z: -14.4 },
-  { id: 2027, tipo: 'caixote', x: -34.2, y: 0.52, z: -14.8 },
 ]
 
 export const AGARRAVEL_POR_ID = {}

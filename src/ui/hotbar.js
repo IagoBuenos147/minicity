@@ -11,9 +11,8 @@
 //
 //   const hb = criarHotbar({ aoTrocar: (i, chave) => equipar(chave) })
 //   hb.definir(0, { chave: 'maos',  nome: 'Maos' })
-//   hb.definir(1, { chave: 'anel',  nome: 'Anel verde' })
-//   hb.definir(2, { chave: 'portal', nome: 'Arma de portal', icone: 'portal' })
-//   hb.marcarDisponivel(2, false)   // ainda nao pegou: apagado e com cadeado
+//   hb.definir(1, { chave: 'revolver', nome: 'Revolver', icone: 'revolver' })
+//   hb.marcarDisponivel(1, false)   // ainda nao pegou: apagado e com cadeado
 //   hb.selecionar(0)
 // ---------------------------------------------------------------------------
 
@@ -347,9 +346,11 @@ function fazerIcone(icone, chave) {
 }
 
 const PADRAO = [
+  // O anel verde e a arma de portal sairam do jogo (estao em backup/poder/).
+  // Os desenhos de icone deles continuam neste arquivo, logo acima: sao 30
+  // linhas de canvas que ninguem paga enquanto ninguem chama, e refazer o
+  // desenho no dia em que os itens voltarem seria trabalho jogado fora.
   { chave: 'maos', nome: 'Maos', icone: 'maos' },
-  { chave: 'anel', nome: 'Anel verde', icone: 'anel' },
-  { chave: 'portal', nome: 'Arma de portal', icone: 'portal' },
   { chave: 'revolver', nome: 'Revolver', icone: 'revolver' },
 ]
 
@@ -359,7 +360,7 @@ const PADRAO = [
  * @param {number} [opts.slots] quantidade de slots (padrao 4)
  * @param {HTMLElement} [opts.pai] onde pendurar (padrao document.body)
  */
-export function criarHotbar({ aoTrocar, slots = 4, pai } = {}) {
+export function criarHotbar({ aoTrocar, slots = PADRAO.length, pai } = {}) {
   if (!document.getElementById('hotbar-style')) {
     const s = document.createElement('style')
     s.id = 'hotbar-style'

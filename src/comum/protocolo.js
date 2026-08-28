@@ -87,6 +87,10 @@ export const P = {
   VEICULO_POS: 16,
   CRIAR_HELI: 17,
   ZUMBI_TIRO: 18,
+  REINICIAR: 19,
+  PRONTO: 20,
+  COMECAR: 21,
+  MEU_NOME: 22,
 
   BEMVINDO: 128,
   RECUSA: 129,
@@ -103,6 +107,8 @@ export const P = {
   PORTAL_FECHADO: 140,
   VEICULO_DONO: 141,
   HELI_CRIADO: 142,
+  MUNDO_REINICIADO: 143,
+  SALA_ESTADO: 144,
 }
 
 // Nome legivel do tipo, so pro painel F3 e pra depurar. Nao entra na rede.
@@ -246,9 +252,25 @@ export const CAMPOS_APARENCIA = [
  * fazer isso sem carregar meio motor grafico. 0 = sem limite conhecido (o
  * campo reservado aceita qualquer byte).
  */
+// Os numeros TEM que acompanhar o tamanho real dos catalogos. Quando eles
+// ficaram pra tras (os catalogos cresceram e esta lista nao), o efeito foi
+// invisivel e cruel: o boneco local ficava certo e o byte que viajava era
+// cortado, entao a cabeca 12 chegava como 7 na tela dos outros. Sem erro
+// nenhum no console. Ao mexer num catalogo, mexa AQUI na mesma linha:
+//
+//   node -e "Promise.all([import('./src/player/appearance.js'),
+//     import('./src/player/roupas.js')]).then(([A,R])=>console.log(
+//     [A.CABECAS,A.OLHOS,A.PUPILAS,A.NARIZES,A.BOCAS,A.BARBAS,A.CABELOS,
+//      A.SKIN_TONES,A.HAIR_COLORS,A.SOBRANCELHAS,R.CHAPEUS,R.CALCADOS,
+//      R.BLUSAS,R.CALCAS,R.COLARES,R.ANEIS,R.TATUAGENS,R.RELOGIOS
+//     ].map(c=>c.length).join(', ')))"
+//
+// 'jaqueta' vale 1 (so o indice 0) porque blusa e jaqueta viraram UMA aba: o
+// catalogo JAQUETAS esta vazio e o campo continua no pacote por causa dos 20
+// bytes fixos, sempre em 0. Ver o comentario de JAQUETAS em roupas.js.
 export const APARENCIA_OPCOES = [
-  8, 5, 5, 5, 5, 5, 5, 5, 6, 5,
-  6, 6, 6, 6, 6, 6, 6, 6, 6, 0,
+  13, 10, 10, 10, 10, 10, 10, 10, 11, 10,
+  11, 11, 19, 11, 11, 11, 11, 11, 1, 0,
 ]
 
 /**
@@ -1117,6 +1139,170 @@ export function lerEntrou(dvBruto) {
   const n = dv.getUint8(3)
   if (dv.byteLength < 4 + n + APARENCIA_BYTES) return null
   return { id, nome: lerNome(dv, 4, n), aparencia: lerAparenciaEm(dv, 4 + n) }
+}
+
+/**
+ * 19 REINICIAR (confiavel): so o byte do tipo.
+ *
+ * PEDIDO, como todo o resto: o cliente nao reinicia nada por conta propria.
+ * Quem e dono do mundo e o servidor, e reiniciar e a operacao mais "dona do
+ * mundo" que existe -- se o cliente apagasse o zumbi sozinho, o proximo
+ * SNAPSHOT o traria de volta meio segundo depois, e o jogador acharia que a
+ * tecla nao funciona.
+ *
+ * Sem corpo de proposito: nao ha o que parametrizar. "Volta tudo ao inicio" e
+ * uma coisa so, e um dia em que fizer sentido reiniciar SO os veiculos e um
+ * dia em que este pacote ganha um byte de bits, sem quebrar o formato de hoje.
+ */
+export function escreverReiniciar() {
+  return novo(P.REINICIAR, 1).buf
+}
+
+export function lerReiniciar(dvBruto) {
+  const dv = cabe(dvBruto, P.REINICIAR, 1)
+  if (!dv) return null
+  return {}
+}
+
+/**
+ * 143 MUNDO_REINICIADO (confiavel): u16 quem.
+ *
+ * 'quem' e o id de quem apertou a tecla -- e ninguem em particular quando vale
+ * 0 (reinicio feito pelo proprio servidor). Ele existe por uma razao so, e ela
+ * e de convivencia: reiniciar afeta TODO MUNDO na sala, e um mundo que volta
+ * ao comeco sozinho, sem nome e sem aviso, parece bug. Com o id, cada cliente
+ * mostra "Fulano reiniciou o mundo" antes de recomecar.
+ */
+export function escreverMundoReiniciado(quem) {
+  const { buf, dv } = novo(P.MUNDO_REINICIADO, 3)
+  dv.setUint16(1, (quem | 0) & 0xffff, true)
+  return buf
+}
+
+export function lerMundoReiniciado(dvBruto) {
+  const dv = cabe(dvBruto, P.MUNDO_REINICIADO, 3)
+  if (!dv) return null
+  return { quem: dv.getUint16(1, true) }
+}
+
+
+/**
+ * 20 PRONTO (confiavel): u8 pronto (1 sim, 0 nao).
+ *
+ * A tela de criacao de personagem termina num botao. Enquanto nem todo mundo
+ * apertou, ninguem entra: o servidor conta os prontos e so vira a fase quando
+ * o contador fecha. Da pra DESMARCAR (mandar 0) — alguem que apertou sem
+ * querer nao pode segurar a sala de refem por ter mudado de ideia.
+ */
+export function escreverPronto(pronto) {
+  const { buf, dv } = novo(P.PRONTO, 2)
+  dv.setUint8(1, pronto ? 1 : 0)
+  return buf
+}
+
+export function lerPronto(dvBruto) {
+  const dv = cabe(dvBruto, P.PRONTO, 2)
+  if (!dv) return null
+  return { pronto: dv.getUint8(1) === 1 }
+}
+
+/**
+ * 21 COMECAR (confiavel): so o byte do tipo.
+ *
+ * PEDIDO do ANFITRIAO pra sala sair do lobby e ir pra criacao de personagem.
+ * Sem corpo porque nao ha o que parametrizar, e sem "quem" porque quem pediu
+ * ja e conhecido: o pacote chegou pela conexao dele. O servidor confere se
+ * quem pediu e mesmo o anfitriao — pedir daqui nao e poder.
+ */
+export function escreverComecar() {
+  return novo(P.COMECAR, 1).buf
+}
+
+export function lerComecar(dvBruto) {
+  const dv = cabe(dvBruto, P.COMECAR, 1)
+  if (!dv) return null
+  return {}
+}
+
+/**
+ * 22 MEU_NOME (confiavel): u8 len, nome utf8.
+ *
+ * O nome deixou de ser so o que estava no localStorage quando a pagina abriu:
+ * agora o jogador o digita na tela de criacao de personagem. Este pacote existe
+ * porque o ENTRAR ja passou quando isso acontece — e reconectar so pra trocar
+ * de nome derrubaria o jogador da sala em que ele acabou de entrar.
+ *
+ * O servidor RESPONDE com um ENTROU do mesmo id: a lista de nomes de todo mundo
+ * ja e mantida por esse caminho, entao o nome novo chega em todas as telas sem
+ * um segundo mecanismo.
+ */
+export function escreverMeuNome(nome) {
+  const nb = nomeParaBytes(nome)
+  const { buf, dv } = novo(P.MEU_NOME, 2 + nb.length)
+  dv.setUint8(1, nb.length)
+  new Uint8Array(buf, 2, nb.length).set(nb)
+  return buf
+}
+
+export function lerMeuNome(dvBruto) {
+  const dv = cabe(dvBruto, P.MEU_NOME, 2)
+  if (!dv) return null
+  const n = dv.getUint8(1)
+  if (dv.byteLength < 2 + n) return null
+  return { nome: lerNome(dv, 2, n) }
+}
+
+/**
+ * 144 SALA_ESTADO (confiavel): u8 fase, u16 anfitriao, u8 n, n x (u16 id, u8 pronto).
+ *
+ * A FOTO INTEIRA da sala, e nao um delta. Sao no maximo 4 jogadores: 4 + 3*4 =
+ * 16 bytes. Mandar a lista completa a cada mudanca custa menos do que manter
+ * dois lados concordando sobre uma sequencia de "fulano ficou pronto" —
+ * principalmente porque este pacote e raro (entra alguem, alguem aperta pronto,
+ * a fase vira) e um pacote perdido aqui deixaria a tela de todo mundo mentindo
+ * sobre quem ja esta pronto.
+ *
+ * fase: 0 lobby (esperando gente), 1 criando (personagem), 2 jogando.
+ * anfitriao: o id de quem manda no lobby. 0 = ninguem (sala vazia).
+ */
+export const FASE_LOBBY = 0
+export const FASE_CRIANDO = 1
+export const FASE_JOGANDO = 2
+
+export function escreverSalaEstado(fase, anfitriao, lista) {
+  const n = Math.min(255, (lista && lista.length) || 0)
+  // Mapa dos bytes, e ele nao e por acaso: 0 tipo, 1 fase, 2-3 anfitriao,
+  // 4 quantos, e dai em diante 3 bytes por jogador. O anfitriao (u16) tem que
+  // ficar num par de bytes que ninguem mais toca — a primeira versao punha o
+  // 'quantos' no byte 3, que e justamente o byte ALTO do anfitriao, e o id 7
+  // com dois jogadores na sala chegava do outro lado como 519.
+  const { buf, dv } = novo(P.SALA_ESTADO, 5 + n * 3)
+  dv.setUint8(1, fase | 0)
+  dv.setUint16(2, (anfitriao | 0) & 0xffff, true)
+  dv.setUint8(4, n)
+  let o = 5
+  for (let i = 0; i < n; i++) {
+    dv.setUint16(o, (lista[i].id | 0) & 0xffff, true)
+    dv.setUint8(o + 2, lista[i].pronto ? 1 : 0)
+    o += 3
+  }
+  return buf
+}
+
+export function lerSalaEstado(dvBruto) {
+  const dv = cabe(dvBruto, P.SALA_ESTADO, 5)
+  if (!dv) return null
+  const fase = dv.getUint8(1)
+  const anfitriao = dv.getUint16(2, true)
+  const n = dv.getUint8(4)
+  if (dv.byteLength < 5 + n * 3) return null
+  const jogadores = []
+  let o = 5
+  for (let i = 0; i < n; i++) {
+    jogadores.push({ id: dv.getUint16(o, true), pronto: dv.getUint8(o + 2) === 1 })
+    o += 3
+  }
+  return { fase, anfitriao, jogadores }
 }
 
 /** 132 SAIU (confiavel): u16 id. Sair de quem ja saiu nao faz nada. */

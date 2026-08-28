@@ -48,12 +48,12 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
 const wrapIdx = (i, n) => (((i | 0) % n) + n) % n
 
 // ---------------------------------------------------------------------------
-// 1. AS 8 CABECAS
+// 1. AS 13 CABECAS
 //
 // Nao sao a mesma cabeca escalada: cada uma e um conjunto de parametros da
-// MESMA deformacao de esfera. Manter uma so funcao (em vez de 8 geometrias
+// MESMA deformacao de esfera. Manter uma so funcao (em vez de 13 geometrias
 // escritas na mao) e o que garante que cabelo, olho, boca e barba continuem
-// grudados na pele em qualquer um dos 8 cranios — todos eles leem daqui.
+// grudados na pele em qualquer um dos 13 cranios — todos eles leem daqui.
 //
 // Todos os campos sao multiplicadores sobre HEAD.{rx,ry,rz}:
 //   kx/kz    largura / profundidade
@@ -105,6 +105,45 @@ export const HEAD_SHAPES = [
     temple: 0.085, templeY: 0.24, templeW: 0.42,
     occipital: 0.14, occY: -0.05,
     brow: 0.07, browY: 0.36,
+  }),
+  // 8 mandibula quadrada larga — o 3 ja e "quadrada", mas la o square e moderado
+  // e a cabeca ainda afina; aqui o taper e quase zero e a superelipse e forte, o
+  // que empurra as DIAGONAIS do maxilar pra fora e cria o angulo de queixo de
+  // lutador em vez de um cubo (superelipse nunca vira aresta viva).
+  shape({
+    kx: 1.16, kz: 1.06, yTop: 0.96, taper: 0.02, taperP: 3.0,
+    square: 3.2, flare: 0.16, nape: 0.12, brow: 0.05, browY: 0.33,
+  }),
+  // 9 fina e comprida — cara de cavalo: estreita, alta e com o maxilar fugindo.
+  // O taperP baixo (1.25) faz o afinamento comecar CEDO, ja na altura da boca:
+  // com o 1.6 do cranio 2 o estreitamento so aparecia no ultimo centimetro e a
+  // silhueta lia como "ovo alto", nao como rosto comprido.
+  shape({
+    kx: 0.86, kz: 0.98, yTop: 1.20, taper: 0.45, taperP: 1.25,
+    nape: 0.09, temple: 0.06, templeY: 0.26, templeW: 0.38,
+  }),
+  // 10 arredondada de bochecha alta — temple NEGATIVO e o truque: a mesma
+  // gaussiana que afunda a tempora do cranio 7, com o sinal trocado e ancorada
+  // logo abaixo do equador, INCHA so as laterais na altura da maca do rosto.
+  // Engordar com kx daria uma cabeca gorda inteira, nao uma bochecha.
+  shape({
+    kx: 1.08, kz: 1.05, yTop: 0.96, taper: 0.30, taperP: 1.9,
+    crown: 0.06, nape: 0.06,
+    temple: -0.20, templeY: -0.05, templeW: 0.26,
+  }),
+  // 11 queixo pontudo — taperP 1.05 e praticamente uma reta: o cranio vira um V
+  // do olho pra baixo. flare fica em zero de proposito (qualquer flare arredonda
+  // a ponta e devolve a pera do cranio 4).
+  shape({
+    kx: 1.02, kz: 1.00, yTop: 1.06, taper: 0.60, taperP: 1.05,
+    crown: 0.05, nape: 0.06,
+  }),
+  // 12 testa alta com maxilar estreito — crown ENGORDA a moleira e o taper come
+  // o maxilar: os dois juntos invertem o triangulo do cranio 4 (pera). A arcada
+  // saliente e o que impede a testa grande de ler como cabecao de bebe.
+  shape({
+    kx: 0.97, kz: 1.03, yTop: 1.14, taper: 0.50, taperP: 1.15,
+    crown: 0.20, nape: 0.05, brow: 0.06, browY: 0.40,
   }),
 ]
 
@@ -235,7 +274,7 @@ export function deformEgg(geo, s = 1, opts = {}) {
 }
 
 /**
- * Geometria da cabeca no formato `index` (0..7).
+ * Geometria da cabeca no formato `index` (0..12).
  * ATENCAO: tambem ATIVA esse formato — quem monta a cabeca monta o rosto logo
  * em seguida, e o rosto precisa da mesma superficie.
  */
@@ -416,6 +455,15 @@ export const SKIN_TONES = [
   0xd9a172,     // 2 medio dourado
   0xa66c3f,     // 3 castanho
   0x6f4526,     // 4 escuro
+  // Os cinco novos entram nos BURACOS da escala velha: entre 1 e 2 nao havia
+  // nada, entre 3 e 4 o pulo era grande demais, e nas duas pontas faltava
+  // extremo. Tom novo colado num que ja existe nao vira opcao — vira duplicata
+  // que o jogador acha que e bug.
+  0xfae3d2,     // 5 porcelana (mais claro e mais rosado que o 1)
+  0xbf9d63,     // 6 oliva (amarelado/esverdeado, foge do dourado avermelhado)
+  0xb87c4a,     // 7 bronze (entre o dourado 2 e o castanho 3)
+  0x8a5730,     // 8 cacau (entre o castanho 3 e o escuro 4)
+  0x4a2b16,     // 9 ebano (mais escuro que o 4)
 ]
 
 export const PELES = [
@@ -424,6 +472,11 @@ export const PELES = [
   { id: 'dourado', nome: 'Dourado', name: 'Dourado', hex: SKIN_TONES[2], build: () => null },
   { id: 'castanho', nome: 'Castanho', name: 'Castanho', hex: SKIN_TONES[3], build: () => null },
   { id: 'escuro', nome: 'Escuro', name: 'Escuro', hex: SKIN_TONES[4], build: () => null },
+  { id: 'porcelana', nome: 'Porcelana', name: 'Porcelana', hex: SKIN_TONES[5], build: () => null },
+  { id: 'oliva', nome: 'Oliva', name: 'Oliva', hex: SKIN_TONES[6], build: () => null },
+  { id: 'bronze', nome: 'Bronze', name: 'Bronze', hex: SKIN_TONES[7], build: () => null },
+  { id: 'cacau', nome: 'Cacau', name: 'Cacau', hex: SKIN_TONES[8], build: () => null },
+  { id: 'ebano', nome: 'Ebano', name: 'Ebano', hex: SKIN_TONES[9], build: () => null },
 ]
 
 /** Cor de pele por indice. Valor > 255 ja e uma cor pronta e passa direto. */
@@ -451,6 +504,14 @@ export const CORES_CABELO = [
   { id: 'loiro', nome: 'Loiro', name: 'Loiro', hex: 0xd9ac57, build: () => null },
   { id: 'grisalho', nome: 'Grisalho', name: 'Grisalho', hex: 0x9c9791, build: () => null },
   { id: 'platinado', nome: 'Platinado', name: 'Platinado', hex: 0xe7e1d3, build: () => null },
+  // Dois naturais que faltavam no meio da escala e tres tinturas. As tinturas
+  // sao escuras de proposito: esta cor tambem pinta SOBRANCELHA e BARBA (por
+  // shade(), que so multiplica), e um verde claro vira sobrancelha fluorescente.
+  { id: 'castanhoClaro', nome: 'Castanho claro', name: 'Castanho claro', hex: 0x8a5a2f, build: () => null },
+  { id: 'acaju', nome: 'Acaju', name: 'Acaju', hex: 0x6e2a20, build: () => null },
+  { id: 'azul', nome: 'Azul tinta', name: 'Azul tinta', hex: 0x2b4a8c, build: () => null },
+  { id: 'rosa', nome: 'Rosa tinta', name: 'Rosa tinta', hex: 0xb04a7c, build: () => null },
+  { id: 'verde', nome: 'Verde tinta', name: 'Verde tinta', hex: 0x2f7a52, build: () => null },
 ]
 
 function hairMat(color, flat) {
@@ -573,17 +634,24 @@ export const CABELOS = [
     nome: 'Comprido',
     name: 'Comprido',
     build(ctx) {
-      useHead(ctx)
+      const forma = useHead(ctx)
       const c = hairColorFrom(ctx)
       const g = new THREE.Group()
       // uma unica casca: franja reta na testa e, depois de uma transicao suave,
       // a cortina longa dos lados e da nuca
       const front = hairline(0.86, 2.05, 0.72, 1.06)
       const back = hairline(2.05, 2.50, 1.06, 2.40)
+      // O flare NUNCA pode ficar abaixo do flare do cranio ativo. Escrito fixo
+      // em 0.30, a cortina saia mais estreita que a propria bochecha na cabeca 4
+      // (pera, flare 0.46): sobravam ~3 mm de rosto atravessando o cabelo na
+      // altura da maca, que a 3 m le como cintilancia de z-fighting. O max()
+      // mantem 0.30 em TODOS os outros cranios (o maior flare depois do 4 e o
+      // 0.16 da cabeca 8), entao nenhuma silhueta ja calibrada muda de forma.
+      const abre = Math.max(0.30, (forma.flare || 0) + 0.14)
       g.add(scalp(c, (az) => {
         const a = az < 0 ? -az : az
         return a < 1.06 ? front(az) : back(az)
-      }, { s: 1.05, thetaMax: 2.52, taper: 0.10, drop: 0.85, flare: 0.30, hSeg: 34 }))
+      }, { s: 1.05, thetaMax: 2.52, taper: 0.10, drop: 0.85, flare: abre, hSeg: 34 }))
       // Duas mechas emoldurando o rosto ate o queixo. Sem alinhar pela normal de
       // proposito: a normal do cranio ali e quase lateral e deitava a mecha.
       const m = hairMat(c)
@@ -633,6 +701,156 @@ export const CABELOS = [
       const fin = scalp(c, () => 1.22, { s: 1.16, thetaMax: 1.22, wSeg: 40, hSeg: 22, flat: true })
       fin.scale.x = 0.20
       g.add(fin)
+      return g
+    },
+  },
+  {
+    id: 'topete',
+    nome: 'Topete social',
+    name: 'Topete social',
+    build(ctx) {
+      useHead(ctx)
+      const c = hairColorFrom(ctx)
+      const g = new THREE.Group()
+      // Risca lateral DE VERDADE: byAz so enxerga |az| e por isso todo corte
+      // deste arquivo sai espelhado. Aqui a linha vem de duas curvas e o lado e
+      // escolhido pelo SINAL do azimute — sem isso o penteado social vira franja
+      // simetrica, que e exatamente o corte 0.
+      const dir = byAz([[0.28, 0.74], [1.00, 1.44], [2.30, 1.58]])
+      const esq = byAz([[0.28, 0.56], [1.00, 1.36], [2.30, 1.58]])
+      g.add(scalp(c, (az) => (az > 0 ? dir(az) : esq(az)), { s: 1.032, thetaMax: 1.60, wSeg: 42 }))
+      // O topete e uma casca frontal maior GIRADA pra tras. So aumentar a escala
+      // engorda a cabeca inteira; girar levanta a mecha e mantem a raiz enterrada
+      // no cap de baixo. thetaMax 1.10 e a folga: depois de esticar em Y e girar,
+      // a borda ainda cai ABAIXO da linha do cap, senao abre uma faixa de testa
+      // careca entre os dois.
+      const quiff = scalp(c, () => 1.10, { s: 1.075, thetaMax: 1.10, azHalf: 0.95, wSeg: 32, hSeg: 20 })
+      quiff.scale.y = 1.10
+      quiff.rotation.x = -0.20
+      g.add(quiff)
+      return g
+    },
+  },
+  {
+    id: 'rabo',
+    nome: 'Rabo de cavalo',
+    name: 'Rabo de cavalo',
+    build(ctx) {
+      useHead(ctx)
+      const c = hairColorFrom(ctx)
+      const g = new THREE.Group()
+      // Cabelo PUXADO: o cap tem que ser rente (1.026). Com o 1.035 dos outros
+      // cortes o volume fica na cabeca e o rabo le como rabo colado num capacete.
+      g.add(scalp(c, hairline(0.80, 1.58, 0.80, 2.30), { s: 1.026, thetaMax: 1.62, wSeg: 42 }))
+      const n = new THREE.Vector3()
+      // Prendedor e rabo nascem na NUCA pela superficie do cranio ativo, entao
+      // acompanham cabeca larga, estreita ou de occipital saliente sem ajuste.
+      const band = sh(new THREE.Mesh(new THREE.SphereGeometry(0.021 * S, 12, 10), solid(shade(c, 0.40), 0.7)))
+      eggSurface(0.98, Math.PI, 1.05, band.position)
+      band.scale.set(1, 0.8, 1)
+      g.add(band)
+      // Cilindro GROSSO embaixo e fino em cima: alignY joga o +Y do cilindro na
+      // direcao de queda, entao o raio "de cima" e o da PONTA do rabo.
+      const tail = sh(new THREE.Mesh(new THREE.CylinderGeometry(0.013 * S, 0.030 * S, 0.26 * S, 8), hairMat(c)))
+      eggNormal(0.98, Math.PI, n)
+      eggSurface(0.98, Math.PI, 1.04, tail.position)
+      // queda: um terco da normal da nuca (pra sair da cabeca) e o resto pra baixo
+      n.set(n.x, -1.6, n.z * 0.9).normalize()
+      alignY(tail, n)
+      tail.position.addScaledVector(n, 0.13 * S)
+      tail.scale.set(1, 1, 0.78)
+      g.add(tail)
+      return g
+    },
+  },
+  {
+    id: 'dreads',
+    nome: 'Dreads',
+    name: 'Dreads',
+    build(ctx) {
+      useHead(ctx)
+      const c = hairColorFrom(ctx)
+      const g = new THREE.Group()
+      g.add(scalp(c, hairline(0.84, 1.55, 0.82, 2.25), { s: 1.032, thetaMax: 1.58, flat: true }))
+      // Tres comprimentos revezados: dread todo igual vira franja de cortina.
+      // As geometrias sao criadas AQUI DENTRO — compartilhar entre bonecos
+      // quebraria o dispose por instancia do character.js.
+      const m = hairMat(c, true)
+      const geos = [
+        new THREE.CylinderGeometry(0.011 * S, 0.014 * S, 0.230 * S, 5),
+        new THREE.CylinderGeometry(0.010 * S, 0.013 * S, 0.175 * S, 5),
+        new THREE.CylinderGeometry(0.012 * S, 0.015 * S, 0.285 * S, 5),
+      ]
+      const comp = [0.230 * S, 0.175 * S, 0.285 * S]
+      const r = rng(20863)
+      const n = new THREE.Vector3()
+      for (let i = 0; i < 24; i++) {
+        const k = (i * 5 + 2) % geos.length
+        const theta = 0.44 + r() * 1.02
+        // az espalhado por passo fixo + jitter: sorteio puro deixa buracos
+        const az = (i / 24) * Math.PI * 2 + (r() - 0.5) * 0.22
+        const d = sh(new THREE.Mesh(geos[k], m))
+        eggNormal(theta, az, n)
+        eggSurface(theta, az, 1.035, d.position)
+        // 30% de normal (pra sair do cranio) e o resto pra baixo: dread PENDE,
+        // nao espeta. Com a normal pura os de cima virariam espinhos.
+        n.set(n.x * 0.30, -1, n.z * 0.30).normalize()
+        alignY(d, n)
+        const esc = 0.85 + r() * 0.35
+        d.scale.setScalar(esc)
+        // meio comprimento na direcao da queda: a raiz encosta no couro cabeludo
+        d.position.addScaledVector(n, comp[k] * esc * 0.5)
+        g.add(d)
+      }
+      return g
+    },
+  },
+  {
+    id: 'liso',
+    nome: 'Comprido liso',
+    name: 'Comprido liso',
+    build(ctx) {
+      const forma = useHead(ctx)
+      const c = hairColorFrom(ctx)
+      const g = new THREE.Group()
+      // Risca no MEIO: a linha sobe no az 0 (theta menor = mais perto do topo) e
+      // desce nos lados — o inverso da franja. E o que abre o V de testa que
+      // diferencia este corte do 'Comprido', que tem franja reta.
+      const line = byAz([[0.0, 0.70], [0.42, 0.94], [1.10, 2.10], [2.60, 2.58]])
+      // taper ZERO + drop alto = cortina reta a prumo. O flare SOMA ao do cranio
+      // ativo em vez de trocar: com um valor fixo a cortina ficaria mais estreita
+      // que o proprio maxilar na cabeca 4 (pera, flare 0.46) e o cabelo passaria
+      // por dentro da bochecha.
+      g.add(scalp(c, line, {
+        s: 1.042, thetaMax: 2.60, taper: 0, drop: 1.05,
+        flare: (forma.flare || 0) + 0.20,
+        wSeg: 42, hSeg: 40,
+      }))
+      return g
+    },
+  },
+  {
+    id: 'careca',
+    nome: 'Careca com entradas',
+    name: 'Careca com entradas',
+    build(ctx) {
+      useHead(ctx)
+      const c = hairColorFrom(ctx)
+      const g = new THREE.Group()
+      // Ferradura: t0 1.02 ja comeca ABAIXO da moleira e a linha da frente foge
+      // pro polo (3.10 > PI colapsa tudo num ponto), o que abre as entradas nas
+      // temporas sem recorte de geometria nenhum.
+      g.add(headShell(c, {
+        s: 1.026, t0: 1.02, t1: 1.68,
+        lo: byAz([[0.60, 3.10], [1.12, 1.36], [1.70, 1.12], [2.40, 1.02]]),
+        wSeg: 42, hSeg: 22,
+      }))
+      // Sombra rente sobre a moleira com a linha em M. Sem ela o careca le como
+      // boneco de plastico com uma tira de cabelo colada em volta. 1.014 e o
+      // minimo: abaixo disso a casca encosta na pele nos cranios de superelipse
+      // (o surfaceZ resolve em 3 passadas e erra por decimo de milimetro la).
+      g.add(scalp(shade(c, 0.55), byAz([[0.25, 0.62], [0.70, 0.44], [1.15, 0.95], [2.30, 1.45]]),
+        { s: 1.014, thetaMax: 1.48, wSeg: 36, hSeg: 22 }))
       return g
     },
   },
@@ -798,7 +1016,11 @@ function addPupil(shell, sgn, g, p) {
   const irisTheta = Math.asin(clamp((p.iris * S) / g.rx, 0.06, 0.94))
   const pupilTheta = Math.min(irisTheta * 0.88, Math.asin(clamp((p.pupil * S) / g.rx, 0.04, 0.9)))
 
-  const iris = flatPiece(new THREE.Mesh(capGeo(irisTheta, 26, 12), irisMatOf(p.cor)))
+  // Heterocromia: a MESMA spec pinta os dois olhos (eyeRig chama make() duas
+  // vezes), entao a cor do segundo olho tem que sair do sinal do lado. Um slot
+  // separado por olho custaria mais um byte no pacote de aparencia.
+  const irisHex = sgn > 0 && p.cor2 !== undefined ? p.cor2 : p.cor
+  const iris = flatPiece(new THREE.Mesh(capGeo(irisTheta, 26, 12), irisMatOf(irisHex)))
   iris.scale.setScalar(L_IRIS)
   iris.receiveShadow = true
   shell.add(iris)
@@ -840,6 +1062,15 @@ const PUPIL_SPECS = [
   { iris: 0.0250, pupil: 0.0200, cor: 0x241a14, veins: false, glint: 0.42 },
   { iris: 0.0225, pupil: 0.0110, cor: 0x4f93a6, veins: false, glint: 0.52 },
   { iris: 0.0205, pupil: 0.0155, cor: 0x7a4a26, veins: true, glint: 0.44 },
+  // Iris CLARAS: a iris fica grande e a pupila pequena de proposito. Iris clara
+  // com pupila grande vira um anel fino de cor que some a 3 m — o que se ve de
+  // longe e a area colorida, nao o tom.
+  { iris: 0.0235, pupil: 0.0100, cor: 0x4f86c6, veins: false, glint: 0.60 },
+  { iris: 0.0230, pupil: 0.0100, cor: 0x4e8f5c, veins: false, glint: 0.58 },
+  { iris: 0.0230, pupil: 0.0105, cor: 0xb07a2e, veins: false, glint: 0.56 },
+  { iris: 0.0240, pupil: 0.0095, cor: 0x8d9aa0, veins: false, glint: 0.62 },
+  // A que da carater: um olho azul, outro mel. Ver addPupil.
+  { iris: 0.0235, pupil: 0.0105, cor: 0x4f93a6, cor2: 0xa0651f, veins: false, glint: 0.58 },
 ]
 
 const PUPIL_NAMES = [
@@ -848,6 +1079,11 @@ const PUPIL_NAMES = [
   ['grande', 'Grande dilatada'],
   ['clara', 'Clara'],
   ['bloodshot', 'Vermelha'],
+  ['azul', 'Azul clara'],
+  ['verde', 'Verde'],
+  ['mel', 'Mel'],
+  ['cinza', 'Cinza'],
+  ['hetero', 'Heterocromia'],
 ]
 
 /** Indice de pupila que veio no ctx (nome novo ou antigo). */
@@ -907,6 +1143,52 @@ const EYE_SPECS = [
     // as duas palpebras entram uma na outra: sobra so uma fresta desconfiada
     up: { arc: 0.90, tilt: 0.46, lash: 0.07, roll: -0.22 }, // +0.21
     low: { arc: 0.52, tilt: 0.68, lash: 0.04 },             // -0.36
+  },
+  {
+    id: 'amendoado', nome: 'Amendoado', name: 'Amendoado',
+    // O formato do olho e o do GLOBO, nao o da palpebra: rx/ry = 1.18 estica a
+    // abertura na horizontal e afina em cima e embaixo. Mexer so nas palpebras
+    // daria um olho redondo mais fechado, que e o 'Semicerrado'.
+    globo: { rx: 0.0460 * S, ry: 0.0390 * S, rz: 0.0355 * S, sink: 0.76, open: 0.96, dx: 0.001 * S, dy: 0 },
+    up: { arc: 0.80, tilt: 0.42, lash: 0.06, roll: -0.14 }, // +0.35
+    low: { arc: 0.40, tilt: 0.56, lash: 0.035 },            // -0.54
+  },
+  {
+    id: 'canto-caido', nome: 'Canto caido', name: 'Canto caido',
+    // roll 0.55 e quase o dobro do 'Caido': aqui a queda do canto de fora e o
+    // traco, nao um detalhe de cansaco. Sem olheira de proposito — a olheira e o
+    // que separa visualmente os dois.
+    globo: { rx: 0.0430 * S, ry: 0.0415 * S, rz: 0.0350 * S, sink: 0.74, open: 0.88, dx: 0, dy: -0.003 * S },
+    up: { arc: 0.82, tilt: 0.42, lash: 0.07, roll: 0.55, tone: 0.88 }, // +0.31
+    low: { arc: 0.40, tilt: 0.58, lash: 0.035 },                       // -0.56
+  },
+  {
+    id: 'puxado', nome: 'Puxado', name: 'Puxado',
+    // roll NEGATIVO ergue o canto de fora (o polo da calota vai pro lado de
+    // dentro). Nao uso `toe` pra inclinar: girar o olho em Y leva a esclera
+    // junto e o boneco fica vesgo.
+    globo: { rx: 0.0450 * S, ry: 0.0395 * S, rz: 0.0350 * S, sink: 0.78, open: 0.94, dx: 0.002 * S, dy: 0 },
+    up: { arc: 0.86, tilt: 0.48, lash: 0.07, roll: -0.36 }, // +0.24
+    low: { arc: 0.44, tilt: 0.62, lash: 0.035 },            // -0.48
+  },
+  {
+    id: 'fundo', nome: 'Pequeno e fundo', name: 'Pequeno e fundo',
+    // sink 0.84 enterra o globo na orbita e o globo pequeno deixa sobrar pele em
+    // volta: e a combinacao que le como olho encovado. tone 0.84 na palpebra faz
+    // o papel da sombra da arcada, que a luz do jogo sozinha nao entrega.
+    globo: { rx: 0.0360 * S, ry: 0.0350 * S, rz: 0.0330 * S, sink: 0.84, open: 0.82, dx: 0, dy: -0.001 * S },
+    up: { arc: 0.84, tilt: 0.44, lash: 0.06, tone: 0.84 }, // +0.29
+    low: { arc: 0.42, tilt: 0.60, lash: 0.035 },           // -0.53
+    bags: true,
+  },
+  {
+    id: 'esbugalhado', nome: 'Grande arregalado', name: 'Grande arregalado',
+    // Vai alem do 'Arregalado': globo maior, sink baixo (o olho SALTA da orbita)
+    // e palpebras que mal encostam no branco. rx fica em 0.049 e nao mais: com a
+    // cabeca 9 (fina comprida) o canto de fora ja chega perto da tempora.
+    globo: { rx: 0.0490 * S, ry: 0.0505 * S, rz: 0.0420 * S, sink: 0.56, open: 1.04, dx: 0.002 * S, dy: 0.003 * S },
+    up: { arc: 0.44, tilt: 0.20, lash: 0.05 },  // +0.80
+    low: { arc: 0.24, tilt: 0.34, lash: 0.035 },// -0.84
   },
 ]
 
@@ -1038,6 +1320,82 @@ export const SOBRANCELHAS = [
       ))
     },
   },
+  {
+    id: 'bloco', nome: 'Grossa quadrada', name: 'Grossa quadrada',
+    build(ctx) {
+      useHead(ctx)
+      const sp = faceSpread()
+      const m = solid(shade(hairColorFrom(ctx), 0.48), 0.95)
+      // taperEnds 0.06 = ponta que quase nao afina: a barra termina CORTADA. E
+      // so isso que separa esta da 'Grossa reta' — mesma altura, ponta diferente
+      // muda a cara inteira (bravo de desenho x severo de retrato).
+      return browsFrom((sgn) => facePiece(
+        curvedBar(sgn * 0.064 * S * sp, BROW_Y, 0.090 * S, 0.034 * S, 0.002 * S, sgn * 0.05, 0.06), m, 0.020 * S, 0.004 * S,
+      ))
+    },
+  },
+  {
+    id: 'fina-arqueada', nome: 'Fina arqueada', name: 'Fina arqueada',
+    build(ctx) {
+      useHead(ctx)
+      const sp = faceSpread()
+      const m = solid(shade(hairColorFrom(ctx), 0.5), 0.95)
+      // curve 0.026 e o arco mais alto do catalogo, com 11 mm de espessura: fio
+      // fino desenhado. A extrusao cai pra 0.010 porque barra fina e alta em
+      // relevo vira arame saltando da testa.
+      return browsFrom((sgn) => facePiece(
+        curvedBar(sgn * 0.064 * S * sp, BROW_Y - 0.006 * S, 0.086 * S, 0.011 * S, 0.026 * S, sgn * 0.04, 0.78), m, 0.010 * S, 0.004 * S, 0.0022 * S, 8,
+      ))
+    },
+  },
+  {
+    id: 'unida', nome: 'Unida no meio', name: 'Unida no meio',
+    build(ctx) {
+      useHead(ctx)
+      const sp = faceSpread()
+      const m = solid(shade(hairColorFrom(ctx), 0.42), 0.96)
+      const g = new THREE.Group()
+      for (const sgn of [1, -1]) {
+        g.add(facePiece(
+          curvedBar(sgn * 0.064 * S * sp, BROW_Y, 0.086 * S, 0.028 * S, 0.006 * S, sgn * 0.07, 0.30), m, 0.017 * S, 0.004 * S,
+        ))
+      }
+      // A ponte NAO tem comprimento fixo: as duas metades andam com faceSpread,
+      // entao numa cabeca larga um valor fixo deixaria um buraco no meio da
+      // testa e numa estreita empilharia barra sobre barra.
+      const vao = 2 * (0.064 * S * sp - 0.040 * S)
+      g.add(facePiece(
+        curvedBar(0, BROW_Y - 0.003 * S, vao, 0.017 * S, -0.004 * S, 0, 0.10), m, 0.013 * S, 0.004 * S,
+      ))
+      return g
+    },
+  },
+  {
+    id: 'curta', nome: 'Curta', name: 'Curta',
+    build(ctx) {
+      useHead(ctx)
+      const sp = faceSpread()
+      const m = solid(shade(hairColorFrom(ctx), 0.52), 0.95)
+      // Curta e EMPURRADA pra fora (0.072 em vez de 0.064): encurtar sem mover
+      // deixaria o vao entre as duas do tamanho de um dedo e a cara vira mascara.
+      return browsFrom((sgn) => facePiece(
+        curvedBar(sgn * 0.072 * S * sp, BROW_Y - 0.002 * S, 0.054 * S, 0.024 * S, 0.008 * S, sgn * 0.14, 0.40), m, 0.016 * S, 0.004 * S,
+      ))
+    },
+  },
+  {
+    id: 'caida-fina', nome: 'Caida fina', name: 'Caida fina',
+    build(ctx) {
+      useHead(ctx)
+      const sp = faceSpread()
+      const m = solid(shade(hairColorFrom(ctx), 0.5), 0.95)
+      // Mesma leitura triste da 'Cheia caida' com metade da espessura: a queda
+      // vem toda do tilt (-sgn), e o fio fino deixa a testa aparecendo.
+      return browsFrom((sgn) => facePiece(
+        curvedBar(sgn * 0.064 * S * sp, BROW_Y, 0.084 * S, 0.014 * S, -0.008 * S, -sgn * 0.34, 0.66), m, 0.011 * S, 0.004 * S, 0.0022 * S, 8,
+      ))
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1121,6 +1479,112 @@ export const NARIZES = [
       const tip = blob(m, 0.014 * S, 0.015 * S, 0.038 * S, 0, NOSE_Y - 0.016 * S, 0.004 * S)
       tip.rotation.x = -0.30
       g.add(tip)
+      return g
+    },
+  },
+  {
+    id: 'adunco', nome: 'Adunco', name: 'Adunco',
+    build(ctx) {
+      useHead(ctx)
+      const skin = skinOf(ctx)
+      const m = solid(skin, 0.68, 0.0)
+      const dark = solid(shade(skin, 0.55), 0.9)
+      const g = new THREE.Group()
+      // O aquilino tem corcova; o adunco tem GANCHO — a ponta desce ABAIXO da
+      // linha das narinas. E a ponta passando das asas que faz o bico de ave.
+      g.add(blob(m, 0.014 * S, 0.046 * S, 0.024 * S, 0, NOSE_Y + 0.014 * S, -0.008 * S))
+      g.add(blob(m, 0.016 * S, 0.018 * S, 0.038 * S, 0, NOSE_Y + 0.002 * S, 0.002 * S))
+      const tip = blob(m, 0.015 * S, 0.022 * S, 0.034 * S, 0, NOSE_Y - 0.026 * S, 0.008 * S)
+      // -0.75 rad e quase o dobro do aquilino: a bolota deita e vira gancho
+      tip.rotation.x = -0.75
+      g.add(tip)
+      for (const sgn of [1, -1]) {
+        g.add(blob(dark, 0.006 * S, 0.005 * S, 0.007 * S, sgn * 0.011 * S, NOSE_Y - 0.020 * S, 0.004 * S))
+      }
+      return g
+    },
+  },
+  {
+    id: 'arrebitado', nome: 'Arrebitado', name: 'Arrebitado',
+    build(ctx) {
+      useHead(ctx)
+      const skin = skinOf(ctx)
+      const m = solid(skin, 0.68, 0.0)
+      const dark = solid(shade(skin, 0.50), 0.9)
+      const g = new THREE.Group()
+      // Dorso CURTO (o nariz comeca baixo) e ponta virada pra cima: com o dorso
+      // comprido de sempre, girar a ponta so daria um nariz quebrado.
+      g.add(blob(m, 0.016 * S, 0.024 * S, 0.020 * S, 0, NOSE_Y + 0.006 * S, -0.010 * S))
+      const tip = blob(m, 0.020 * S, 0.017 * S, 0.030 * S, 0, NOSE_Y - 0.012 * S, 0.002 * S)
+      tip.rotation.x = 0.55
+      g.add(tip)
+      // Narina a MOSTRA: no arrebitado ela e o traco, entao vem maior e mais pra
+      // frente que nos outros narizes, onde e so uma sombra por baixo.
+      for (const sgn of [1, -1]) {
+        g.add(blob(m, 0.012 * S, 0.011 * S, 0.016 * S, sgn * 0.017 * S, NOSE_Y - 0.014 * S, -0.002 * S))
+        g.add(blob(dark, 0.008 * S, 0.006 * S, 0.008 * S, sgn * 0.010 * S, NOSE_Y - 0.020 * S, 0.008 * S))
+      }
+      return g
+    },
+  },
+  {
+    id: 'achatado', nome: 'Largo e achatado', name: 'Largo e achatado',
+    build(ctx) {
+      useHead(ctx)
+      const skin = skinOf(ctx)
+      const m = solid(skin, 0.68, 0.0)
+      const dark = solid(shade(skin, 0.52), 0.9)
+      const g = new THREE.Group()
+      // O 'Largo' e largo mas ainda projeta; este e largo e RASO (z 0.020 contra
+      // 0.026) e o dorso quase nao sai da testa. Achatar so o dorso nao bastava:
+      // a ponta e que denuncia o perfil.
+      g.add(blob(m, 0.020 * S, 0.030 * S, 0.012 * S, 0, NOSE_Y + 0.016 * S, -0.006 * S))
+      g.add(blob(m, 0.046 * S, 0.024 * S, 0.020 * S, 0, NOSE_Y - 0.004 * S, -0.010 * S))
+      for (const sgn of [1, -1]) {
+        g.add(blob(m, 0.016 * S, 0.014 * S, 0.016 * S, sgn * 0.030 * S, NOSE_Y - 0.008 * S, -0.006 * S))
+        g.add(blob(dark, 0.011 * S, 0.006 * S, 0.008 * S, sgn * 0.017 * S, NOSE_Y - 0.017 * S, 0.004 * S))
+      }
+      return g
+    },
+  },
+  {
+    id: 'reto', nome: 'Fino e reto', name: 'Fino e reto',
+    build(ctx) {
+      useHead(ctx)
+      const skin = skinOf(ctx)
+      const m = solid(skin, 0.68, 0.0)
+      const dark = solid(shade(skin, 0.55), 0.9)
+      const g = new THREE.Group()
+      // ZERO rotacao na ponta: e o unico nariz do catalogo sem inclinacao
+      // nenhuma. O 'Fino pontudo' desce a ponta em -0.30; tirar isso ja e a
+      // diferenca entre nariz de estatua e nariz de bruxa.
+      g.add(blob(m, 0.013 * S, 0.046 * S, 0.028 * S, 0, NOSE_Y + 0.008 * S, -0.004 * S))
+      g.add(blob(m, 0.015 * S, 0.013 * S, 0.032 * S, 0, NOSE_Y - 0.020 * S, 0.002 * S))
+      for (const sgn of [1, -1]) {
+        g.add(blob(dark, 0.005 * S, 0.004 * S, 0.006 * S, sgn * 0.009 * S, NOSE_Y - 0.026 * S, 0.004 * S))
+      }
+      return g
+    },
+  },
+  {
+    id: 'caninha', nome: 'Caninha marcada', name: 'Caninha marcada',
+    build(ctx) {
+      useHead(ctx)
+      const skin = skinOf(ctx)
+      const m = solid(skin, 0.68, 0.0)
+      const dark = solid(shade(skin, 0.55), 0.9)
+      const g = new THREE.Group()
+      // A caninha nao e uma peca: e o VALE ao lado dela. As duas bolotas
+      // laterais entram na cabeca (out negativo) e a crista fica por fora — o
+      // degrau entre as tres e o que a luz le como osso do dorso. Uma linha
+      // escura na pele nao serviria: o proprio nariz a esconderia.
+      g.add(blob(m, 0.009 * S, 0.050 * S, 0.038 * S, 0, NOSE_Y + 0.010 * S, 0.000))
+      for (const sgn of [1, -1]) {
+        g.add(blob(m, 0.011 * S, 0.040 * S, 0.024 * S, sgn * 0.013 * S, NOSE_Y + 0.006 * S, -0.014 * S))
+        g.add(blob(m, 0.013 * S, 0.012 * S, 0.018 * S, sgn * 0.019 * S, NOSE_Y - 0.016 * S, -0.004 * S))
+        g.add(blob(dark, 0.006 * S, 0.005 * S, 0.007 * S, sgn * 0.011 * S, NOSE_Y - 0.023 * S, 0.004 * S))
+      }
+      g.add(blob(m, 0.017 * S, 0.015 * S, 0.032 * S, 0, NOSE_Y - 0.019 * S, 0.004 * S))
       return g
     },
   },
@@ -1216,6 +1680,114 @@ export const BOCAS = [
       return g
     },
   },
+  {
+    id: 'labio-fino', nome: 'Labio fino', name: 'Labio fino',
+    build(ctx) {
+      useHead(ctx)
+      const g = new THREE.Group()
+      const linha = solid(0x33201c, 0.85)
+      // Labio fino nao e "boca menor": e a linha da boca COMPRIDA com quase nada
+      // de labio em volta. Encurtar viraria bico; o que le como fino e a razao
+      // entre 74 mm de largura e 6 mm de altura.
+      const lip = solid(shade(skinOf(ctx), 0.84), 0.82)
+      g.add(facePiece(curvedBar(0, MOUTH_Y + 0.006 * S, 0.068 * S, 0.006 * S, -0.002 * S, 0, 0.55), lip, 0.006 * S, 0.004 * S, 0.0014 * S))
+      g.add(facePiece(curvedBar(0, MOUTH_Y, 0.074 * S, 0.007 * S, 0.000, 0, 0.60), linha, 0.005 * S, 0.005 * S, 0.0014 * S))
+      g.add(facePiece(curvedBar(0, MOUTH_Y - 0.007 * S, 0.062 * S, 0.007 * S, -0.002 * S, 0, 0.60), lip, 0.007 * S, 0.004 * S, 0.0014 * S))
+      return g
+    },
+  },
+  {
+    id: 'labio-grosso', nome: 'Labio carnudo', name: 'Labio carnudo',
+    build(ctx) {
+      useHead(ctx)
+      const g = new THREE.Group()
+      // Tom de labio: pele puxada pro vinho, nunca uma cor fixa. Cor fixa fica
+      // batom em pele clara e mancha cinza em pele escura — o lerp anda junto
+      // com o tom escolhido.
+      const lipHex = new THREE.Color(skinOf(ctx)).lerp(new THREE.Color(0x8c3a3a), 0.42).getHex()
+      const lip = solid(lipHex, 0.62)
+      const linha = solid(shade(lipHex, 0.42), 0.85)
+      // arco do cupido: o labio de cima e MAIS FINO que o de baixo (2/3), senao
+      // a boca vira uma rosquinha
+      g.add(facePiece(curvedBar(0, MOUTH_Y + 0.013 * S, 0.060 * S, 0.020 * S, -0.006 * S, 0, 0.42), lip, 0.014 * S, 0.004 * S))
+      g.add(facePiece(curvedBar(0, MOUTH_Y, 0.064 * S, 0.006 * S, -0.003 * S, 0, 0.65), linha, 0.006 * S, 0.006 * S, 0.0014 * S))
+      g.add(facePiece(curvedBar(0, MOUTH_Y - 0.016 * S, 0.058 * S, 0.028 * S, -0.008 * S, 0, 0.40), lip, 0.017 * S, 0.004 * S))
+      return g
+    },
+  },
+  {
+    id: 'meio-sorriso', nome: 'Meio sorriso', name: 'Meio sorriso',
+    build(ctx) {
+      useHead(ctx)
+      const g = new THREE.Group()
+      const m = solid(0x33201c, 0.82)
+      const teeth = solid(0xf3ece0, 0.45, 0.0)
+      const skin = skinOf(ctx)
+      // O 'Sorriso torto' inclina a boca inteira; aqui a boca fica quase reta e
+      // so UM canto sobe, com um caco de dente aparecendo. Deboche, nao alegria.
+      g.add(facePiece(curvedBar(0.004 * S, MOUTH_Y, 0.068 * S, 0.009 * S, -0.004 * S, 0.10, 0.55), m, 0.007 * S, 0.004 * S, 0.0018 * S))
+      g.add(facePiece(curvedBar(0.020 * S, MOUTH_Y + 0.005 * S, 0.026 * S, 0.008 * S, -0.002 * S, 0.16, 0.30), teeth, 0.005 * S, 0.0075 * S, 0.0012 * S))
+      // rugas do lado que subiu: duas, curtas e verticais (tilt = PI/2)
+      const ruga = solid(shade(skin, 0.80), 0.9)
+      g.add(facePiece(curvedBar(0.046 * S, MOUTH_Y + 0.010 * S, 0.030 * S, 0.005 * S, 0.004 * S, Math.PI / 2 - 0.25, 0.72), ruga, 0.004 * S, 0.0035 * S, 0.0012 * S))
+      g.add(facePiece(curvedBar(0.056 * S, MOUTH_Y + 0.004 * S, 0.020 * S, 0.004 * S, 0.003 * S, Math.PI / 2 - 0.30, 0.72), ruga, 0.004 * S, 0.0035 * S, 0.0012 * S))
+      return g
+    },
+  },
+  {
+    id: 'canto-caido', nome: 'Canto caido', name: 'Canto caido',
+    build(ctx) {
+      useHead(ctx)
+      const g = new THREE.Group()
+      const m = solid(0x33201c, 0.84)
+      const skin = skinOf(ctx)
+      // curve POSITIVO = arco pra cima no meio, o que joga as duas pontas pra
+      // baixo. A 'Seria' usa 0.006; 0.016 e o dobro e meio, e e o que separa
+      // "sem expressao" de "contrariado".
+      g.add(facePiece(curvedBar(0, MOUTH_Y + 0.004 * S, 0.066 * S, 0.010 * S, 0.016 * S, 0, 0.50), m, 0.007 * S, 0.004 * S, 0.0018 * S))
+      // vinco fundo em cada canto: sem eles a curva sozinha le como bigode
+      const vinco = solid(shade(skin, 0.66), 0.92)
+      for (const sgn of [1, -1]) {
+        g.add(facePiece(
+          curvedBar(sgn * 0.036 * S, MOUTH_Y - 0.014 * S, 0.024 * S, 0.006 * S, sgn * 0.004 * S, Math.PI / 2 + sgn * 0.30, 0.70),
+          vinco, 0.004 * S, 0.0035 * S, 0.0012 * S,
+        ))
+      }
+      g.add(facePiece(curvedBar(0, MOUTH_Y - 0.019 * S, 0.038 * S, 0.008 * S, -0.003 * S, 0, 0.70),
+        solid(shade(skin, 0.82), 0.9), 0.006 * S, 0.004 * S, 0.0012 * S))
+      return g
+    },
+  },
+  {
+    id: 'sorriso-dentes', nome: 'Sorriso com dentes', name: 'Sorriso com dentes',
+    build(ctx) {
+      useHead(ctx)
+      const g = new THREE.Group()
+      const inner = solid(0x24100f, 0.88)
+      const teeth = solid(0xf6f0e6, 0.42, 0.0)
+      const lip = solid(shade(skinOf(ctx), 0.74), 0.8)
+      // A 'Dentes a mostra' e uma boca aberta parada; esta e um SORRISO: o
+      // buraco e uma elipse achatada e larga, e as duas fileiras de dentes
+      // ocupam quase tudo, sobrando so um fio de escuro no meio.
+      const s = new THREE.Shape()
+      s.absellipse(0, MOUTH_Y, 0.046 * S, 0.019 * S, 0, Math.PI * 2, false, 0)
+      g.add(facePiece(s, inner, 0.006 * S, 0.0022 * S, 0.0015 * S))
+      g.add(facePiece(curvedBar(0, MOUTH_Y + 0.008 * S, 0.078 * S, 0.016 * S, -0.005 * S, 0, 0.35), teeth, 0.006 * S, 0.006 * S, 0.0012 * S))
+      g.add(facePiece(curvedBar(0, MOUTH_Y - 0.011 * S, 0.066 * S, 0.010 * S, -0.006 * S, 0, 0.45), teeth, 0.005 * S, 0.006 * S, 0.0012 * S))
+      // Separacao dos dentes: barras VERTICAIS (tilt = PI/2) na frente da
+      // fileira. Pad maior que o dos dentes, senao a barra nasce dentro deles e
+      // some. Sem isso a fileira le como uma tira de papel branco.
+      for (const dx of [-0.026, -0.009, 0.009, 0.026]) {
+        g.add(facePiece(
+          curvedBar(dx * S, MOUTH_Y + 0.008 * S, 0.016 * S, 0.0035 * S, 0, Math.PI / 2, 0.20),
+          inner, 0.004 * S, 0.0125 * S, 0.0010 * S,
+        ))
+      }
+      // labio de baixo cheio: e ele que fecha o sorriso por fora
+      g.add(facePiece(curvedBar(0, MOUTH_Y - 0.024 * S, 0.070 * S, 0.014 * S, -0.009 * S, 0, 0.50), lip, 0.011 * S, 0.004 * S))
+      return g
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1224,7 +1796,7 @@ export const BOCAS = [
 // A barba cheia e uma CASCA do proprio cranio (headShell) recortada por uma
 // linha de theta que varia com o azimute: alta na costeleta, baixa na frente
 // (pra deixar a boca livre) e inexistente na nuca. Sai do mesmo elipsoide da
-// cabeca, entao acompanha qualquer um dos 8 formatos sem ajuste.
+// cabeca, entao acompanha qualquer um dos 13 formatos sem ajuste.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1330,6 +1902,112 @@ export const BARBAS = [
       return g
     },
   },
+  {
+    id: 'vandyke', nome: 'Cavanhaque com bigode', name: 'Cavanhaque com bigode',
+    build(ctx) {
+      useHead(ctx)
+      const c = shade(hairColorFrom(ctx), 0.55)
+      const m = solid(c, 0.95)
+      const g = new THREE.Group()
+      // O 'Cavanhaque' e so o tufo do queixo. Aqui o bigode desce pelos cantos e
+      // fecha no tufo: as duas tiras verticais sao o que faz o conjunto ler como
+      // UMA barba desenhada, e nao como bigode e cavanhaque usados junto.
+      g.add(beardShell(c, 1.030, [[0.40, 2.24], [0.95, 2.08], [1.40, 2.34], [2.20, 3.20]]))
+      g.add(facePiece(
+        moustacheShape(MOUTH_Y + 0.024 * S, 0.048 * S, 0.028 * S, 0.018 * S, 0.0065 * S),
+        m, 0.017 * S, 0.0045 * S,
+      ))
+      for (const sgn of [1, -1]) {
+        g.add(facePiece(
+          curvedBar(sgn * 0.040 * S, MOUTH_Y - 0.014 * S, 0.052 * S, 0.014 * S, 0, Math.PI / 2 + sgn * 0.22, 0.30),
+          m, 0.013 * S, 0.0045 * S,
+        ))
+      }
+      return g
+    },
+  },
+  {
+    id: 'costeleta', nome: 'Costeletas', name: 'Costeletas',
+    build(ctx) {
+      useHead(ctx)
+      const c = shade(hairColorFrom(ctx), 0.5)
+      const g = new THREE.Group()
+      // Transicao CURTA (0.90 -> 1.05) entre "nada" e a costeleta: com a rampa
+      // larga das outras barbas sobraria um triangulo de pelo sob o queixo e o
+      // conjunto viraria chinstrap. Sobe ate 1.22 (acima do equador) pra passar
+      // da altura da orelha, que e o que define costeleta.
+      g.add(beardShell(c, 1.032, [[0.90, 3.20], [1.05, 1.44], [1.60, 1.22], [2.05, 1.40], [2.30, 3.20]], true))
+      return g
+    },
+  },
+  {
+    id: 'comprida', nome: 'Cheia comprida', name: 'Cheia comprida',
+    build(ctx) {
+      const forma = useHead(ctx)
+      const c = shade(hairColorFrom(ctx), 0.55)
+      const g = new THREE.Group()
+      // drop estica a casca PRA BAIXO a partir do queixo; flare a engorda. O
+      // flare SOMA ao do cranio ativo em vez de substituir: escrever um valor
+      // fixo aqui faria a barba entrar pra dentro da pele na cabeca 4 (pera,
+      // flare 0.46), que ja e mais larga que qualquer barba que eu inventasse.
+      g.add(headShell(c, {
+        s: 1.038, t0: 1.15, t1: Math.PI,
+        lo: byAz([[0.45, 2.02], [1.00, 1.48], [1.45, 1.26], [2.10, 1.58], [2.70, 3.20]]),
+        wSeg: 42, hSeg: 30,
+        drop: 0.45, flare: (forma.flare || 0) + 0.24,
+      }))
+      g.add(facePiece(
+        moustacheShape(MOUTH_Y + 0.024 * S, 0.054 * S, 0.034 * S, 0.020 * S, 0.0065 * S),
+        solid(c, 0.95), 0.020 * S, 0.0060 * S,
+      ))
+      return g
+    },
+  },
+  {
+    id: 'ferradura', nome: 'Bigode de ferradura', name: 'Bigode de ferradura',
+    build(ctx) {
+      useHead(ctx)
+      const c = shade(hairColorFrom(ctx), 0.5)
+      const m = solid(c, 0.95)
+      const g = new THREE.Group()
+      // Ferradura = bigode + duas pernas descendo ATE o maxilar, sem nada no
+      // queixo. Sem casca de barba nenhuma de proposito: o vao de pele entre as
+      // pernas e o queixo raspado e o desenho.
+      g.add(facePiece(
+        moustacheShape(MOUTH_Y + 0.024 * S, 0.052 * S, 0.032 * S, 0.020 * S, 0.0065 * S),
+        m, 0.019 * S, 0.0045 * S,
+      ))
+      for (const sgn of [1, -1]) {
+        g.add(facePiece(
+          curvedBar(sgn * 0.046 * S, MOUTH_Y - 0.026 * S, 0.076 * S, 0.018 * S, sgn * 0.004 * S, Math.PI / 2 + sgn * 0.16, 0.22),
+          m, 0.016 * S, 0.0045 * S,
+        ))
+      }
+      return g
+    },
+  },
+  {
+    id: 'sombra', nome: 'Sombra', name: 'Sombra',
+    build(ctx) {
+      useHead(ctx)
+      // Mais fraca que a 'Por fazer' (0.45 contra 0.80 de mistura) e cobrindo
+      // mais rosto: e a barba de UM dia, aquela que se ve so na sombra da
+      // bochecha. Casca praticamente colada (1.014) — qualquer volume aqui
+      // devolveria a barba de tres dias, que ja e a opcao 4. Nao da pra descer
+      // mais: abaixo de 1.014 a casca encosta na pele nos cranios de superelipse,
+      // onde o surfaceZ (3 passadas) erra por decimo de milimetro.
+      const hair = new THREE.Color(shade(hairColorFrom(ctx), 0.6))
+      const skin = new THREE.Color(skinOf(ctx))
+      const c = skin.clone().lerp(hair, 0.45).getHex()
+      const g = new THREE.Group()
+      g.add(beardShell(c, 1.014, [[0.40, 1.92], [1.00, 1.42], [1.45, 1.20], [2.10, 1.55], [2.70, 3.20]]))
+      g.add(facePiece(
+        moustacheShape(MOUTH_Y + 0.022 * S, 0.050 * S, 0.024 * S, 0.012 * S, 0.006 * S),
+        solid(c, 0.95), 0.004 * S, 0.0030 * S, 0.0010 * S,
+      ))
+      return g
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1395,8 +2073,14 @@ export const HAIR_COLORS = CORES_CABELO
 
 /** Cabecas como catalogo: build() devolve a cabeca inteira, pronta pra cena. */
 export const CABECAS = HEAD_SHAPES.map((sp, i) => {
-  const nomes = ['Ovo', 'Redonda', 'Comprida', 'Quadrada', 'Pera', 'Achatada', 'Ondulada', 'Realista']
-  const ids = ['ovo', 'redonda', 'comprida', 'quadrada', 'pera', 'achatada', 'ondulada', 'realista']
+  const nomes = [
+    'Ovo', 'Redonda', 'Comprida', 'Quadrada', 'Pera', 'Achatada', 'Ondulada', 'Realista',
+    'Mandibula larga', 'Fina comprida', 'Bochechuda', 'Queixo pontudo', 'Testa alta',
+  ]
+  const ids = [
+    'ovo', 'redonda', 'comprida', 'quadrada', 'pera', 'achatada', 'ondulada', 'realista',
+    'mandibula', 'fina', 'bochechuda', 'queixo', 'testa',
+  ]
   return {
     id: ids[i],
     nome: nomes[i],

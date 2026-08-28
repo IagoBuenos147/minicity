@@ -51,6 +51,27 @@ export const CASINO = {
   signColor: 0xffb327,
 }
 
+// --- A casa velha: o primeiro estabelecimento ----------------------------
+// Casa pequena, antiga e mal cuidada, no mesmo quarteirao do cassino e virada
+// pra MESMA rua (fachada em z0, olhando pra -Z). E o lugar da segunda cena de
+// abertura: os jogadores param na calcada, olham pra ela, e o dono do plano
+// diz que "nao era bem isso que eu imaginei, mas e um comeco".
+//
+// Ela e pequena de proposito -- 12 x 10 m contra os 20 x 18 do cassino -- e o
+// miolo dela e um L, nao um retangulo: a sala da frente vira um corredor
+// estreito ate os fundos. Um comodo quadrado nao passaria a sensacao de aperto
+// que a cena precisa.
+export const CASA = {
+  id: 'casa',
+  x0: 38, x1: 50,     // 12 m
+  z0: 12, z1: 22,     // 10 m
+  wallHeight: 3.2,
+  facade: 'z0',
+  door: { center: 43, width: 1.7, height: 2.3 },
+  sign: 'CASA 42',
+  signColor: 0x9a8a6a,
+}
+
 // interior util (dentro das paredes)
 export function interiorOf(b) {
   return {
@@ -75,8 +96,10 @@ export const FILLERS = [
   { x0: -52, x1: -38, z0: -30, z1: -12, h: 12, c: 0x8d7f96, style: 'plaster' },
   { x0: -52, x1: -30, z0: -52, z1: -35, h: 16, c: 0x6f7b88, style: 'panel' },
   { x0: -28, x1: -14, z0: -52, z1: -35, h: 10, c: 0xa5896f, style: 'brick' },
-  // SE (o lote 14..34 / 12..30 nao esta aqui de proposito: virou o CASSINO)
-  { x0: 36, x1: 52, z0: 12, z1: 28, h: 8, c: 0xbba07f, style: 'brick' },
+  // SE (dois lotes sairam daqui: 14..34 / 12..30 virou o CASSINO, e a faixa
+  // 38..50 / 12..22 virou a CASA VELHA. O que sobrou do lote de esquina virou
+  // o quintal murado dos fundos dela.)
+  { x0: 36, x1: 52, z0: 24, z1: 28, h: 7, c: 0xbba07f, style: 'brick' },
   { x0: 14, x1: 32, z0: 34, z1: 52, h: 10, c: 0x9c9086, style: 'plaster' },
   { x0: 36, x1: 52, z0: 32, z1: 52, h: 15, c: 0x77828f, style: 'panel' },
   // SW e o parque (sem predios grandes), so um no canto
@@ -88,7 +111,7 @@ export const FILLERS = [
 // grade de telhado da chuva em clima.js, os occluders de camera do main, a
 // neve dos telhados) le esta lista em vez de repetir as tres constantes na mao
 // -- que e como o cassino ficaria de fora de um deles e ninguem notaria.
-export const LOTES = [BARBER, GROCERY, CASINO]
+export const LOTES = [BARBER, GROCERY, CASINO, CASA]
 
 /** Retangulo do avental de calcada em volta de um lote, ja respeitando de que
  *  lado fica a fachada (na frente quem manda e a calcada da rua). */

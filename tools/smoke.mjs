@@ -107,6 +107,18 @@ try {
     requestAnimationFrame(f)
   }), n, before || null)
 
+  // 0) ENTRAR NO JOGO.
+  // O jogo abre no MENU (Cassino Buenos) e so vira jogo depois de escolher o
+  // modo, criar o personagem e ver a cutscene. Este teste e sobre o MUNDO, nao
+  // sobre o fluxo de entrada — entao ele usa o atalho que existe pra isso, o
+  // mesmo que as ferramentas de foto usam. O fluxo tem os testes dele em
+  // tools/teste-lobby.mjs e nos casos de menu mais abaixo.
+  await page.evaluate(() => window.__game.fluxo.jogar())
+  await step(20)
+  check('o atalho de teste entra no jogo',
+    await page.evaluate(() => window.__game.fluxo.estado === 'jogo'),
+    await page.evaluate(() => window.__game.fluxo.estado))
+
   // 1) cena montada
   const scene = await page.evaluate(() => {
     const G = window.__game
@@ -376,6 +388,169 @@ try {
   })
   check('parede do fundo do cassino segura o jogador', dentro.z < 29.9 && dentro.y > 0.1,
     'parou em z=' + dentro.z + ' y=' + dentro.y)
+
+  // 7c) reiniciar o mundo (F8) ------------------------------------------------
+  // So o PRIMEIRO toque e testado aqui, de proposito: o segundo recarrega a
+  // pagina, e recarregar no meio da bateria mataria o resto dos casos. O que
+  // importa provar e justamente que UM toque NAO reinicia nada — essa tecla
+  // apaga o progresso da sala inteira, inclusive o dos outros jogadores.
+  //
+  // Tudo dentro de UM evaluate, do disparo ate a leitura: o toast vive alguns
+  // segundos e cada round-trip pro navegador headless custa quase um deles.
+  await page.evaluate(() => { window.__marcaDeVida = 1 })
+  const f8 = await page.evaluate(() => new Promise((res) => {
+    const urlAntes = location.href
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F8' }))
+    let n = 0
+    const f = () => {
+      // 3 quadros e nao 8: aqui o render e por SOFTWARE e um quadro custa
+      // centenas de milissegundos -- em 8 quadros o proprio toast que viemos
+      // conferir ja teria expirado (ele vive 4 s). O jogo le a tecla no
+      // PRIMEIRO quadro depois do disparo; 3 e folga de sobra.
+      if (++n < 3) return requestAnimationFrame(f)
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'F8' }))
+      const cx = document.getElementById('hud-toasts')
+      res({
+        aviso: [...cx.children].some((x) => /F8 de novo/.test(x.textContent)),
+        vivo: window.__marcaDeVida === 1 && location.href === urlAntes,
+        // o que ESTAVA na caixa: sem isto, uma falha aqui e um "false" mudo
+        textos: [...cx.children].map((x) => x.textContent.slice(0, 34)),
+      })
+    }
+    requestAnimationFrame(f)
+  }))
+  check('F8 uma vez so avisa, nao reinicia', f8.vivo && f8.aviso,
+    'pagina intacta=' + f8.vivo + ' avisou=' + f8.aviso
+    + ' toasts=' + JSON.stringify(f8.textos))
+
+  // A confirmacao EXPIRA: apertar de novo um minuto depois pede confirmacao
+  // outra vez em vez de reiniciar direto. Sem esta janela, um F8 esquecido de
+  // manha derrubaria o mundo com um F8 dado a tarde.
+  const f8b = await page.evaluate(() => new Promise((res) => {
+    const urlAntes = location.href
+    window.__game.time += 60                 // envelhece o pedido anterior
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F8' }))
+    let n = 0
+    const f = () => {
+      // 3 quadros e nao 8: aqui o render e por SOFTWARE e um quadro custa
+      // centenas de milissegundos -- em 8 quadros o proprio toast que viemos
+      // conferir ja teria expirado (ele vive 4 s). O jogo le a tecla no
+      // PRIMEIRO quadro depois do disparo; 3 e folga de sobra.
+      if (++n < 3) return requestAnimationFrame(f)
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'F8' }))
+      const cx = document.getElementById('hud-toasts')
+      res({
+        aviso: [...cx.children].some((x) => /F8 de novo/.test(x.textContent)),
+        vivo: window.__marcaDeVida === 1 && location.href === urlAntes,
+        // o que ESTAVA na caixa: sem isto, uma falha aqui e um "false" mudo
+        textos: [...cx.children].map((x) => x.textContent.slice(0, 34)),
+      })
+    }
+    requestAnimationFrame(f)
+  }))
+  check('a confirmacao do F8 expira e ele pede de novo', f8b.vivo && f8b.aviso,
+    'pagina intacta=' + f8b.vivo + ' avisou=' + f8b.aviso
+    + ' toasts=' + JSON.stringify(f8b.textos))
+
+  // 7d) a tabela de opcoes de aparencia bate com os catalogos ------------------
+  // Este caso existe por causa de um bug que nao da erro nenhum: quando os
+  // catalogos crescem e APARENCIA_OPCOES (src/comum/protocolo.js) fica pra
+  // tras, o boneco LOCAL fica certo e o byte que VIAJA e cortado — a cabeca 12
+  // chega como 7 na tela dos outros. A tabela mora no protocolo de proposito
+  // (o servidor nao importa THREE), entao ela nao tem como se derivar sozinha.
+  const tabela = await page.evaluate(async () => {
+    const [P, A, R] = await Promise.all([
+      import('/src/comum/protocolo.js'),
+      import('/src/player/appearance.js'),
+      import('/src/player/roupas.js'),
+    ])
+    const reais = [A.CABECAS, A.OLHOS, A.PUPILAS, A.NARIZES, A.BOCAS, A.BARBAS,
+      A.CABELOS, A.SKIN_TONES, A.HAIR_COLORS, A.SOBRANCELHAS,
+      R.CHAPEUS, R.CALCADOS, R.BLUSAS, R.CALCAS, R.COLARES, R.ANEIS,
+      R.TATUAGENS, R.RELOGIOS].map((c) => (Array.isArray(c) ? c.length : -1))
+    const ruins = []
+    for (let i = 0; i < reais.length; i++) {
+      if (reais[i] !== P.APARENCIA_OPCOES[i]) {
+        ruins.push(P.CAMPOS_APARENCIA[i] + ' catalogo=' + reais[i] + ' tabela=' + P.APARENCIA_OPCOES[i])
+      }
+    }
+    return { ruins, jaqueta: P.APARENCIA_OPCOES[18], nJaquetas: R.JAQUETAS.length }
+  })
+  check('APARENCIA_OPCOES bate com os catalogos', tabela.ruins.length === 0,
+    tabela.ruins.join(' | ') || 'os 18 campos batem')
+  check('blusa e jaqueta viraram UMA aba',
+    tabela.nJaquetas === 0 && tabela.jaqueta === 1,
+    'JAQUETAS=' + tabela.nJaquetas + ' opcoes[jaqueta]=' + tabela.jaqueta)
+
+  // 7e) o fluxo de entrada: menu -> criacao -> cutscene -> jogo ---------------
+  // O caminho que o jogador percorre de verdade, do jeito que ele o percorre:
+  // clicando. A cutscene e PULADA (Esc) em vez de assistida — sao mais de vinte
+  // segundos, e o que este caso protege e a fiacao entre as telas, nao o tempo
+  // de cada fala.
+  await page.evaluate(() => { window.__game.fluxo.menu() })
+  await step(10)
+  const noMenu = await page.evaluate(() => ({
+    estado: window.__game.fluxo.estado,
+    menu: !!document.querySelector('.mcrp-menu-raiz, [class*=mcrp-menu]'),
+    hudEscondido: document.getElementById('hud').classList.contains('fora-do-jogo'),
+  }))
+  check('o jogo abre no MENU, com o HUD fora do caminho',
+    noMenu.estado === 'menu' && noMenu.menu && noMenu.hudEscondido,
+    'estado=' + noMenu.estado + ' menu=' + noMenu.menu + ' hud=' + noMenu.hudEscondido)
+
+  await page.evaluate(() => window.__game.fluxo.solo())
+  await step(20)
+  const naCriacao = await page.evaluate(() => ({
+    estado: window.__game.fluxo.estado,
+    aberto: window.__game.criacao.aberto,
+    nome: window.__game.criacao.nome,
+  }))
+  check('SOLO leva direto pra criacao de personagem',
+    naCriacao.estado === 'criacao' && naCriacao.aberto,
+    'estado=' + naCriacao.estado + ' painel=' + naCriacao.aberto)
+
+  await page.evaluate(() => window.__game.fluxo.comecar())
+  await step(10)
+  const naAbertura = await page.evaluate(() => ({
+    estado: window.__game.fluxo.estado,
+    rodando: !!(window.__game.abertura && window.__game.abertura.rodando),
+    parte: window.__game.abertura && window.__game.abertura.parte,
+  }))
+  check('PRONTO cai na cutscene de abertura, na parte do porao',
+    naAbertura.estado === 'abertura' && naAbertura.rodando && naAbertura.parte === 1,
+    'estado=' + naAbertura.estado + ' rodando=' + naAbertura.rodando + ' parte=' + naAbertura.parte)
+
+  await page.evaluate(() => window.__game.abertura.pular())
+  await step(120)
+  const noJogo = await page.evaluate(() => {
+    const G = window.__game
+    return {
+      estado: G.fluxo.estado,
+      hudVisivel: !document.getElementById('hud').classList.contains('fora-do-jogo'),
+      objetivo: G.tutorial.atual ? G.tutorial.atual.id : null,
+      x: +G.player.position.x.toFixed(1), z: +G.player.position.z.toFixed(1),
+    }
+  })
+  check('a cutscene termina e o jogo comeca', noJogo.estado === 'jogo' && noJogo.hudVisivel,
+    'estado=' + noJogo.estado + ' hud=' + noJogo.hudVisivel)
+  check('o jogador nasce na frente da casa velha',
+    Math.abs(noJogo.x - 43) < 4 && noJogo.z > 4 && noJogo.z < 12,
+    'x=' + noJogo.x + ' z=' + noJogo.z)
+  check('a primeira missao do tutorial esta na tela',
+    noJogo.objetivo === 'entrar-na-casa', 'objetivo=' + noJogo.objetivo)
+
+  // e ela se completa ao entrar na casa
+  await page.evaluate(() => { window.__game.player.teleport(43, 16) })
+  await step(40)
+  const missao = await page.evaluate(() => ({
+    feita: window.__game.tutorial.concluidas.has('entrar-na-casa'),
+    piso: +window.__game.groundY(43, 16).toFixed(2),
+  }))
+  check('entrar na casa conclui a primeira missao', missao.feita === true,
+    'concluida=' + missao.feita + ' piso=' + missao.piso)
+
+  await page.evaluate(() => window.__game.fluxo.jogar())
+  await step(10)
 
   // 8) desempenho
   // Antes de medir, devolve o tempo pro sol E DERRETE a neve ate o fim. Sem

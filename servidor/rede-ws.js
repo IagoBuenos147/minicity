@@ -295,7 +295,23 @@ export function subir(sala, opcoes = {}) {
       /* A sala limpa o jogador NA HORA: libera o NPC que ele travava e solta o
          objeto que ele segurava. Nada pode ficar preso em quem ja foi. */
       if (con.jogador) sala.sair(con.jogador)
-      try { ws.terminate() } catch (e) { /* ja morreu */ }
+
+      /* close() e nao terminate(): a recusa vem JUNTO do fecho.
+         terminate() destroi o socket na hora, sem esvaziar o que ja foi
+         escrito — e a sala recusa exatamente assim: manda o RECUSA (versao
+         errada, sala cheia) e fecha na linha seguinte. Com terminate, o pacote
+         que EXPLICA a recusa morria no buffer e o jogador via so a conexao
+         cair, sem motivo nenhum na tela. Foi medido: o teste do lobby pegava
+         recusa=-1 no quinto jogador de uma sala de quatro.
+         O terminate continua existindo como rede de seguranca: um socket que
+         nao completa o handshake de fecho em 1 s e derrubado na marra, senao
+         um cliente travado seguraria o descritor pra sempre. */
+      try { ws.close(1000, 'fim') } catch (e) { /* ja morreu */ }
+      const facao = setTimeout(() => {
+        try { ws.terminate() } catch (e) { /* ja morreu */ }
+      }, 1000)
+      if (facao.unref) facao.unref()
+      ws.once('close', () => clearTimeout(facao))
     }
     con.fechar = fechar
 

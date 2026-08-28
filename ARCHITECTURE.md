@@ -79,11 +79,17 @@ game = {
 | `src/world/grocery.js` | `buildGrocery(game)` | interior + prateleiras + caixa + atendente |
 | `src/player/character.js` | `createCharacter(opts)` | boneco procedural estilo Schedule I |
 | `src/player/appearance.js` | `CATALOGS` | 8 cabeças, 5 olhos/pupilas/narizes/bocas/barbas/cabelos/peles (ver PERSONAGEM.md) |
-| `src/player/roupas.js` | catálogos de roupa | 9 categorias × 6: chapéu, blusa, jaqueta, calça, calçado, colar, anel, relógio, tatuagem |
+| `src/player/roupas.js` | catálogos de roupa | chapéu, **roupa de cima** (blusa+jaqueta fundidas, 19), calça, calçado, colar, anel, relógio, tatuagem — 11 cada |
 | `src/player/animation.js` | `createAnimator(character)` | idle/andar/correr/pular procedural |
 | `src/player/controller.js` | `createPlayerController(...)` | movimento + câmera 1ª/3ª pessoa |
 | `src/npc/npc.js` | `createNPC(opts)` | NPC parado com idle, usa `createCharacter` |
-| `src/ui/hud.js` | `createHUD()` | crosshair, prompt E, ajuda, toasts |
+| `src/ui/hud.js` | `createHUD()` | crosshair, prompt E, ajuda, toasts, carteira, `setJogando(v)` |
+| `src/ui/menu.js` | `criarMenu(opts)` | menu do Cassino Buenos: placa de neon, modo (solo/coop), lobby de 2 a 4 e opcoes |
+| `src/ui/provador.js` | `criarProvador({renderer})` | o PALCO: cena separada com pedestal e luz de estudio, e as miniaturas 3D das pecas |
+| `src/ui/criacao.js` | `criarCriacao(opts)` | tela cheia de criacao de personagem: nome, todas as abas, PRONTO e o contador do coop |
+| `src/ui/tutorial.js` | `criarTutorial()`, `MISSOES_INICIAIS` | o objetivo no canto superior esquerdo |
+| `src/cena/abertura.js` | `criarAbertura(opts)` | a cutscene: o porao com o elenco no sofa, o dialogo, e o corte pra frente da casa |
+| `src/world/casa-velha.js` | `buildCasaVelha(game)` | a casa velha (casca + miolo em L) e a pose de onde a cutscene a encara |
 | `src/ui/customizer.js` | `createCustomizer(game)` | 19 abas: 10 de rosto (barbeiro) + 9 de roupa (provador) |
 | `src/ui/hotbar.js` | `criarHotbar(opts)` | barra de 4 itens: mãos, anel, arma de portal, revólver |
 | `src/render/luzes-efeito.js` | `criarPoolDeEfeito(scene, n, camera)` | 2 PointLight compartilhadas por TODOS os efeitos; ver a armadilha do recompile de shader no cabecalho do arquivo |
@@ -102,6 +108,60 @@ game = {
 | `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
 | `src/poder/anel.js` | `criarAnel(opts)` | telecinese do anel verde + montagem do helicóptero |
 | `src/poder/portalgun.js` | `criarPortalGun(opts)` | arma de portal: abre portal verde que leva à barbearia |
+
+## O fluxo de entrada
+
+```
+menu -> (solo)  criacao -> abertura -> jogo
+     -> (coop)  lobby -> criacao -> [todos prontos] -> abertura -> jogo
+```
+
+`main.js` guarda **um** estado (`'menu' | 'criacao' | 'abertura' | 'jogo'`) e o
+laco de desenho decide o que fazer com ele. A alternativa — varias flags
+booleanas (`emMenu`, `emCriacao`, `started`) — e a que estava ali antes, e era a
+origem do "tela inicial pedindo dois cliques": duas flags podiam discordar e
+ninguem percebia.
+
+No coop **quem vira a fase e o servidor**: o cliente pede (`COMECAR`, `PRONTO`) e
+desenha o `SALA_ESTADO` que voltar. Ver `REDE.md`.
+
+O jogo **nao conecta mais sozinho** ao abrir a pagina. Quem vai jogar solo nao
+tem por que aparecer no mundo de ninguem, e a sala tem 4 vagas — ocupar uma so
+por ter aberto a aba tira a vaga de quem ia jogar.
+
+### Atalhos de teste (`game.fluxo`)
+
+Nenhum caminho de UI chega neles; existem pro teste de fumaca e pras ferramentas
+de foto, que precisam do mundo jogavel em dois segundos em vez de vinte de
+cutscene.
+
+| | |
+|---|---|
+| `fluxo.jogar()` | pula direto pro jogo. `fluxo.jogar({online:true})` entra na sala tambem |
+| `fluxo.solo()` | o mesmo que o botao SOLO |
+| `fluxo.comecar(elenco?)` | dispara a cutscene; o elenco falso e pras fotos |
+| `fluxo.foto(v)` | congela a camera (nem o passeio do menu nem o controller mexem nela) |
+
+## O palco (customizacao)
+
+A camera do jogo NAO enquadra mais o personagem na customizacao. Enquanto o
+painel esta aberto, o que aparece na tela e `src/ui/provador.js` — uma cena
+separada, com pedestal e luz de tres pontos.
+
+O motivo e concreto: apontando a camera do jogo pro boneco onde ele estava, a
+cadeira do barbeiro, o espelho, o balcao e a prateleira da loja entravam entre a
+lente e o cliente, e nao havia enquadramento que resolvesse — o estorvo era o
+CENARIO. No palco nao ha movel nenhum pra atrapalhar porque nao ha movel nenhum.
+
+Duas telas usam o mesmo palco (o painel de dentro do jogo e a tela de criacao), e
+as duas chamam `provador.setDesvio()` com a MESMA conta: o painel come um lado
+da tela, entao a camera anda de lado (travelling, nao giro — girar deixaria o
+boneco de perfil na hora de escolher o rosto).
+
+As **miniaturas** dos cards saem do mesmo palco: cada peca e renderizada de
+verdade, no corpo e no tom de pele do jogador, num render target de 192 px, e
+cacheada por `campo:indice`. Antes eram formas de CSS, e por isso a aba de roupa
+mostrava seis pilulas cinzas identicas.
 
 ## As tres estacoes (tecla `C`)
 
@@ -126,6 +186,19 @@ Regras que o desenho respeita:
    aparece/derrete por opacidade e escala. Nevar nao remonta mundo nenhum.
 4. **Nada disso passa pela rede** (REDE.md nao tem pacote de clima). Cada
    maquina desenha o proprio tempo, como ja acontecia com a chuva.
+
+## Reiniciar o mundo (F8)
+
+```
+F8 (2x) -> rede.reiniciarMundo()        pedido, pacote 19 REINICIAR
+        -> sala.reiniciarMundo()        o servidor desfaz o mundo
+        -> MUNDO_REINICIADO (143)       vai pra sala INTEIRA
+        -> cada cliente: location.reload()
+```
+
+Sozinho (sem servidor) o passo do meio não existe: recarregar já é o mundo
+inicial, porque a cidade é determinística. O detalhe de **por que recarregar em
+vez de desfazer peça por peça** está em `REDE.md`.
 
 ## Dinheiro e cassino
 

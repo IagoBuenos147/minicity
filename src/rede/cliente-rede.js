@@ -68,7 +68,7 @@ const P = Proto.P
 // TICK_HZ entra so na conta do ping; ATRASO_INTERP e o atraso da interpolacao.
 // VERSAO_PROTOCOLO nao aparece aqui de proposito: quem carimba a versao no
 // pacote ENTRAR e o protocolo, que e quem sabe o formato.
-import { TICK_HZ, ATRASO_INTERP, ZUMBI_ID } from '../comum/mundo.js'
+import { TICK_HZ, ATRASO_INTERP } from '../comum/mundo.js'
 
 const TAU = Math.PI * 2
 
@@ -204,6 +204,11 @@ export function criarRede({ url, nome, aparencia } = {}) {
     conectado: false,
     recusado: 0,               // 0 = ninguem recusou; 1 = versao; 2 = cheio
 
+    /* A ULTIMA FOTO DA SALA que o servidor mandou. Comeca em 'lobby' com a
+       lista vazia: antes do primeiro SALA_ESTADO o cliente nao sabe de nada, e
+       inventar um estado aqui seria o menu mostrar uma sala que nao existe. */
+    sala: { fase: 'lobby', anfitriao: 0, jogadores: [] },
+
     jogadores: new Map(),      // id -> {id,nome,aparencia,x,y,z,yaw,anim,flags}
     npcs: new Map(),           // id -> {id,x,z,yaw,estado,falandoCom}
     objetos: new Map(),        // id -> {id,x,y,z,rotY,dono,estado}
@@ -243,6 +248,10 @@ export function criarRede({ url, nome, aparencia } = {}) {
     rede.objetos.clear()
 
     rede.stats.ping = 0
+    rede.sala.fase = 'lobby'
+    rede.sala.anfitriao = 0
+    rede.sala.jogadores = []
+
     rede.stats.nJogadores = 0
     rede.stats.nNpcs = 0
     rede.stats.nObjetos = 0
@@ -318,6 +327,44 @@ export function criarRede({ url, nome, aparencia } = {}) {
   rede.pegarItem = function pegarItem(item) {
     if (!rede.conectado) return
     mandar(Proto.escreverPegarItem(item | 0), true)
+  }
+
+  /**
+   * Pede pro servidor voltar o mundo ao inicio. Confiavel, e sem confirmacao
+   * de recebimento: o "deu certo" e o MUNDO_REINICIADO que volta pra sala
+   * inteira, e nao um ok privado pra quem pediu -- reiniciar nao e uma coisa
+   * que acontece so pra mim.
+   *
+   * Devolve false quando nao ha servidor: ai quem reinicia e o proprio main,
+   * localmente, porque sozinho o mundo inicial e so recarregar a pagina.
+   */
+  rede.reiniciarMundo = function reiniciarMundo() {
+    if (!rede.conectado) return false
+    return mandar(Proto.escreverReiniciar(), true)
+  }
+
+  // --- LOBBY ---------------------------------------------------------------
+  // Tres pedidos e uma foto. O cliente NAO decide fase nenhuma: ele pede e
+  // desenha o que voltar em SALA_ESTADO. E a mesma doutrina do resto do
+  // arquivo — o servidor e a verdade, o cliente e a tela.
+
+  /** So o anfitriao; tira a sala do lobby e leva todo mundo pra criacao. */
+  rede.pedirComecar = function pedirComecar() {
+    if (!rede.conectado) return false
+    return mandar(Proto.escreverComecar(), true)
+  }
+
+  /** Apertei (ou desapertei) PRONTO na tela de criacao de personagem. */
+  rede.marcarPronto = function marcarPronto(v) {
+    if (!rede.conectado) return false
+    return mandar(Proto.escreverPronto(!!v), true)
+  }
+
+  /** O nome digitado na criacao. Volta pra todo mundo como um ENTROU. */
+  rede.enviarNome = function enviarNome(nome) {
+    est.nome = String(nome == null ? '' : nome).slice(0, 16)
+    if (!rede.conectado) return false
+    return mandar(Proto.escreverMeuNome(est.nome), true)
   }
 
   rede.fechar = function fechar() {
@@ -426,49 +473,12 @@ export function criarRede({ url, nome, aparencia } = {}) {
     mandar(Proto.escreverVeiculoPos(veicId | 0, x, y, z, yaw || 0, rolagem || 0), false)
   }
 
-  // --- o rapaz que vira zumbi (NPC 1004) -----------------------------------
+  // O RAPAZ QUE VIRAVA ZUMBI FOI APAGADO DO JOGO.
   //
-  // Ele nao tem sistema proprio aqui: e um NPC, e o estado e a posicao dele
-  // chegam no rede.npcs como os dos outros, ja interpolados 100 ms atras. Quem
-  // desenha (src/npc/zumbi.js) le rede.npcs.get(ZUMBI_ID) e dispara o visual
-  // nas TRANSICOES que observa. Por isso nao ha nenhum evento de zumbi neste
-  // arquivo: o que existe e este unico canal de SAIDA, o pedido.
-
-  /**
-   * O unico jeito de o cliente pedir alguma coisa sobre o zumbi. Duas acoes, e
-   * as duas sao PEDIDOS — quem decide o que acontece e o servidor:
-   *
-   *   zumbiPedir('adoecer')            falei com ele (FALAR no NPC 1004)
-   *   zumbiPedir('tiro', 'cabeca')     acertei um tiro (ZUMBI_TIRO)
-   *   zumbiPedir('tiro', 'corpo')
-   *
-   * Repare no que NAO da pra pedir: "vira zumbi", "morre", "vida 1". O estado
-   * dele nao e escrito daqui em nenhuma hipotese; ele so e LIDO do snapshot.
-   * Um cliente estragado que quisesse matar o NPC na tela dos outros teria que
-   * convencer o servidor de que acertou tres tiros, chegando perto.
-   *
-   * A existencia desta funcao e o que faz o `ehLocal()` do zumbi.js valer de
-   * verdade: sem servidor (ou sem conexao) ele continua resolvendo tudo
-   * sozinho, como sempre fez.
-   */
-  rede.zumbiPedir = function zumbiPedir(acao, parte) {
-    if (!rede.conectado) return false
-    const q = String(acao || '').toLowerCase()
-    if (q === 'adoecer' || q === 'adoecendo' || q === 'falar') {
-      // FALAR de sempre: pra sala isto e "apertei E nesta pessoa", e o que ela
-      // faz com o pedido (comecar a doenca, em vez de abrir dialogo) e assunto
-      // dela. Um pacote novo aqui seria um segundo nome para o mesmo pedido.
-      mandar(Proto.escreverFalar(ZUMBI_ID), true)
-      return true
-    }
-    if (q === 'tiro') {
-      const p = String(parte || '').toLowerCase() === 'cabeca'
-        ? Proto.PARTE_CABECA : Proto.PARTE_CORPO
-      mandar(Proto.escreverZumbiTiro(ZUMBI_ID, p), true)
-      return true
-    }
-    return false
-  }
+  // Aqui morava rede.zumbiPedir(), o unico canal de SAIDA que ele tinha: dois
+  // pedidos ("falei com ele", "acertei um tiro") que o servidor decidia. O
+  // estado dele nunca foi escrito daqui — ele so era LIDO do snapshot, como o
+  // de qualquer NPC. Saiu junto com src/npc/zumbi.js e com o NPC 1004.
 
   /** Avisa que a montagem do helicoptero terminou naquele ponto. PEDIDO: quem
    *  da o id (4100..4999) e cria o helicoptero pra todo mundo e o servidor, e
@@ -661,6 +671,37 @@ export function criarRede({ url, nome, aparencia } = {}) {
       if (!p) return
       if (Proto.ehIdDePortal && !Proto.ehIdDePortal(p.portalId)) return
       emitir({ tipo: 'portal-fechado', id: p.portalId })
+      return
+    }
+
+    if (tipo === P.SALA_ESTADO) {
+      const m = Proto.lerSalaEstado(v)
+      if (!m) return
+      // o numero da fase vira nome AQUI, e nao no menu: quem le o byte e quem
+      // conhece o enum, e assim a UI nunca precisa importar o protocolo
+      const nomes = ['lobby', 'criando', 'jogando']
+      rede.sala.fase = nomes[m.fase] || 'lobby'
+      rede.sala.anfitriao = m.anfitriao | 0
+      // o NOME de cada um vem dos perfis (ENTROU/APARENCIA), nao deste pacote:
+      // repetir o nome aqui seria uma segunda verdade sobre a mesma coisa
+      rede.sala.jogadores = m.jogadores.map((j) => ({
+        id: j.id,
+        pronto: !!j.pronto,
+        nome: (est.perfis.get(j.id) && est.perfis.get(j.id).nome) || '',
+      }))
+      emitir({
+        tipo: 'sala-estado',
+        fase: rede.sala.fase,
+        anfitriao: rede.sala.anfitriao,
+        jogadores: rede.sala.jogadores,
+      })
+      return
+    }
+
+    if (tipo === P.MUNDO_REINICIADO) {
+      const m = Proto.lerMundoReiniciado(v)
+      if (!m) return
+      emitir({ tipo: 'mundo-reiniciado', quem: m.quem | 0 })
       return
     }
 
