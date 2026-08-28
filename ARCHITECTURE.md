@@ -70,7 +70,7 @@ game = {
 |---|---|---|
 | `src/core/engine.js` | `createEngine(container)` | renderer, scene, camera, resize, tone mapping |
 | `src/core/input.js` | `createInput(dom)` | teclado/mouse, pointer lock |
-| `src/systems/collision.js` | `createCollisionWorld()` | AABB XZ, `resolve(pos, radius)` |
+| `src/systems/collision.js` | `createCollisionWorld()` | AABB XZ, `resolve(pos, radius)`. `add()` **devolve** as caixas internas, e cada uma tem `ativo` — é assim que a porta da casa velha barra o vão fechada e some aberta |
 | `src/systems/interaction.js` | `createInteractionSystem()` | acha o interactable mais próximo |
 | `src/world/lighting.js` | `createLighting(scene)` | sol direcional + sombras + céu + fog |
 | `src/world/city.js` | `buildCity()` | ruas, calçadas, meio-fio, faixas, prédios, parque |
@@ -108,6 +108,18 @@ game = {
 | `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
 | `src/poder/anel.js` | `criarAnel(opts)` | telecinese do anel verde + montagem do helicóptero |
 | `src/poder/portalgun.js` | `criarPortalGun(opts)` | arma de portal: abre portal verde que leva à barbearia |
+
+## Uma laje por metro quadrado
+
+Duas lajes no mesmo Y brigam por profundidade, e o resultado aparece como
+mancha piscando no chão. Já aconteceu duas vezes neste projeto, sempre do mesmo
+jeito: um prédio com interior nasce por cima de uma calçada que já estava lá.
+
+Por isso `walk()` (em `city.js`) **recorta a pegada dos `LOTES`** antes de
+desenhar a laje — em faixas, e não com um `hole` na shape, porque o recorte
+encosta na borda do retângulo e furo que toca o contorno é caso degenerado para
+a triangulação. Prédio de cenário (`FILLERS`) não entra no recorte: é caixa
+maciça, e a calçada por baixo dele não aparece para ninguém.
 
 ## O fluxo de entrada
 

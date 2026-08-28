@@ -74,6 +74,23 @@ export const GRUPOS = {
       espera: 400, semQuadro: true,
     },
     {
+      nome: 'tela-08a-porta-fechada',
+      antes: `const c = G.camera
+        c.position.set(44.6, 1.72, 8.6); c.lookAt(43.2, 1.6, 12.1)
+        c.fov = 68; c.updateProjectionMatrix()
+        G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
+    },
+    {
+      nome: 'tela-08b-porta-aberta',
+      antes: `const it = G.interaction.items.find(i=>i.id==='casa-porta')
+        if (it) it.onInteract(G)
+        for (let i=0;i<180;i++) G.casa.update(1/60, G)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
+    },
+    {
       nome: 'tela-08-casa-dentro',
       antes: `const c = G.camera
         c.position.set(43, 1.7, 13.4); c.lookAt(43, 1.5, 21)
@@ -218,6 +235,8 @@ try {
     const arq = path.join(dir, t.nome.replace(/[^a-z0-9_-]/gi, '') + '.png')
     await page.screenshot({ path: arq })
     console.log(arq)
+    const diag = await page.evaluate(() => window.__diagTexto || '')
+    if (diag) { console.log(diag); await page.evaluate(() => { window.__diagTexto = '' }) }
   }
 
   if (erros.length) console.log('ERROS NO CONSOLE:\n' + erros.slice(0, 12).join('\n'))

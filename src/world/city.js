@@ -1398,10 +1398,54 @@ export function buildCity() {
   // 3. CALCADAS + MEIO-FIO + ESQUINAS ARREDONDADAS + RAMPAS
   // -------------------------------------------------------------------------
 
+  /**
+   * O que sobra de um retangulo depois de tirar a pegada dos predios COM
+   * INTERIOR (LOTES). Devolve uma lista de retangulos.
+   *
+   * Existe por causa de um bug que so aparece de dentro da casa: a calcada do
+   * anel vai de x=48 a x=52, e o lote da casa velha vai de 38 a 50 — os dois
+   * metros que se cruzam ficavam com DUAS lajes no mesmo Y (0.16), a calcada
+   * daqui e o assoalho de tabua de casa-velha.js. O resultado era uma mancha de
+   * calcada quadriculada brigando com a madeira no meio da sala, que e
+   * exatamente o "piso bugando" que o dono do projeto fotografou.
+   *
+   * Corta em faixas em vez de furar a laje com um `hole`: o recorte encosta na
+   * borda do retangulo (a casa comeca em z=12, que e onde a calcada comeca), e
+   * furo que toca o contorno e caso degenerado pra triangulacao.
+   *
+   * So os LOTES entram. Predio de cenario (FILLERS) e caixa macica: a calcada
+   * por baixo dele nao aparece pra ninguem, e recortar seria trabalho e
+   * geometria a mais por nada.
+   */
+  function semLotes(x0, x1, z0, z1) {
+    let pecas = [[x0, x1, z0, z1]]
+    for (let i = 0; i < LOTES.length; i++) {
+      const b = LOTES[i]
+      const prox = []
+      for (let k = 0; k < pecas.length; k++) {
+        const p = pecas[k]
+        if (b.x1 <= p[0] || b.x0 >= p[1] || b.z1 <= p[2] || b.z0 >= p[3]) { prox.push(p); continue }
+        const cx0 = Math.max(p[0], b.x0), cx1 = Math.min(p[1], b.x1)
+        const cz0 = Math.max(p[2], b.z0), cz1 = Math.min(p[3], b.z1)
+        if (p[2] < cz0 - 0.001) prox.push([p[0], p[1], p[2], cz0])
+        if (cz1 < p[3] - 0.001) prox.push([p[0], p[1], cz1, p[3]])
+        if (p[0] < cx0 - 0.001) prox.push([p[0], cx0, cz0, cz1])
+        if (cx1 < p[1] - 0.001) prox.push([cx1, p[1], cz0, cz1])
+      }
+      pecas = prox
+    }
+    return pecas
+  }
+
   /** Laje de calcada retangular. sides = quais bordas ganham meio-fio. */
   function walk(x0, x1, z0, z1, sides, dirty) {
-    const s = slabFromShape(rectShape(x0, x1, z0, z1), CH, dirty ? matWalkDirty : matWalk)
-    add(s)
+    // A LAJE e recortada nos lotes; o MEIO-FIO nao. Ele fica na borda externa,
+    // encostado na rua, e nenhum predio chega la — recortar so criaria emenda.
+    const pedacos = semLotes(x0, x1, z0, z1)
+    for (let i = 0; i < pedacos.length; i++) {
+      const q = pedacos[i]
+      add(slabFromShape(rectShape(q[0], q[1], q[2], q[3]), CH, dirty ? matWalkDirty : matWalk))
+    }
     const ss = sides || []
     for (const side of ss) {
       let bx0 = x0, bx1 = x1, bz0 = z0, bz1 = z1

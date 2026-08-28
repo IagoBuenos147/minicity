@@ -66,7 +66,8 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
   adianta uma cortesia.
 - **Casa velha** (mesma avenida, ao lado do cassino): o primeiro
   estabelecimento. Madeira apodrecida, pintura descascando, telhas faltando,
-  teias de aranha e um interior em **L**. Dá para entrar.
+  teias de aranha e um interior em **L**, com o chão livre. A **porta abre e
+  fecha** com `E` — e enquanto está fechada, ela barra mesmo.
 - **Praça** (sudoeste): fonte, bancos, árvores e caminhos.
 - Ruas em grade com calçadas, meio-fio, faixas de pedestre, postes, semáforos e
   mobiliário urbano. Sem carros circulando (por decisão de escopo).
@@ -144,7 +145,7 @@ Ver `ARCHITECTURE.md` para o contrato entre módulos.
 Com o dev server rodando (`npm run dev`), em outro terminal:
 
 ```bash
-npm run smoke            # o jogo inteiro rodando no navegador (50 casos)
+npm run smoke            # o jogo inteiro rodando no navegador (54 casos)
 npm run teste-cassino    # as regras dos jogos, sem navegador (84 casos)
 npm run teste-nome-unico # um corpo por nome no servidor (10 casos)
 npm run teste-reiniciar  # a tecla F8 devolvendo o mundo ao inicio (14 casos)

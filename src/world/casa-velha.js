@@ -615,6 +615,23 @@ const M = {
   get feno() { return solid(0xa89159, 0.98) },
   get fenoEsc() { return solid(0x8a7642, 0.98) },
   get sofa() { return solid(0x5c4a3f, 0.95) },
+  /* As duas marcas que o movel retirado deixou. Sao decalques quase
+     transparentes: o que se ve e a MADEIRA por baixo, um pouco mais clara (onde
+     o sol nao bateu) ou um pouco mais fosca (onde a poeira ficou). Opacidade
+     alta aqui viraria um tapete branco. */
+  get marcaClara() {
+    return stdMat('casa-marca-clara', {
+      color: 0xb49a72, transparent: true, opacity: 0.20, depthWrite: false,
+      roughness: 1, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+    })
+  },
+  get marcaPoeira() {
+    return stdMat('casa-marca-poeira', {
+      map: poeiraTex(), color: 0xcdc4b0, transparent: true, opacity: 0.34,
+      depthWrite: false, roughness: 1,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+    })
+  },
   get bulbo() { return emissive(0xffdca8, 2.2) },
   get fio() { return solid(0x201c18, 0.9) },
   get poeira() {
@@ -965,10 +982,22 @@ function janelas(g) {
  * que e exatamente o que uma porta com dobradica arrebentada faz.
  * Abre pra DENTRO: aberta pra fora ela ficaria em cima do estrado da varanda.
  */
+/**
+ * A porta. Ela ABRE E FECHA de verdade (E, quando o jogador chega perto).
+ *
+ * Devolve o pivo pra quem monta a casa poder anima-lo. Ele e o UNICO no da
+ * casca marcado como dinamico: sem isso o forno de world/bake.js funde a folha
+ * na parede e a porta vira desenho.
+ *
+ * Ela nasce FECHADA. Uma casa abandonada de porta escancarada nao le como
+ * abandonada, e a primeira missao do tutorial ("entre e conheca seu primeiro
+ * estabelecimento") ganha um gesto em vez de ser so andar pra frente.
+ */
 function porta(g) {
   const pivo = new THREE.Group()
   pivo.position.set(DL + 0.05, 0, B.z0 + T / 2)
-  pivo.rotation.y = -0.62               // negativo = folha entra pro salao (+Z)
+  pivo.rotation.y = 0                   // fechada; negativo abre pro salao (+Z)
+  pivo.userData.dynamic = true          // o forno de bake.js nao encosta nela
 
   const lw = B.door.width - 0.13, lh = DH - 0.06
   const folha = new THREE.Group()
@@ -1031,6 +1060,8 @@ function porta(g) {
   teia.rotation.y = Math.PI
   teia.castShadow = false
   g.add(teia)
+
+  return pivo
 }
 
 /**
@@ -1633,77 +1664,45 @@ function lampada(g) {
 }
 
 /** Sofa coberto por lencol, caixas de papelao e o resto do que ficou. */
+/**
+ * O que sobra no chao — e o que sobra e quase nada, de proposito.
+ *
+ * Aqui havia um sofa coberto por lencol e quatro pilhas de caixa de papelao.
+ * Sairam a pedido do dono do projeto: este comodo e o primeiro estabelecimento
+ * dele, e o que ele precisa e de CHAO LIVRE pra montar alguma coisa em cima.
+ *
+ * O que ficou no lugar nao e vazio liso: ficaram as MARCAS do que estava ali.
+ * Um retangulo de assoalho menos surrado onde o sofa protegeu a madeira do sol,
+ * quatro quadrados de poeira onde as pilhas ficaram, e o balde e os jornais que
+ * ninguem se deu ao trabalho de tirar. Um comodo esvaziado conta uma historia;
+ * um comodo que nunca teve nada e so uma caixa.
+ */
 function moveis(g, colliders) {
-  // --- sofa encostado na divisoria, virado pra porta ----------------------
-  const sx = 40.4, sz = 15.82
-  const sofa = new THREE.Group()
-  sofa.position.set(sx, 0, sz)
-  sofa.rotation.y = -0.05           // ninguem encosta movel perfeitamente reto
-  sofa.add(box(2.16, 0.40, 0.90, M.sofa, 0, 0.20, 0))
-  sofa.add(box(2.16, 0.60, 0.24, M.sofa, 0, 0.60, 0.33))
-  for (const s of [-1, 1]) sofa.add(box(0.22, 0.54, 0.90, M.sofa, s * 0.97, 0.48, 0))
-  // LENCOL. Duas caixas empilhadas davam uma ESCADA branca, nao um movel
-  // coberto: o que le como pano e o canto arredondado por cima do vulto mais a
-  // barra caindo torta ate quase o chao. E o tom tem que ser sujo — lencol
-  // branco num comodo deste diz "movel novo", nao "abandonado ha anos".
-  const pano = roundedBox(2.36, 0.66, 1.04, 0.24, M.lencol, 3)
-  pano.position.set(0, 0.42, 0.01)
-  sofa.add(pano)
-  const costas = roundedBox(2.36, 0.58, 0.42, 0.2, M.lencol, 3)
-  costas.position.set(0, 0.80, 0.28)
-  sofa.add(costas)
-  // barra: 6 panos caindo na frente com comprimentos diferentes, um deles
-  // repuxado pra cima (foi ali que alguem levantou o lencol e largou)
-  const hem = [0.34, 0.46, 0.40, 0.21, 0.44, 0.38]
-  for (let i = 0; i < hem.length; i++) {
-    const d = box(0.40, hem[i], 0.05, M.lencol, -1.0 + i * 0.4, 0.14 + hem[i] / 2 - 0.06, -0.53)
-    d.rotation.z = (i % 2 ? 1 : -1) * 0.05
-    d.rotation.x = -0.08 - i * 0.01
-    sofa.add(d)
-  }
-  for (const s of [-1, 1]) {
-    const d = box(0.05, 0.42, 0.9, M.lencol, s * 1.18, 0.30, 0.02)
-    d.rotation.z = s * 0.06
-    sofa.add(d)
-  }
-  sombras(sofa)
-  g.add(sofa)
-  colliders.push({ minX: sx - 1.2, maxX: sx + 1.2, minZ: sz - 0.55, maxZ: sz + 0.55, tag: 'casa-sofa' })
+  void colliders                        // nada aqui barra o jogador (e o ponto)
 
-  // --- caixas de papelao: pilhas na sala e uma no braco -------------------
-  // Todas ENCOSTADAS numa parede, nenhuma no meio do caminho. A boca do braco
-  // (x 47.3..49.7 em z=16.5) e o unico jeito de chegar aos fundos: uma pilha de
-  // 0.72 m largada ali deixaria 0.74 m de vao livre de cada lado, e o jogador
-  // tem 0.76 m de diametro — passagem que o corpo nao atravessa em um corredor
-  // que so tem uma saida e a definicao de ficar preso.
-  const pilhas = [
-    [49.1, 13.4, 3, 0.2], [46.4, 12.85, 2, -0.5], [49.15, 19.6, 2, 0.8], [38.9, 13.2, 1, 0.3],
-  ]
-  for (let i = 0; i < pilhas.length; i++) {
-    const p = pilhas[i]
-    let y = 0
-    for (let k = 0; k < p[2]; k++) {
-      const w = 0.62 - k * 0.06, h = 0.4 - k * 0.04
-      const c = new THREE.Group()
-      c.position.set(p[0] + (k ? (k % 2 ? 0.05 : -0.05) : 0), y + h / 2, p[1] + (k ? 0.04 : 0))
-      c.rotation.y = p[3] + k * 0.22
-      c.add(box(w, h, w * 0.82, M.papelao, 0, 0, 0))
-      // abas abertas: caixa fechada e um cubo, caixa aberta e uma caixa
-      for (const s of [-1, 1]) {
-        const ab = box(w, 0.02, w * 0.42, M.papelaoEsc, 0, h / 2 + 0.06, s * w * 0.3)
-        ab.rotation.x = s * 0.75
-        c.add(ab)
-      }
-      sombras(c)
-      g.add(c)
-      y += h
-    }
-    colliders.push({ minX: p[0] - 0.36, maxX: p[0] + 0.36, minZ: p[1] - 0.32, maxZ: p[1] + 0.32, tag: 'casa-caixa' })
+  // --- marcas no assoalho ---------------------------------------------------
+  // Decalques rentes ao chao. polygonOffset porque eles moram 6 mm acima da
+  // tabua e sao grandes: sem ele a diferenca de profundidade some na distancia
+  // e as duas superficies piscam.
+  const marca = (x, z, w, d, ry, mat) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat)
+    m.rotation.x = -Math.PI / 2
+    m.rotation.z = ry
+    m.position.set(x, 0.006, z)
+    m.castShadow = false
+    m.receiveShadow = true
+    g.add(m)
+  }
+  // onde ficava o sofa: a madeira por baixo nao desbotou
+  marca(40.4, 15.82, 2.30, 1.02, -0.05, M.marcaClara)
+  // onde ficavam as pilhas: poeira que nao foi varrida
+  for (const c of [[49.1, 13.4, 0.74], [46.4, 12.85, 0.70], [49.15, 19.6, 0.68], [38.9, 13.2, 0.66]]) {
+    marca(c[0], c[1], c[2], c[2] * 0.86, 0.3, M.marcaPoeira)
   }
 
   // --- balde virado no braco e jornal velho no chao -----------------------
   const balde = cyl(0.17, 0.13, 0.3, M.metal, 12)
-  balde.position.set(48.9, 0.15, 18.2)
+  balde.position.set(49.2, 0.15, 20.4)   // encostado no fundo do braco
   balde.rotation.z = 1.5
   sombras(balde)
   g.add(balde)
@@ -1756,7 +1755,7 @@ export function buildCasaVelha(game) {
   paredes(casca, colliders, occluders)
   tabuasDaFachada(casca)
   janelas(casca)
-  porta(casca)
+  const pivoPorta = porta(casca)
   telhado(casca)
   calha(casca)
   varanda(casca, colliders)
@@ -1780,6 +1779,37 @@ export function buildCasaVelha(game) {
   // No meio da SALA DA FRENTE (z 12.3..16.4), na altura da cintura: a interacao
   // pesa o Y pela metade, entao daqui o rotulo aparece na hora certa tambem em
   // primeira pessoa. E este ponto que a primeira missao do tutorial marca.
+  // --- A PORTA -------------------------------------------------------------
+  // O COLISOR do vao: existe sempre, mas so EMPURRA quando a folha esta
+  // fechada (ver o update). Ligar e desligar em vez de criar e destruir porque
+  // a grade de colisao guarda o indice da caixa por celula: mover ou remover
+  // uma caixa depois de registrada deixaria a celula apontando pra outra coisa.
+  // Fica no MEIO da espessura da parede e nao ocupa o batente inteiro: a folha
+  // e 13 cm mais estreita que o vao, e o jogador tem que caber pelo lado dela
+  // quando ela abre.
+  // Este vai DIRETO pro mundo de colisao, e nao pela lista devolvida: o
+  // collision.add() copia o que recebe pra dentro da grade, entao mexer no
+  // objeto que a gente empurrou nao mexeria em nada. Registrando aqui a gente
+  // fica com a caixa DE VERDADE na mao — e e nela que o update liga e desliga
+  // o `ativo`. (Ver o comentario de add() em src/systems/collision.js.)
+  const colPorta = (game && game.collision ? game.collision.add({
+    minX: DL + 0.02, maxX: DR - 0.02,
+    minZ: B.z0 + 0.02, maxZ: B.z0 + T - 0.02,
+    tag: 'casa-porta', ativo: true,
+  })[0] : { ativo: true })
+
+  // O ponto de interacao fica DO LADO DE FORA, na varanda: e de la que se chega
+  // na casa pela primeira vez. O raio de 2.2 alcanca os dois lados do vao, que
+  // tem 30 cm de espessura — quem esta dentro tambem consegue fechar.
+  const pontoPorta = {
+    id: 'casa-porta',
+    position: new THREE.Vector3(B.door.center, BASE + 1.1, B.z0 - 0.35),
+    radius: 2.2,
+    label: 'Abrir a porta',
+    onInteract: () => { abertaAlvo = !abertaAlvo },
+  }
+  interactables.push(pontoPorta)
+
   interactables.push({
     id: 'casa-olhar',
     position: new THREE.Vector3(44, BASE + 1.1, 14.3),
@@ -1791,9 +1821,53 @@ export function buildCasaVelha(game) {
   // -------------------------------------------------------------------------
   // UPDATE — nada de 'new' daqui pra baixo
   // -------------------------------------------------------------------------
+  // --- estado da porta ------------------------------------------------------
+  // ABERTA e negativo porque a folha entra pro salao (+Z). 1.92 rad sao ~110
+  // graus: o suficiente pra a folha sair inteira do vao e encostar quase na
+  // parede de dentro, sem atravessar ela.
+  const PORTA_ABERTA = -1.92
+  let abertaAlvo = false
+  let anguloPorta = 0
+  let rangido = 0          // fase do tranco; e o que faz a dobradica parecer velha
+  let itemPorta = null     // o interactable JA registrado (ver o comentario abaixo)
+
   let t = 0
-  function update(dt) {
+  function update(dt, gm) {
     t += Math.min(dt || 0, 0.1)
+    const d = Math.min(dt || 0, 0.1)
+
+    // --- a porta ------------------------------------------------------------
+    const alvo = abertaAlvo ? PORTA_ABERTA : 0
+    if (Math.abs(anguloPorta - alvo) > 0.0005) {
+      rangido += d
+      // Velocidade que ENGASGA. Uma porta velha nao gira com velocidade
+      // constante: ela sai dura, solta, e trava de novo perto do fim. O seno
+      // rapido por cima da velocidade base e o que se ve como tranco de
+      // dobradica enferrujada; sem ele o movimento fica de porta automatica.
+      const vel = 2.05 * (0.62 + 0.38 * Math.abs(Math.sin(rangido * 7.3)))
+      const passo = vel * d
+      const falta = alvo - anguloPorta
+      anguloPorta += Math.abs(falta) <= passo ? falta : Math.sign(falta) * passo
+      pivoPorta.rotation.y = anguloPorta
+      // A folha PENDE mais quanto mais aberta: a dobradica de baixo esta solta
+      // (ela e desenhada torta), entao o peso da folha cai na ponta livre.
+      pivoPorta.children[0].rotation.z = -0.042 - Math.abs(anguloPorta) * 0.021
+    }
+    // O vao so e barrado enquanto a folha ainda esta na frente dele. 0.55 rad
+    // sao ~31 graus: dai pra frente ja cabe gente pelo lado.
+    colPorta.ativo = Math.abs(anguloPorta) < 0.55
+
+    // O rotulo do E acompanha o estado. O sistema de interacao COPIA o objeto
+    // no add(), entao o que a gente empurrou nao e o que ele consulta — a
+    // primeira volta acha o dele por id e guarda. Sem isto a porta aberta
+    // continuaria dizendo "Abrir a porta".
+    if (!itemPorta && gm && gm.interaction && gm.interaction.items) {
+      for (let i = 0; i < gm.interaction.items.length; i++) {
+        if (gm.interaction.items[i].id === 'casa-porta') { itemPorta = gm.interaction.items[i]; break }
+      }
+    }
+    if (itemPorta) itemPorta.label = abertaAlvo ? 'Fechar a porta' : 'Abrir a porta'
+
     // Dois periodos incomensuraveis em vez de um seno so: com um eixo unico a
     // lampada vira metronomo e o olho pega o loop em dois segundos. Cruzando
     // 1.15 com 0.83 ela desenha um oito lento que nunca fecha igual.

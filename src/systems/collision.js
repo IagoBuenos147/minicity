@@ -26,9 +26,19 @@ export function createCollisionWorld() {
     }
   }
 
+  /**
+   * Registra colisores e DEVOLVE as caixas internas, na mesma ordem.
+   *
+   * Devolver serve pra uma coisa so, e ela justifica: colisor que LIGA E
+   * DESLIGA. A porta da casa velha barra o vao quando esta fechada e some
+   * quando abre — quem a construiu guarda a caixa devolvida aqui e mexe no
+   * `ativo` dela. Sem isto so restaria mover a caixa pra longe, e mover quebra
+   * o indice da grade (a caixa continuaria listada na celula velha).
+   */
   function add(list) {
-    if (!list) return
+    if (!list) return []
     const arr = Array.isArray(list) ? list : [list]
+    const feitas = []
     for (const raw of arr) {
       if (!raw) continue
       // normaliza: aceita min/max fora de ordem
@@ -38,11 +48,16 @@ export function createCollisionWorld() {
         minZ: Math.min(raw.minZ, raw.maxZ),
         maxZ: Math.max(raw.minZ, raw.maxZ),
         tag: raw.tag || '',
+        // false = existe na grade mas nao empurra ninguem. O padrao e true, e
+        // e o que 99% dos colisores deste jogo sao pra sempre.
+        ativo: raw.ativo !== false,
       }
       if (!isFinite(b.minX) || !isFinite(b.minZ) || !isFinite(b.maxX) || !isFinite(b.maxZ)) continue
       boxes.push(b)
       insert(b, boxes.length - 1)
+      feitas.push(b)
     }
+    return feitas
   }
 
   /** Cria um colisor a partir de centro + tamanho. */
@@ -80,6 +95,7 @@ export function createCollisionWorld() {
       let hit = false
       for (let i = 0; i < list.length; i++) {
         const b = list[i]
+        if (b.ativo === false) continue
         // ponto mais proximo da caixa em relacao ao centro do circulo
         const cx = Math.max(b.minX, Math.min(pos.x, b.maxX))
         const cz = Math.max(b.minZ, Math.min(pos.z, b.maxZ))
@@ -113,6 +129,7 @@ export function createCollisionWorld() {
     const list = query(x, z, radius)
     for (let i = 0; i < list.length; i++) {
       const b = list[i]
+      if (b.ativo === false) continue
       const cx = Math.max(b.minX, Math.min(x, b.maxX))
       const cz = Math.max(b.minZ, Math.min(z, b.maxZ))
       const dx = x - cx, dz = z - cz

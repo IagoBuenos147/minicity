@@ -1064,4 +1064,8 @@ frame()
 // Quem conecta e o botao COOP do menu, por conectar() logo acima.
 
 // expoe pra debug no console
+// THREE junto: sem ele, depurar no console (raycast, Box3, medir distancia)
+// exige importar o modulo de novo por uma URL diferente, e ai sao DUAS copias
+// da biblioteca na memoria — instanceof para de funcionar entre elas.
+game.THREE = THREE
 window.__game = game

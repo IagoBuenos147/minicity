@@ -539,8 +539,38 @@ try {
   check('a primeira missao do tutorial esta na tela',
     noJogo.objetivo === 'entrar-na-casa', 'objetivo=' + noJogo.objetivo)
 
-  // e ela se completa ao entrar na casa
-  await page.evaluate(() => { window.__game.player.teleport(43, 16) })
+  // --- a porta da casa: fechada, ela BARRA; aberta, ela deixa passar ---------
+  // Andar de verdade contra o vao, e nao teleportar pra dentro: o que este caso
+  // protege e o colisor que liga e desliga com a folha, e teleporte atravessa
+  // colisor nenhum — ele so escreve a posicao.
+  const andarPraCasa = () => page.evaluate(() => {
+    const G = window.__game
+    G.player.teleport(43.0, 9.6, 0)
+    for (let i = 0; i < 200; i++) { G.player.position.z += 0.03; G.player.update(1 / 60) }
+    return +G.player.position.z.toFixed(2)
+  })
+
+  const zBarrado = await andarPraCasa()
+  check('a porta fechada barra a entrada', zBarrado < 12.1,
+    'parou em z=' + zBarrado + ' (a fachada esta em z=12)')
+
+  const portaAbriu = await page.evaluate(() => {
+    const G = window.__game
+    const it = G.interaction.items.find((i) => i.id === 'casa-porta')
+    if (!it) return { achou: false }
+    const rotulo = it.label
+    it.onInteract(G)
+    for (let i = 0; i < 180; i++) G.casa.update(1 / 60, G)
+    return { achou: true, antes: rotulo, depois: it.label }
+  })
+  check('o E na porta troca o rotulo pra fechar',
+    portaAbriu.achou && portaAbriu.antes === 'Abrir a porta' && portaAbriu.depois === 'Fechar a porta',
+    portaAbriu.antes + ' -> ' + portaAbriu.depois)
+
+  const zDentro = await andarPraCasa()
+  check('a porta aberta deixa entrar', zDentro > 13,
+    'chegou em z=' + zDentro)
+
   await step(40)
   const missao = await page.evaluate(() => ({
     feita: window.__game.tutorial.concluidas.has('entrar-na-casa'),
@@ -548,6 +578,30 @@ try {
   }))
   check('entrar na casa conclui a primeira missao', missao.feita === true,
     'concluida=' + missao.feita + ' piso=' + missao.piso)
+
+  // --- o chao da casa e SO o assoalho ---------------------------------------
+  // O bug que este caso guarda: a calcada do anel de city.js (x 48..52) cruzava
+  // o lote da casa (x 38..50) e as duas lajes ficavam no MESMO y = 0.16,
+  // brigando por profundidade. Do lado de dentro aparecia uma mancha de
+  // calcada quadriculada no meio da sala.
+  const chao = await page.evaluate(() => {
+    const G = window.__game
+    const T = G.THREE
+    const rc = new T.Raycaster()
+    const baixo = new T.Vector3(0, -1, 0)
+    const nomes = []
+    for (const p of [[48.6, 13.5], [49.2, 16.0], [48.8, 20.5], [44, 14], [40, 19]]) {
+      rc.set(new T.Vector3(p[0], 1.4, p[1]), baixo)
+      const h = rc.intersectObjects(G.scene.children, true)[0]
+      if (!h) { nomes.push(p + ':nada'); continue }
+      let raiz = h.object
+      while (raiz.parent && raiz.parent !== G.scene) raiz = raiz.parent
+      nomes.push(p[0] + ',' + p[1] + ':' + raiz.name + '@' + h.point.y.toFixed(3))
+    }
+    return nomes
+  })
+  check('dentro da casa so ha o assoalho da casa',
+    chao.every((n) => /casa-velha/.test(n)), chao.join(' | '))
 
   await page.evaluate(() => window.__game.fluxo.jogar())
   await step(10)
