@@ -48,6 +48,11 @@ function ler() {
     if (!o || typeof o !== 'object') return null
     return {
       ouro: Math.max(0, inteiro(o.ouro)),
+      // BANCO: o terceiro inteiro. Save antigo nao tem o campo e inteiro() de
+      // undefined devolve 0 — ler() ja e tolerante por construcao, entao nao
+      // houve migracao nenhuma. Nenhum jogo do cassino le este campo: ele
+      // existe pra aparecer no HUD e pro caixa/save escreverem.
+      banco: Math.max(0, inteiro(o.banco)),
       fichas: Math.max(0, inteiro(o.fichas)),
       // Maior aposta e maior premio: nao mudam nada mecanicamente, sao
       // memoria. E o que faz o jogador contar a historia depois.
@@ -61,6 +66,7 @@ export function criarCarteira(opts = {}) {
   const salvo = ler()
   const est = salvo || {
     ouro: OURO_INICIAL,
+    banco: 0,
     fichas: 0,
     recorde: 0,
     maosJogadas: 0,
@@ -88,6 +94,7 @@ export function criarCarteira(opts = {}) {
 
   const api = {
     get ouro() { return est.ouro },
+    get banco() { return est.banco },
     get fichas() { return est.fichas },
     get recorde() { return est.recorde },
     get maosJogadas() { return est.maosJogadas },
@@ -142,6 +149,54 @@ export function criarCarteira(opts = {}) {
       return v
     },
 
+    /** Guarda ouro no banco. false = nao tinha, e nada saiu da mao. */
+    depositar(n) {
+      const v = Math.max(0, inteiro(n))
+      if (v === 0) return true
+      if (est.ouro < v) return false
+      est.ouro -= v
+      est.banco += v
+      avisar('banco')
+      return true
+    },
+
+    /** Tira do banco pra mao. */
+    sacar(n) {
+      const v = Math.max(0, inteiro(n))
+      if (v === 0) return true
+      if (est.banco < v) return false
+      est.banco -= v
+      est.ouro += v
+      avisar('banco')
+      return true
+    },
+
+    /**
+     * Escreve a carteira inteira. So o SAVE chama isto.
+     *
+     * Ele existe porque esta carteira grava sozinha numa chave GLOBAL do
+     * localStorage: sem um caminho de escrita, carregar o slot 3 deixaria o
+     * jogador com o ouro do slot 1.
+     */
+    aplicar(dados) {
+      const d = dados || {}
+      est.ouro = Math.max(0, inteiro(d.ouro))
+      est.banco = Math.max(0, inteiro(d.banco))
+      est.fichas = Math.max(0, inteiro(d.fichas))
+      est.recorde = Math.max(0, inteiro(d.recorde))
+      est.maosJogadas = Math.max(0, inteiro(d.maosJogadas))
+      avisar('aplicar')
+    },
+
+    /** Pro save. E o MESMO formato que ler() aceita de volta. */
+    serializar() {
+      return {
+        v: 1,
+        ouro: est.ouro, banco: est.banco, fichas: est.fichas,
+        recorde: est.recorde, maosJogadas: est.maosJogadas,
+      }
+    },
+
     /** Caixa: ouro -> ficha, 1 por 1. */
     comprarFichas(n) {
       const v = Math.max(0, inteiro(n))
@@ -189,8 +244,8 @@ export function criarCarteira(opts = {}) {
 
   // HUD opcional: se veio, ja recebe o saldo inicial e cada mudanca depois.
   if (opts.hud && typeof opts.hud.setDinheiro === 'function') {
-    api.aoMudar(() => opts.hud.setDinheiro(est.ouro, est.fichas))
-    opts.hud.setDinheiro(est.ouro, est.fichas)
+    api.aoMudar(() => opts.hud.setDinheiro(est.ouro, est.fichas, est.banco))
+    opts.hud.setDinheiro(est.ouro, est.fichas, est.banco)
   }
 
   return api

@@ -703,6 +703,243 @@ try {
   await page.evaluate(() => window.__game.fluxo.jogar())
   await step(10)
 
+  // --- 7b) OS QUATRO SISTEMAS NOVOS ------------------------------------------
+  // Mochila, loja, encaixe e save. Sao quatro modulos que se seguram pelas
+  // bordas (comprar escreve na mochila, encaixar tira da mochila, o save le os
+  // tres), e e exatamente ai que quebra em silencio.
+
+  // MOCHILA. O que este caso guarda: a compra tinha que ser ATOMICA. A versao
+  // ingenua ("tem espaco?" e depois "adiciona") mente quando o item ocupa mais
+  // de uma vaga — ela responde sim contando vaga por vaga e depois enche o
+  // inventario pela metade, cobrando o preco inteiro.
+  const mochila = await page.evaluate(() => {
+    const G = window.__game
+    G.inventario.limpar()
+    const cabe9 = []
+    for (let i = 0; i < 9; i++) cabe9.push(G.inventario.adicionar('sinuca-bar', 1) >= 0)
+    const decimo = G.inventario.adicionar('sinuca-bar', 1)
+    G.inventario.limpar()
+    // fichas empilham (limite alto) — 60 fichas tem que caber numa vaga so
+    G.inventario.adicionar('ficha-sinuca', 60)
+    const usadasPorFicha = G.inventario.slots.filter(Boolean).length
+    // a pergunta e a acao concordam?
+    G.inventario.limpar()
+    for (let i = 0; i < 8; i++) G.inventario.adicionar('jukebox', 1)
+    const perguntaDuas = G.inventario.temEspacoPara('jukebox', 2)
+    const poeDuas = [G.inventario.adicionar('jukebox', 1), G.inventario.adicionar('jukebox', 1)]
+    G.inventario.limpar()
+    return { cabe9: cabe9.every(Boolean), decimo, usadasPorFicha, perguntaDuas, poeDuas }
+  })
+  check('a mochila tem exatamente 9 vagas', mochila.cabe9 && mochila.decimo < 0,
+    'nove=' + mochila.cabe9 + ' decimo=' + mochila.decimo)
+  check('item empilhavel ocupa uma vaga so', mochila.usadasPorFicha === 1,
+    '60 fichas ocuparam ' + mochila.usadasPorFicha + ' vagas')
+  check('a pergunta de espaco concorda com o resultado',
+    mochila.perguntaDuas === false && mochila.poeDuas[1] < 0,
+    'temEspacoPara(2)=' + mochila.perguntaDuas + ' resultado=' + mochila.poeDuas.join(','))
+
+  // LOJA. A ordem da compra e a regra: ESPACO, depois OURO, depois entrega. Na
+  // ordem trocada o jogador paga por um movel que nao tem onde caber.
+  const loja = await page.evaluate(() => {
+    const G = window.__game
+    G.inventario.limpar()
+    G.carteira.aplicar({ ouro: 0, banco: 0, fichas: 0 })
+    G.carteira.ganharOuro(3000)
+    G.loja.abrir()
+    const semDinheiro = (() => {
+      G.carteira.gastarOuro(G.carteira.ouro)
+      G.loja.porNoCarrinho('sinuca-bar', 1)
+      const r = G.loja.comprar()
+      G.loja.limparCarrinho()
+      return r
+    })()
+    G.carteira.ganharOuro(3000)
+    // mochila cheia: a compra tem que ser RECUSADA, e o ouro nao pode sumir
+    for (let i = 0; i < 9; i++) G.inventario.adicionar('baralho-comum', 1)
+    G.loja.porNoCarrinho('jukebox', 1)
+    const cheia = G.loja.comprar()
+    const ouroDepoisDaRecusa = G.carteira.ouro
+    G.loja.limparCarrinho()
+    G.inventario.limpar()
+    // agora com espaco: passa, cobra o preco certo e entrega
+    G.loja.porNoCarrinho('baralho-estrela', 2)
+    const preco = G.loja.total
+    const ok = G.loja.comprar()
+    const gastou = ouroDepoisDaRecusa - G.carteira.ouro
+    const naMochila = G.inventario.quantidade('baralho-estrela')
+    G.loja.fechar()
+    G.inventario.limpar()
+    return { semDinheiro, cheia, ouroDepoisDaRecusa, ok, preco, gastou, naMochila }
+  })
+  check('sem ouro a loja recusa', loja.semDinheiro !== true, 'comprou=' + loja.semDinheiro)
+  check('mochila cheia recusa a compra E nao cobra',
+    loja.cheia !== true && loja.ouroDepoisDaRecusa === 3000,
+    'comprou=' + loja.cheia + ' ouro=' + loja.ouroDepoisDaRecusa)
+  check('a compra cobra o preco do carrinho e entrega',
+    loja.ok === true && loja.gastou === loja.preco && loja.naMochila === 2,
+    'gastou=' + loja.gastou + ' preco=' + loja.preco + ' entregou=' + loja.naMochila)
+
+  // ENCAIXE. O ponto do sistema e a resposta VERDE/VERMELHO ser honesta: se ele
+  // pinta verde e o movel atravessa a parede, o sistema inteiro perde a graca.
+  const enc = await page.evaluate(() => {
+    const G = window.__game
+    G.inventario.limpar()
+    const vaga = G.inventario.adicionar('sinuca-bar', 1)
+    G.player.teleport(43, 16.5, Math.PI)
+    G.encaixe.entrar(vaga, 'sinuca-bar')
+    const segurando = G.encaixe.ativo
+    // no salao da frente: cabe
+    const dentro = G.encaixe.podeEm('sinuca-bar', 39.2, 14.8, 0)
+    // fora da casa, na rua: nao cabe
+    const rua = G.encaixe.podeEm('sinuca-bar', 43.0, 6.0, 0)
+    // em cima do vao da porta: nao cabe. A jukebox e pequena e CABERIA na zona
+    // ali — quem recusa e a area proibida, que e o que este caso testa.
+    const porta = G.encaixe.podeEm('jukebox', 43.0, 13.0, 0)
+    // e a jukebox um metro pra dentro ja pode: prova que a recusa acima e do
+    // vao da porta, e nao de a jukebox nao caber em lugar nenhum
+    const perto = G.encaixe.podeEm('jukebox', 43.0, 15.0, 0)
+    return {
+      segurando, dentro: dentro.pode, rua: rua.pode,
+      porta: porta.pode, motivo: porta.motivo, perto: perto.pode,
+    }
+  })
+  check('pegar da mochila liga o fantasma do encaixe', enc.segurando === true,
+    'ativo=' + enc.segurando)
+  check('o encaixe pinta verde dentro e vermelho fora',
+    enc.dentro === true && enc.rua === false,
+    'sala=' + enc.dentro + ' rua=' + enc.rua)
+  check('o vao da porta e area proibida, e so ele',
+    enc.porta === false && enc.perto === true && /porta/.test(enc.motivo || ''),
+    'no vao=' + enc.porta + ' (' + enc.motivo + ') um metro adiante=' + enc.perto)
+
+  const posta = await page.evaluate(() => {
+    const G = window.__game
+    G.encaixe.mirarEm(39.2, 14.8, 0)
+    const ok = G.encaixe.confirmar()
+    const mochilaVazia = G.inventario.slots.every((s) => !s)
+    const lista = G.encaixe.serializar()
+    // guardar de volta devolve pra mochila
+    const guardou = G.encaixe.guardarEm(0)
+    const voltou = G.inventario.quantidade('sinuca-bar')
+    G.inventario.limpar()
+    return { ok, mochilaVazia, postas: lista.length, guardou, voltou }
+  })
+  check('instalar tira da mochila e poe na casa',
+    posta.ok === true && posta.mochilaVazia === true && posta.postas === 1,
+    'instalou=' + posta.ok + ' mochila vazia=' + posta.mochilaVazia + ' postas=' + posta.postas)
+  check('guardar devolve o movel pra mochila',
+    posta.guardou === true && posta.voltou === 1,
+    'guardou=' + posta.guardou + ' voltou=' + posta.voltou)
+
+  // A TECLA F5. Ela tinha dono antes de virar tecla de jogo (recarregar a
+  // pagina), entao este caso guarda duas coisas de uma vez: que a tela abre, e
+  // que a pagina continua de pe — se o preventDefault sumisse do core/input, o
+  // navegador recarregaria e o teste inteiro morreria aqui.
+  const f5 = await page.evaluate(() => {
+    const G = window.__game
+    G.saveUI.fechar()
+    return { antes: G.saveUI.aberto, marca: (window.__marcaF5 = 'viva') }
+  })
+  await step(6, "window.dispatchEvent(new KeyboardEvent('keydown',{code:'F5'}));"
+    + "setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'F5'})),60)")
+  const f5Depois = await page.evaluate(() => ({
+    aberto: window.__game.saveUI.aberto,
+    marca: window.__marcaF5 || null,
+    linhas: document.querySelectorAll('.mcrp-save .slot').length,
+  }))
+  await page.evaluate(() => window.__game.saveUI.fechar())
+  check('F5 abre a tela dos 5 lugares sem recarregar a pagina',
+    f5.antes === false && f5Depois.aberto === true && f5Depois.marca === 'viva'
+    && f5Depois.linhas === 5,
+    'aberto=' + f5Depois.aberto + ' pagina intacta=' + (f5Depois.marca === 'viva')
+    + ' lugares=' + f5Depois.linhas)
+
+  // As duas mesas de sinuca sao o movel maior da loja (3,10x4,14 e 3,50x4,35 com
+  // a folga do taco). Vender uma mesa que nao tem onde caber seria vender uma
+  // parede: este caso prova que as DUAS cabem ao mesmo tempo na casa.
+  const duasMesas = await page.evaluate(() => {
+    const G = window.__game
+    G.encaixe.aplicar([])
+    G.inventario.limpar()
+    const a = G.inventario.adicionar('sinuca-bar', 1)
+    G.encaixe.entrar(a, 'sinuca-bar')
+    G.encaixe.mirarEm(39.2, 14.8, 0)
+    const posA = G.encaixe.confirmar()
+    const b = G.inventario.adicionar('sinuca-recond', 1)
+    G.encaixe.entrar(b, 'sinuca-recond')
+    G.encaixe.mirarEm(39.4, 20.4, 1)
+    const posB = G.encaixe.confirmar()
+    // e a segunda nao pode entrar POR CIMA da primeira
+    const c = G.inventario.adicionar('sinuca-bar', 1)
+    G.encaixe.entrar(c, 'sinuca-bar')
+    const emCima = G.encaixe.podeEm('sinuca-bar', 39.2, 14.8, 0)
+    G.encaixe.sair()
+    const postas = G.encaixe.serializar().length
+    G.encaixe.aplicar([])
+    G.inventario.limpar()
+    return { posA, posB, postas, emCima: emCima.pode, motivo: emCima.motivo }
+  })
+  check('as duas mesas de sinuca cabem juntas na casa',
+    duasMesas.posA === true && duasMesas.posB === true && duasMesas.postas === 2,
+    'bar=' + duasMesas.posA + ' recond=' + duasMesas.posB + ' postas=' + duasMesas.postas)
+  check('movel nao entra em cima de movel',
+    duasMesas.emCima === false, 'pode=' + duasMesas.emCima + ' (' + duasMesas.motivo + ')')
+
+  // SAVE. A ida e a volta inteira: grava, estraga tudo de proposito, carrega e
+  // confere que voltou igual. E o unico caso que prova que o save serve.
+  const save = await page.evaluate(() => {
+    const G = window.__game
+    localStorage.removeItem('mcrp-saves')
+    G.carteira.aplicar({ ouro: 1234, banco: 5678, fichas: 90 })
+    G.inventario.limpar()
+    G.inventario.adicionar('jukebox', 1)
+    G.inventario.adicionar('ficha-sinuca', 17)
+    G.player.teleport(44.2, 18.4, 1.25)
+    G.setAppearance({ pele: 4, cabelo: 3 })
+    const peleAntes = G.appearance.skin
+    G.save.comecarEm(2, 'Teste')
+    G.save.salvar(2, 'Teste', true)
+    const card = G.save.listar()[2]
+    // estraga tudo
+    G.carteira.aplicar({ ouro: 0, banco: 0, fichas: 0 })
+    G.inventario.limpar()
+    G.player.teleport(2, 9, 0)
+    G.setAppearance({ pele: 0 })
+    const carregou = G.save.carregar(2)
+    return {
+      card: card && { nome: card.nome, pat: card.patrimonio, esquema: card.esquema },
+      carregou,
+      ouro: G.carteira.ouro, banco: G.carteira.banco, fichas: G.carteira.fichas,
+      juke: G.inventario.quantidade('jukebox'), fichaSinuca: G.inventario.quantidade('ficha-sinuca'),
+      x: +G.player.position.x.toFixed(1), z: +G.player.position.z.toFixed(1),
+      pele: G.appearance.skin, peleAntes,
+      livre: G.save.primeiroLivre(),
+      // um arquivo de um jogo mais novo nao pode ser lido como se fosse deste
+      futuro: (() => {
+        const t = JSON.parse(G.save.exportar(2)); t.esquema = 99
+        G.save.importar(3, JSON.stringify(t))
+        return G.save.ler(3)
+      })(),
+      lixo: G.save.importar(4, 'nao sou json'),
+    }
+  })
+  check('o card do save mostra nome e patrimonio',
+    save.card && save.card.nome === 'Teste' && save.card.pat === 1234 + 5678 + 90,
+    JSON.stringify(save.card))
+  check('carregar devolve carteira, mochila e posicao',
+    save.carregou === true && save.ouro === 1234 && save.banco === 5678 && save.fichas === 90
+    && save.juke === 1 && save.fichaSinuca === 17
+    && Math.abs(save.x - 44.2) < 0.3 && Math.abs(save.z - 18.4) < 0.3,
+    'ouro=' + save.ouro + ' banco=' + save.banco + ' fichas=' + save.fichas
+    + ' juke=' + save.juke + ' fichaSinuca=' + save.fichaSinuca + ' pos=' + save.x + ',' + save.z)
+  check('o save guarda a cor da pele (que nao cabe no protocolo)',
+    save.pele === save.peleAntes, 'antes=' + save.peleAntes + ' depois=' + save.pele)
+  check('save de esquema mais novo nao e lido como se fosse deste',
+    save.futuro === null, 'leu=' + JSON.stringify(save.futuro))
+  check('arquivo estragado e recusado com motivo', typeof save.lixo === 'string' && save.lixo.length > 0,
+    'motivo=' + JSON.stringify(save.lixo))
+  check('primeiroLivre pula os lugares ocupados', save.livre === 0, 'livre=' + save.livre)
+
   // 8) desempenho
   // Antes de medir, devolve o tempo pro sol E DERRETE a neve ate o fim. Sem
   // isto, o numero medido aqui e o do mapa nevado (a nevasca acabou de rodar,

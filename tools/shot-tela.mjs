@@ -239,6 +239,144 @@ export const GRUPOS = {
       espera: 900, semQuadro: true,
     },
   ],
+  // A coluna do canto: mao, dinheiro e as nove vagas da mochila.
+  // A tela dos cinco lugares de save.
+  save: [
+    {
+      nome: 'save-1-continuar',
+      antes: `localStorage.removeItem('mcrp-saves')
+        G.fluxo.jogar()
+        // Tres lugares com historias diferentes, pra tela nao aparecer vazia:
+        // um jogo de hoje, um de ontem e um de tres meses atras.
+        G.carteira.ganharOuro(2480)
+        G.carteira.depositar(15300)
+        G.inventario.adicionar('sinuca-bar', 1)
+        G.inventario.adicionar('jukebox', 1)
+        G.save.comecarEm(0, 'Iago')
+        G.save.salvar(0, 'Iago', true)
+        G.carteira.gastarOuro(2000)
+        G.save.comecarEm(1, 'Rafa')
+        G.save.salvar(1, 'Rafa', true)
+        G.carteira.ganharOuro(120000)
+        G.save.comecarEm(3, 'Duda')
+        G.save.salvar(3, 'Duda', true)
+        // Envelhece os cards na mao: o texto "Ontem" / "Ha 3 meses" so aparece
+        // com data velha, e nao da pra esperar tres meses por um screenshot.
+        const cru = JSON.parse(localStorage.getItem('mcrp-saves'))
+        const DIA = 86400000
+        cru[0].segundos = 11532
+        cru[1].jogadoEm -= DIA; cru[1].criadoEm -= DIA * 2; cru[1].segundos = 743
+        cru[3].jogadoEm -= DIA * 96; cru[3].criadoEm -= DIA * 130; cru[3].segundos = 152400
+        localStorage.setItem('mcrp-saves', JSON.stringify(cru))
+        G.fluxo.menu()
+        G.saveUI.abrir('continuar')`,
+      espera: 900, semQuadro: true,
+    },
+    {
+      nome: 'save-2-salvar',
+      antes: `G.saveUI.fechar()
+        G.saveUI.abrir('salvar')`,
+      espera: 700, semQuadro: true,
+    },
+  ],
+  mochila: [
+    {
+      nome: 'mochila-1-hud',
+      antes: `G.fluxo.jogar()
+        G.inventario.adicionar('sinuca-bar', 1)
+        G.inventario.adicionar('jukebox', 1)
+        G.inventario.adicionar('maleta-300', 1)
+        G.inventario.adicionar('ficha-sinuca', 25)
+        G.inventario.adicionar('baralho-estrela', 3)
+        G.carteira.ganharOuro(320)
+        G.carteira.depositar(900)
+        G.carteira.ganharFichas(140)
+        G.player.teleport(43, 8.8, Math.PI)`,
+      quadros: 30, espera: 900,
+    },
+  ],
+  // A janela da loja de jogos.
+  loja: [
+    {
+      nome: 'loja-1-vitrine',
+      antes: `G.fluxo.jogar()
+        G.carteira.ganharOuro(900)
+        G.carteira.depositar(600)
+        G.loja.abrir()
+        for (let i=0;i<20;i++) G.loja.atualizar(1/60)`,
+      espera: 1400, semQuadro: true,
+    },
+    {
+      nome: 'loja-3-fora',
+      antes: `G.loja.fechar()
+        G.fluxo.foto(true)
+        const c = G.camera
+        c.position.set(42.4, 2.4, -6.0); c.lookAt(42.0, 2.2, -13.0)
+        c.fov = 62; c.updateProjectionMatrix()
+        G.lighting.setTimeOfDay(0.30); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 500, semQuadro: true,
+    },
+    {
+      nome: 'loja-4-dentro',
+      antes: `const c = G.camera
+        c.position.set(42.0, 1.75, -14.4); c.lookAt(42.0, 1.35, -27.0)
+        c.fov = 74; c.updateProjectionMatrix()
+        G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        for (let i=0;i<40;i++) G.lojaMundo.update(1/60, G)
+        G.engine.render()`,
+      espera: 500, semQuadro: true,
+    },
+    {
+      nome: 'loja-2-carrinho',
+      antes: `G.loja.abrir()
+        for (let i=0;i<20;i++) G.loja.atualizar(1/60)
+        const cards = document.querySelectorAll('.mcrp-loja .card')
+        if (cards[7]) cards[7].click()
+        if (cards[0]) cards[0].click()
+        if (cards[5]) { cards[5].click(); cards[5].click(); cards[5].click() }`,
+      espera: 700, semQuadro: true,
+    },
+  ],
+  // O modo de encaixe: fantasma verde, pegada no chao e a moldura do volume.
+  encaixe: [
+    {
+      nome: 'encaixe-1-verde',
+      antes: `G.fluxo.foto(true)
+        G.inventario.adicionar('sinuca-bar', 1)
+        G.player.teleport(44.6, 22.6, 0)
+        G.encaixe.entrar(0, 'sinuca-bar')
+        const c = G.camera
+        c.position.set(45.6, 2.40, 23.6); c.lookAt(43.0, 0.35, 21.0)
+        c.fov = 74; c.updateProjectionMatrix(); c.updateMatrixWorld(true)
+        const nada = { wasPressed: () => false, isDown: () => false }
+        for (let i=0;i<6;i++) G.encaixe.atualizar(1/60, nada)
+        G.lighting.setTimeOfDay(0.30); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 600, semQuadro: true,
+    },
+    {
+      nome: 'encaixe-2-vermelho',
+      antes: `const c = G.camera
+        c.position.set(45.6, 2.40, 23.6); c.lookAt(42.0, 0.35, 18.9)
+        c.updateProjectionMatrix(); c.updateMatrixWorld(true)
+        const nada = { wasPressed: () => false, isDown: () => false }
+        for (let i=0;i<6;i++) G.encaixe.atualizar(1/60, nada)
+        G.engine.render()`,
+      espera: 400, semQuadro: true,
+    },
+    {
+      nome: 'encaixe-3-posta',
+      antes: `const c = G.camera
+        c.position.set(45.6, 2.40, 23.6); c.lookAt(43.0, 0.35, 21.0)
+        c.updateProjectionMatrix(); c.updateMatrixWorld(true)
+        const nada = { wasPressed: () => false, isDown: () => false }
+        for (let i=0;i<6;i++) G.encaixe.atualizar(1/60, nada)
+        G.encaixe.confirmar()
+        G.engine.render()`,
+      espera: 400, semQuadro: true,
+    },
+  ],
   // As teias de perto: silhueta rasgada, aranha e o balanco de vento.
   teia: [
     {

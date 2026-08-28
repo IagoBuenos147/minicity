@@ -38,6 +38,7 @@ const CSS = `
    jogo tem, e uma mensagem de "sala cheia" ou "sem servidor" precisa aparecer
    justamente enquanto o jogador esta no menu. */
 #hud.fora-do-jogo #hud-status,
+#hud.fora-do-jogo #hud-canto,
 #hud.fora-do-jogo #hud-help,
 #hud.fora-do-jogo #hud-cross,
 #hud.fora-do-jogo #hud-prompt,
@@ -97,11 +98,77 @@ const CSS = `
 }
 #hud-fps b { font-variant-numeric: tabular-nums; font-size: 14px; }
 
-/* --- carteira: ouro e fichas do cassino --- */
-#hud-money { display: none; gap: 14px; }
+/* --- CANTO INFERIOR DIREITO: mao, dinheiro e mochila ----------------------
+   A ordem da coluna, de cima pra baixo, e a que o dono do projeto pediu: o que
+   esta na mao, o dinheiro (na mao e no banco, lado a lado) e as vagas logo
+   abaixo.
+   A HOTBAR entra aqui como FILHA (main.js passa pai: hud.canto). Ela era fixa
+   em left:50%, e nove vagas de 48 px com oito folgas de 6 dao 480 px: abaixo de
+   ~1174 px de janela o bloco da direita encostava na barra centrada. Uma coluna
+   so acaba com a colisao em qualquer largura, sem media query. */
+#hud-canto {
+  position: absolute; right: 18px; bottom: 18px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  pointer-events: none;
+}
+
+/* --- carteira: mao, banco e as fichas do cassino --- */
+#hud-money { display: none; gap: 8px; align-items: stretch; }
 #hud-money.on { display: flex; }
-#hud-money .m { display: flex; align-items: center; gap: 6px; }
-#hud-money b { font-variant-numeric: tabular-nums; font-size: 14px; }
+#hud-money .m {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 11px; border-radius: 999px;
+  background: rgba(0,0,0,.34); border: 1px solid rgba(255,255,255,.09);
+}
+#hud-money .m i {
+  font-style: normal; font-size: 9px; letter-spacing: .15em;
+  text-transform: uppercase; color: #9da5b4;
+}
+#hud-money b { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 700; }
+
+/* --- MOCHILA: as nove vagas ----------------------------------------------
+   Elas NAO sao a hotbar. A hotbar e o que esta na mao (maos, revolver) e cada
+   entrada dela tem icone desenhado a mao e tecla numerica; a mochila guarda o
+   que foi comprado. Por isso ela nao rouba Digit1/Digit2: seleciona-se no
+   clique. */
+#hud-bag { display: none; gap: 6px; pointer-events: auto; }
+#hud-bag.on { display: flex; }
+#hud-bag .vaga {
+  position: relative; width: 48px; height: 48px; border-radius: 9px;
+  background: rgba(10,12,16,.62); border: 1px solid rgba(255,255,255,.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  cursor: pointer; overflow: hidden;
+  transition: border-color .14s ease, transform .1s ease;
+}
+#hud-bag .vaga:hover { border-color: rgba(233,196,106,.5); }
+#hud-bag .vaga.cheia { background: rgba(20,24,30,.78); }
+#hud-bag .vaga.sel {
+  border-color: #e9c46a; transform: translateY(-3px);
+  box-shadow: 0 6px 18px rgba(233,196,106,.28), inset 0 1px 0 rgba(255,255,255,.08);
+}
+#hud-bag .vaga img { width: 100%; height: 100%; object-fit: contain; display: block; }
+#hud-bag .vaga .n {
+  position: absolute; right: 3px; bottom: 2px;
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: #f2ece0; text-shadow: 0 1px 3px rgba(0,0,0,.95);
+}
+#hud-bag .vaga .i {
+  position: absolute; left: 4px; top: 2px; font-size: 9px;
+  color: rgba(255,255,255,.28); font-variant-numeric: tabular-nums;
+}
+#hud-bag .vaga.piscou { animation: hudVagaPisca .55s ease; }
+@keyframes hudVagaPisca {
+  0% { border-color: #e9c46a; box-shadow: 0 0 0 0 rgba(233,196,106,.55); }
+  100% { border-color: rgba(255,255,255,.10); box-shadow: 0 0 0 14px rgba(233,196,106,0); }
+}
+#hud-bag.negou { animation: hudBagNega .36s ease; }
+@keyframes hudBagNega {
+  0%,100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  50% { transform: translateX(5px); }
+  80% { transform: translateX(-3px); }
+}
+#hud-bag.negou .vaga.cheia { border-color: #c9394f; }
 #hud-money .pin {
   width: 13px; height: 13px; border-radius: 50%;
   box-shadow: inset 0 -2px 3px rgba(0,0,0,.35), 0 0 6px rgba(0,0,0,.35);
@@ -112,6 +179,13 @@ const CSS = `
 #hud-money .pin.ficha {
   background: radial-gradient(circle at 35% 30%, #ff8f8f, #c62c3f 60%, #7d1523);
   border: 2px dashed rgba(255,255,255,.75);
+}
+/* Banco: um cofre azul-aco, quadrado. Precisa ser um pino DIFERENTE do ouro
+   porque os dois numeros ficam lado a lado — dois discos dourados iguais e o
+   jogador somando o saldo errado no meio de uma compra. */
+#hud-money .pin.banco {
+  background: linear-gradient(160deg, #cfe0f0 0%, #6f88a8 48%, #33465e 100%);
+  border-radius: 3px;
 }
 #hud-money .sobe { animation: hudMoneyUp .5s ease; }
 @keyframes hudMoneyUp {
@@ -197,10 +271,22 @@ const HELP_ROWS = [
   [['R'], 'Recarregar o revolver'],
   [['C'], 'Trocar a estacao: sol / chuva / neve'],
   [['F3'], 'Painel de rede'],
+  [['F5'], 'Salvar o jogo'],
   [['F8', 'F8'], 'Reiniciar o mundo (aperte duas vezes)'],
   [['Tab'], 'Ajuda'],
   [['Esc'], 'Liberar mouse'],
 ]
+
+/** 1500 -> "1.500". Separador de milhar com ponto, que e o do jogo (pt-BR). */
+function milhar(n) {
+  const s = String(Math.abs(Math.round(n)))
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 === 0) out += '.'
+    out += s[i]
+  }
+  return (n < 0 ? '-' : '') + out
+}
 
 function el(tag, cls, parent, text) {
   const n = document.createElement(tag)
@@ -251,16 +337,47 @@ export function createHUD() {
   fpsRow.id = 'hud-fps'
   const fpsVal = el('b', null, fpsRow, '--')
   el('span', null, fpsRow, 'FPS')
-  const money = el('div', 'row panel', status)
+  const debug = el('div', 'panel', status)
+  debug.id = 'hud-debug'
+
+  // --- canto inferior direito: hotbar (main.js pendura), dinheiro, mochila ---
+  const canto = el('div', null, root)
+  canto.id = 'hud-canto'
+
+  const money = el('div', 'row panel', canto)
   money.id = 'hud-money'
   const ouroBox = el('div', 'm', money)
   el('span', 'pin ouro', ouroBox)
+  el('i', null, ouroBox, 'mao')
   const ouroVal = el('b', null, ouroBox, '0')
+  const bancoBox = el('div', 'm', money)
+  el('span', 'pin banco', bancoBox)
+  el('i', null, bancoBox, 'banco')
+  const bancoVal = el('b', null, bancoBox, '0')
   const fichaBox = el('div', 'm', money)
   el('span', 'pin ficha', fichaBox)
+  el('i', null, fichaBox, 'ficha')
   const fichaVal = el('b', null, fichaBox, '0')
-  const debug = el('div', 'panel', status)
-  debug.id = 'hud-debug'
+
+  const bag = el('div', null, canto)
+  bag.id = 'hud-bag'
+  const vagas = []
+  for (let i = 0; i < 9; i++) {
+    const v = el('div', 'vaga', bag)
+    el('span', 'i', v, String(i + 1))
+    const img = el('img', null, v)
+    img.alt = ''
+    img.style.display = 'none'
+    const n = el('span', 'n', v)
+    n.style.display = 'none'
+    v.addEventListener('click', () => { if (aoClicarVaga) aoClicarVaga(i) })
+    v.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      if (aoClicarVaga) aoClicarVaga(-1)
+    })
+    vagas.push({ el: v, img, n })
+  }
+  let aoClicarVaga = null
 
   // ajuda
   const help = el('div', 'panel', root)
@@ -347,8 +464,16 @@ export function createHUD() {
   let f3on = false
 
   /** Anima o numero quando ele muda: verde subindo, vermelho descendo. */
+  /**
+   * O numero pisca verde quando sobe e vermelho quando desce.
+   *
+   * Le o valor CRU de dataset.v, e nao do textContent, porque o texto ganhou
+   * separador de milhar: `Number('1.500')` da 1.5, e todo saldo acima de mil
+   * piscaria verde pra sempre.
+   */
   function pulo(elNum, novoValor) {
-    const antes = Number(elNum.textContent) || 0
+    const antes = Number(elNum.dataset.v) || 0
+    elNum.dataset.v = String(novoValor)
     if (novoValor === antes) return
     const cls = novoValor > antes ? 'sobe' : 'desce'
     elNum.classList.remove('sobe', 'desce')
@@ -417,19 +542,77 @@ export function createHUD() {
      * fora do painel do jogo, e ele importa: sem ele, ganhar 300 fichas e um
      * numero que muda calado no canto da tela.
      */
-    setDinheiro(ouro, fichas) {
+    /**
+     * `banco` e opcional: chamada com dois argumentos (a do cassino, que e
+     * antiga) nao mexe no que ja esta na tela. Foi assim que o campo novo entrou
+     * sem tocar em nenhum dos jogos.
+     */
+    setDinheiro(ouro, fichas, banco) {
       if (ouro === null || ouro === undefined) { money.classList.remove('on'); return }
       money.classList.add('on')
       const o = Math.max(0, Math.round(ouro || 0))
       const f = Math.max(0, Math.round(fichas || 0))
       pulo(ouroVal, o)
       pulo(fichaVal, f)
-      ouroVal.textContent = String(o)
-      fichaVal.textContent = String(f)
+      ouroVal.textContent = milhar(o)
+      fichaVal.textContent = milhar(f)
+      if (banco !== undefined && banco !== null) {
+        const b = Math.max(0, Math.round(banco))
+        pulo(bancoVal, b)
+        bancoVal.textContent = milhar(b)
+      }
       // fichas so aparecem depois de existir uma pela primeira vez
       fichaBox.style.display = (f > 0 || money.dataset.viuFicha === '1') ? '' : 'none'
       if (f > 0) money.dataset.viuFicha = '1'
     },
+
+    /** A coluna do canto, pro main pendurar a hotbar dentro dela. */
+    get canto() { return canto },
+
+    /**
+     * Redesenha a mochila. `slots` e a copia do inventario (9 posicoes, null =
+     * vazia), `fotos` responde a foto de cada id e `sel` e a vaga escolhida.
+     */
+    setMochila(slots, fotos, sel) {
+      if (!Array.isArray(slots)) { bag.classList.remove('on'); return }
+      bag.classList.add('on')
+      for (let i = 0; i < vagas.length; i++) {
+        const v = vagas[i]
+        const s = slots[i]
+        v.el.classList.toggle('cheia', !!s)
+        v.el.classList.toggle('sel', sel === i)
+        if (!s) {
+          v.img.style.display = 'none'
+          v.n.style.display = 'none'
+          v.el.title = ''
+          continue
+        }
+        const url = typeof fotos === 'function' ? fotos(s.id) : null
+        if (url && v.img.dataset.id !== s.id) { v.img.src = url; v.img.dataset.id = s.id }
+        v.img.style.display = url ? '' : 'none'
+        v.n.style.display = s.qtd > 1 ? '' : 'none'
+        v.n.textContent = String(s.qtd)
+      }
+    },
+
+    /** A vaga que acabou de receber pisca dourado. */
+    piscarVaga(i) {
+      const v = vagas[i | 0]
+      if (!v) return
+      v.el.classList.remove('piscou')
+      void v.el.offsetWidth
+      v.el.classList.add('piscou')
+    },
+
+    /** Nao coube: a fileira treme e as vagas cheias acendem em vermelho. */
+    negarMochila() {
+      bag.classList.remove('negou')
+      void bag.offsetWidth
+      bag.classList.add('negou')
+      setTimeout(() => bag.classList.remove('negou'), 420)
+    },
+
+    aoClicarVaga(fn) { aoClicarVaga = typeof fn === 'function' ? fn : null },
 
     /**
      * Estou DENTRO do jogo? false esconde o HUD inteiro (camera, fps, ajuda,

@@ -57,7 +57,9 @@ import { criarNeve } from './world/neve.js'
 import { buildCasino } from './world/casino.js'
 import { criarCarteira } from './cassino/carteira.js'
 import { criarCassinoUI } from './ui/cassino-ui.js'
+import { criarLojaUI } from './ui/loja-ui.js'
 import { buildCasaVelha } from './world/casa-velha.js'
+import { buildLojaJogos } from './world/loja-jogos.js'
 import { criarProvador } from './ui/provador.js'
 import { criarCriacao } from './ui/criacao.js'
 import { criarMenu, lerOpcoes } from './ui/menu.js'
@@ -65,6 +67,12 @@ import { criarAbertura } from './cena/abertura.js'
 import { criarTutorial, MISSOES_INICIAIS } from './ui/tutorial.js'
 import { criarRevolver } from './armas/revolver.js'
 import { criarDialogo } from './ui/dialogo.js'
+import { criarInventario } from './inventario/inventario.js'
+import { criarEncaixe } from './systems/encaixe.js'
+import { criarSave } from './save/save.js'
+import { criarSaveUI } from './ui/save-ui.js'
+import { criarFotografo } from './ui/miniatura3d.js'
+import { itemDe, limiteDe } from './mobilia/catalogo.js'
 import { TICK_HZ, NPCS } from './comum/mundo.js'
 
 // ---------------------------------------------------------------------------
@@ -293,6 +301,30 @@ function mount(result, name) {
   if (typeof result.update === 'function') moduleUpdates.push(result.update)
 }
 
+// --- a MOCHILA e o fotografo das miniaturas --------------------------------
+//
+// O inventario nao conhece item nenhum de nome: quem responde "quantos cabem
+// numa vaga" e o catalogo da mobilia. E o fotografo desenha o icone de cada
+// vaga a partir da MESMA funcao build() que monta o movel no chao — nao ha um
+// segundo desenho do item pra manter em sincronia.
+const inventario = criarInventario({ limiteDe })
+game.inventario = inventario
+
+const fotos = criarFotografo(renderer)
+/** URL da foto do item, montada sob demanda e guardada pra sempre. */
+function fotoDe(id) {
+  const m = itemDe(id)
+  if (!m) return null
+  return fotos.foto(id, m.build, m.foto)
+}
+game.fotoDe = fotoDe
+
+let vagaSelecionada = -1
+function pintarMochila() {
+  hud.setMochila(inventario.slots, fotoDe, vagaSelecionada)
+}
+inventario.aoMudar(pintarMochila)
+
 const city = buildCity(game)
 mount(city, 'city')
 // exposto pra depuracao (window.__game.city): e por aqui que se pergunta ao
@@ -327,8 +359,25 @@ if (casino && casino.group) console.info('cassino:', bakeStatic(casino.group))
 // abertura. Mesmo desenho do cassino: ela traz a propria casca porque a fachada
 // dela tambem olha pra -Z, e o buildShell de city.js so sabe desenhar vitrine
 // virada pra +Z.
+const lojaJogos = buildLojaJogos(game)
+mount(lojaJogos, 'loja-jogos')
+game.lojaMundo = lojaJogos
+
 const casa = buildCasaVelha(game)
-game.casa = casa      // exposto pra depuracao e pra ferramenta de foto
+game.casa = casa
+
+// --- ENCAIXE: por o movel comprado dentro da casa --------------------------
+// Ele precisa da planta (casa.zonasDeMovel), entao nasce DEPOIS dela.
+const encaixe = criarEncaixe({
+  scene, camera, player, hud, inventario, casa, colisao: collision,
+  // Por e tirar movel muda a casa: e ponto de gravacao. game.salvarAgora ainda
+  // nao existe quando esta linha roda (o save nasce depois do tutorial), entao
+  // a chamada e tardia de proposito.
+  aoMudar: () => { if (game.salvarAgora) game.salvarAgora('movel') },
+})
+game.encaixe = encaixe
+
+     // exposto pra depuracao e pra ferramenta de foto
 mount(casa, 'casa-velha')
 if (casa && Array.isArray(casa.occluders)) {
   for (const o of casa.occluders) {
@@ -390,12 +439,38 @@ if (revolver.interactable) interaction.add(revolver.interactable)
 // 1 maos, 2 revolver. O slot do revolver fica travado ate acharem a arma.
 // (Os slots do anel verde e da arma de portal sairam junto com os modulos.)
 const hotbar = criarHotbar({
+  // Pendurada na coluna do canto (ver #hud-canto em ui/hud.js): e la que ficam,
+  // de cima pra baixo, a mao, o dinheiro e a mochila.
+  pai: hud.canto,
   aoTrocar(indice, chave) {
     if (chave !== 'revolver' && revolver.equipado) revolver.desequipar()
     if (chave === 'revolver' && !revolver.equipado) revolver.equipar()
   },
 })
 game.hotbar = hotbar
+
+// A vaga clicada entra no modo de ENCAIXE (ver systems/encaixe.js). Clique com
+// o botao direito, ou clique na mesma vaga de novo, cancela. -1 chega do botao
+// direito em qualquer vaga.
+hud.aoClicarVaga((i) => {
+  if (i < 0 || i === vagaSelecionada) {
+    vagaSelecionada = -1
+    if (game.encaixe) game.encaixe.sair()
+    pintarMochila()
+    return
+  }
+  const s = inventario.ver(i)
+  if (!s) return
+  const m = itemDe(s.id)
+  if (!m || !m.naCasa) {
+    hud.toast(m ? (m.nome + ' nao e movel: fica no bolso.') : 'Vaga vazia.')
+    return
+  }
+  vagaSelecionada = i
+  pintarMochila()
+  if (game.encaixe) game.encaixe.entrar(i, s.id)
+})
+pintarMochila()
 
 // --- dinheiro e as mesas do cassino ----------------------------------------
 // A carteira e local (localStorage): o protocolo de rede nao tem pacote de
@@ -408,6 +483,11 @@ const cassinoUI = criarCassinoUI({ game, carteira, mundo: casino })
 // E por 'game.cassino' que os pontos de interacao dentro do cassino chamam a
 // interface: world/casino.js nao importa a UI, so pede ao game.
 game.cassino = cassinoUI
+
+// A LOJA. Como o cassino, ela e chamada por 'game.loja' de dentro do mundo: o
+// interior da loja registra os pontos de interacao e nao importa UI nenhuma.
+const lojaUI = criarLojaUI({ game, carteira, inventario, fotoDe })
+game.loja = lojaUI
 
 hotbar.marcarDisponivel(1, false)   // revolver: so depois de achar no beco
 
@@ -544,7 +624,131 @@ let abertura = null
 let modoDeJogo = 'solo'      // 'solo' | 'coop'
 let conectando = null        // a promessa da conexao, pra nao pedir duas vezes
 
-const tutorial = criarTutorial({})
+const tutorial = criarTutorial({
+  // Cada missao concluida e um ponto de gravacao: o tutorial e o unico lugar do
+  // jogo que sabe dizer "o jogador avancou" sem adivinhar.
+  aoConcluir() { if (game.salvarAgora) game.salvarAgora('missao') },
+})
+
+// --- SAVE EM SLOTS ---------------------------------------------------------
+//
+// O modulo de save nao conhece o controlador do jogador, o tutorial nem o
+// clima: ele recebe FUNCOES que sabem ler e escrever cada pedaco. Se conhecesse
+// os modulos, cada um deles passaria a ter dois donos — e o dia em que o
+// teleport mudasse de assinatura o save quebraria em silencio.
+//
+// Cuidado registrado: player.teleport(x, z, yaw) recebe o YAW no terceiro
+// argumento, e nao a altura. A altura sai do sampleGround, e isso e uma
+// vantagem — quem salvou dentro de uma loja volta no piso certo sozinho.
+const save = criarSave({
+  carteira,
+  lerNome: () => meuNome,
+  escreverNome: (n) => {
+    meuNome = n || meuNome
+    try { localStorage.setItem('mcrp-nome', meuNome) } catch (err) { void err }
+    if (rede.conectado) rede.enviarNome(meuNome)
+  },
+  lerModo: () => modoDeJogo,
+  // A aparencia sai INTEIRA: os 20 indices do contrato MAIS as quatro cores
+  // cruas (skin/shirt/pants/shoes), que nao cabem num byte e por isso nao
+  // viajam na rede. Este e o unico lugar do jogo onde elas sobrevivem a um F5.
+  lerAparencia: () => Object.assign({}, appearance),
+  escreverAparencia: (ap) => game.setAppearance(ap),
+  lerOnde: () => ({
+    x: +player.position.x.toFixed(2),
+    y: +player.position.y.toFixed(2),
+    z: +player.position.z.toFixed(2),
+    yaw: +(player.yaw || 0).toFixed(3),
+    modo: player.mode,
+  }),
+  escreverOnde: (o) => {
+    player.teleport(Number(o.x) || 0, Number(o.z) || 0, Number(o.yaw) || 0)
+    if (o.modo && o.modo !== player.mode) player.toggleMode()
+  },
+  lerTutorial: () => Array.from(tutorial.concluidas || []),
+  escreverTutorial: (l) => { if (tutorial.definirFeitas) tutorial.definirFeitas(l) },
+  lerHora: () => +lighting.timeOfDay.toFixed(4),
+  escreverHora: (h) => lighting.setTimeOfDay(Number(h) || 0),
+  lerItens: () => (revolver && revolver.pego ? ['revolver'] : []),
+  escreverItens: (l) => {
+    if (Array.isArray(l) && l.indexOf('revolver') >= 0 && revolver && revolver.marcarPego) {
+      revolver.marcarPego()
+      game.pegouItem('revolver')
+    }
+  },
+  lerInventario: () => inventario.serializar(),
+  escreverInventario: (d) => inventario.aplicar(d),
+  lerEncaixes: () => encaixe.serializar(),
+  escreverEncaixes: (l) => encaixe.aplicar(l),
+})
+game.save = save
+
+const saveUI = criarSaveUI({
+  save,
+  aoEscolher: (i, dados, modo) => {
+    if (modo === 'salvar') {
+      save.salvar(i, meuNome, true)
+      saveUI.avisar('Salvo no lugar ' + (i + 1) + '.', 'bom')
+      saveUI.pintar()
+      return
+    }
+    if (!dados) {
+      // Lugar vazio no modo continuar: e a porta de entrada de um jogo novo.
+      saveUI.fechar()
+      save.comecarEm(i, meuNome)
+      menu.fechar()
+      modoDeJogo = 'solo'
+      abrirCriacao()
+      return
+    }
+    saveUI.fechar()
+    menu.fechar()
+    // O mundo ja esta montado (ele nasce com a pagina): carregar e escrever o
+    // estado por cima e devolver o controle. Nao ha cutscene — quem carrega ja
+    // viu a cutscene uma vez.
+    estado = 'jogo'
+    hud.setJogando(true)
+    hud.showHelp(true)
+    hotbar.mostrar(true)
+    tutorial.mostrar(true)
+    save.carregar(i)
+    hud.toast('Jogo carregado: ' + (dados.nome || 'sem nome'))
+    try { input.requestLock() } catch (err) { void err }
+  },
+})
+game.saveUI = saveUI
+
+/**
+ * SALVA AUTOMATICAMENTE nos eventos que importam.
+ *
+ * "Importante" aqui quer dizer: alguma coisa que o jogador ficaria bravo de
+ * perder. Entrar na casa pela primeira vez, comprar um movel, instalar um
+ * movel, terminar uma missao, sair do cassino com dinheiro novo. O salvar()
+ * agrupa em 400 ms sozinho, entao dois eventos no mesmo quadro escrevem uma
+ * vez so — escrever no localStorage e sincrono e trava a thread do desenho.
+ */
+let avisouLotado = false
+function salvarAgora(motivo) {
+  if (estado !== 'jogo') return
+  if (save.slot < 0) {
+    // Quem entrou pelo botao JOGAR nao escolheu lugar nenhum. Pega o primeiro
+    // vazio; se os cinco estao ocupados NAO grava — apagar o jogo de outra
+    // pessoa pra caber este seria pior que nao gravar. Avisa uma vez e deixa a
+    // escolha com quem joga (menu > Continuar > Apagar).
+    const livre = save.primeiroLivre()
+    if (livre < 0) {
+      if (!avisouLotado) {
+        avisouLotado = true
+        hud.toast('Os 5 lugares de save estao cheios. Libere um no menu.', 6000)
+      }
+      return
+    }
+    save.comecarEm(livre, meuNome)
+  }
+  save.salvar(undefined, meuNome)
+  void motivo
+}
+game.salvarAgora = salvarAgora
 game.tutorial = tutorial
 
 // A camera passeia pela cidade enquanto o menu esta na frente. E o unico
@@ -630,6 +834,12 @@ const menu = criarMenu({
       // Sair da sala e sair de VERDADE: ficar conectado no lobby depois de
       // voltar pro menu deixaria o anfitriao esperando por um fantasma.
       if (de === 'lobby' && rede.conectado) { rede.fechar(); conectando = null }
+    },
+    aoContinuar() {
+      // A tela dos cinco lugares. Ela sobe POR CIMA do menu (z-index 92 contra
+      // 90) em vez de virar mais uma tela dele: assim o menu nao precisa saber
+      // o que e um save, e voltar dela e so fechar.
+      if (game.saveUI) game.saveUI.abrir('continuar')
     },
     aoSair() {
       // Nao da pra fechar uma aba que o script nao abriu. Entao: avisa e
@@ -764,6 +974,11 @@ function montarCutscene(elenco) {
     tutorial.mostrar(true)
     try { input.requestLock() } catch (err) { void err }
     hud.toast(rede.conectado ? ('Online. ' + meuNome) : 'Jogando sozinho.')
+    // PRIMEIRO PONTO DE GRAVACAO: a cutscene acabou e o jogador esta na frente
+    // da casa, com o personagem que ele acabou de criar. E exatamente o momento
+    // que o dono do projeto pediu ("depois da cut sene que a gente puder entrar
+    // na casa ja tem que salvar").
+    if (game.salvarAgora) game.salvarAgora('cutscene')
   }, elenco)
 }
 
@@ -802,7 +1017,9 @@ function aoEstadoDaSala() {
  *  perguntam isso — antes eram condicoes escritas na mao, e cada tela nova
  *  entrava em algumas e faltava noutras. */
 function uiAberta() {
-  return customizer.isOpen() || palcoAtivo || (cassinoUI && cassinoUI.aberto)
+  return customizer.isOpen() || palcoAtivo
+    || (cassinoUI && cassinoUI.aberto) || (lojaUI && lojaUI.aberto)
+    || (saveUI && saveUI.aberto)
     || (menu && menu.aberto) || (criacao && criacao.aberto)
 }
 
@@ -994,6 +1211,11 @@ function frame() {
   // C = clima. Sol -> chuva -> neve -> sol. Uma tecla so, como foi pedido: com
   // tres teclas separadas o jogador teria que decorar qual e qual.
   if (input.wasPressed('F8') && !uiAberta()) pedirReinicio()
+  // F5 = a tela dos cinco lugares, pra gravar na mao. O jogo grava sozinho nos
+  // eventos que importam (cutscene, compra, movel, missao); esta tecla e pra
+  // quem quer escolher EM QUAL lugar, ou guardar um jogo antes de experimentar
+  // alguma coisa. preventDefault mora no core/input: F5 recarrega a pagina.
+  if (input.wasPressed('F5') && !uiAberta() && estado === 'jogo') saveUI.abrir('salvar')
   if (input.wasPressed('KeyC') && !uiAberta()) {
     const nova = clima.proximaEstacao()
     hud.toast(NOME_ESTACAO[nova] || nova)
@@ -1012,8 +1234,26 @@ function frame() {
     hud.setCrosshair(player.mode === 'first')
   }
 
-  // interacao
+  // --- ENCAIXE DE MOVEL ----------------------------------------------------
+  //
+  // Roda ANTES da interacao e, quando pega alguma coisa, COME o quadro dela.
+  // Sem isso o primeiro quadro do "segurar E" pra guardar a mesa tambem
+  // dispararia o wasPressed('KeyE') da interacao por proximidade — o jogador
+  // guardaria o movel e abriria a porta no mesmo aperto.
+  let encaixeComeu = false
   if (!uiAberta()) {
+    encaixeComeu = encaixe.atualizar(dt, input)
+    if (encaixe.ativo) {
+      // Confirmar e o botao esquerdo. O revolver so escuta o mouse quando esta
+      // equipado, e a vaga da mochila ja troca a hotbar pra Maos ao entrar
+      // neste modo — entao aqui o clique nao dispara tiro.
+      if (input.wasPressed('Mouse0')) encaixe.confirmar()
+      if (input.wasPressed('Escape')) { encaixe.sair(); pintarMochila() }
+    }
+  }
+
+  // interacao
+  if (!uiAberta() && !encaixeComeu) {
     // Veiculo antes de tudo: dirigindo, o E sai do carro; a pe, ele entra no
     // que estiver perto. Quem desenha o prompt de dentro do veiculo (velocidade
     // + "E para sair") e o proprio sistema, la no atualizar().
@@ -1082,6 +1322,7 @@ function frame() {
   neve.setCobertura(clima.cobertura)
   neve.atualizar(dt)
   if (cassinoUI && typeof cassinoUI.atualizar === 'function') cassinoUI.atualizar(dt)
+  if (lojaUI && typeof lojaUI.atualizar === 'function') lojaUI.atualizar(dt)
   dialogo.atualizar(player.position)
 
   // DEPOIS de todo mundo escrever nas suas "luzes": o pool escolhe as duas mais
@@ -1096,6 +1337,9 @@ function frame() {
   for (let i = 0; i < propUpdates.length; i++) propUpdates[i](dt, game)
 
   tutorial.atualizar(dt, game)
+  // O cronometro do card ("3h 12min"). So corre com um lugar escolhido e so
+  // dentro do jogo — tempo parado no menu nao e tempo jogado.
+  save.tique(dt)
 
   // O PALCO substitui a cidade enquanto o painel de customizacao esta aberto.
   // O mundo continua sendo SIMULADO acima (NPC, clima, veiculo) — o que muda e

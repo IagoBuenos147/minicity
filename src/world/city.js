@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { WORLD, LEVELS } from '../config.js'
-import { BARBER, GROCERY, FILLERS, PARK, WALL_T, LOTES, apronOf } from './layout.js'
+import { BARBER, GROCERY, LOJA_JOGOS, FILLERS, PARK, WALL_T, LOTES, apronOf } from './layout.js'
 import * as Props from './props.js'
 import {
   PALETTE, solid, stdMat, emissive, glass, box, cyl, sphere, plane,
@@ -2709,6 +2709,13 @@ export function buildCity() {
   buildShell(GROCERY, {
     tex: plasterTex(1), wallColor: 0xe6e2cf, glowColor: 0xfff3cf,
     awnA: 0x2f9e57, awnB: 0xf0ece2, flagText: 'MERCADO',
+  })
+  // A loja de jogos passa pelo MESMO buildShell das outras duas — foi pra isso
+  // que ela nasceu com a fachada em z1. Tijolo escuro e toldo magenta: de longe
+  // tem que dar pra dizer QUAL loja e so pela cor do toldo e do letreiro.
+  buildShell(LOJA_JOGOS, {
+    tex: brickTex(1, '#4a2f3f', '#2a1a24'), wallColor: 0x8a6f7e, glowColor: 0xffd0f0,
+    awnA: 0xd93bb0, awnB: 0x1a1418, flagText: 'JOGOS',
   })
 
   // poste de barbeiro girando (juice classico) na fachada da barbearia

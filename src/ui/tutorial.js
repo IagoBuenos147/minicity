@@ -212,7 +212,7 @@ function lerSalvas() {
   } catch (err) { void err; return [] }
 }
 
-export function criarTutorial({ pai } = {}) {
+export function criarTutorial({ pai, aoConcluir } = {}) {
   if (!document.getElementById(ID_ESTILO)) {
     const s = document.createElement('style')
     s.id = ID_ESTILO
@@ -344,6 +344,12 @@ export function criarTutorial({ pai } = {}) {
     pintarBarra()
     estado = 'feito'
     espera = ESPERA_FEITO
+    // Quem escuta e o save: missao concluida e progresso que o jogador nao pode
+    // perder. Protegido porque um ouvinte que estoura nao pode levar o painel
+    // junto — a missao ja esta marcada aqui em cima.
+    if (typeof aoConcluir === 'function') {
+      try { aoConcluir(m.id) } catch (err) { void err }
+    }
   }
 
   function avancar() {
@@ -441,6 +447,9 @@ export function criarTutorial({ pai } = {}) {
       concluidas.add(id)
       salvar()
       pintarBarra()
+      if (typeof aoConcluir === 'function') {
+        try { aoConcluir(id) } catch (err) { void err }
+      }
     },
 
     /** Esconde/mostra sem perder o progresso (cutscene, menu, foto). */
@@ -456,6 +465,19 @@ export function criarTutorial({ pai } = {}) {
     },
 
     get concluidas() { return concluidas },
+
+    /**
+     * Escreve a lista de missoes ja feitas. So o SAVE chama isto: sem um
+     * caminho de escrita, carregar um jogo salvo devolveria o jogador com o
+     * progresso de tutorial de OUTRO personagem, que e o que estava no
+     * localStorage global.
+     */
+    definirFeitas(lista) {
+      concluidas.clear()
+      if (Array.isArray(lista)) for (const id of lista) if (typeof id === 'string') concluidas.add(id)
+      salvar()
+      if (missoes.length) api.definir(missoes)
+    },
 
     dispose() {
       if (quadro) cancelAnimationFrame(quadro)

@@ -45,6 +45,9 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
 | `V` | Alternar 1ª / 3ª pessoa (estilo GTA) |
 | `1 2` | Mãos / revólver |
 | `C` | Trocar a estação: **sol → chuva → neve → sol** |
+| `R` `Q` | Girar o móvel (com um móvel na mão) |
+| `Segurar E` | Guardar de volta o móvel que está na mira |
+| `F5` | Tela dos 5 lugares de jogo salvo |
 | `F8` `F8` | **Reiniciar o mundo** (aperte duas vezes em 4 s) |
 | `Tab` | Mostrar/ocultar ajuda |
 | `Esc` | Liberar o mouse |
@@ -68,9 +71,33 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
   estabelecimento. Madeira apodrecida, pintura descascando, telhas faltando,
   teias de aranha e um interior em **L**, com o chão livre. A **porta abre e
   fecha** com `E` — e enquanto está fechada, ela barra mesmo.
+- **Taco de Ouro** (loja de jogos, norte da avenida): fachada de neon magenta,
+  salão temático e a **Wanda** atrás do balcão. Vende **três baralhos** (comum,
+  bom e 100% plástico), **duas mesas de sinuca** de segunda mão (7 e 8 pés),
+  uma **jukebox valvulada de 1962**, **duas maletas de fichas de poker** e
+  **fichas de sinuca a granel** (você escolhe quantas). Tudo fica à vista na
+  loja. O que você compra vai para as **9 vagas da mochila** — sem espaço, a
+  compra não passa.
+- **Móveis na sua casa**: clique numa vaga da mochila para pegar o móvel. Ele
+  aparece como um fantasma **verde** onde cabe e **vermelho** onde não cabe, com
+  a pegada desenhada no chão. `R`/`Q` gira, botão esquerdo instala, `Esc`
+  cancela. Para tirar, mire no móvel e **segure `E`** — ele volta para a mochila.
 - **Praça** (sudoeste): fonte, bancos, árvores e caminhos.
 - Ruas em grade com calçadas, meio-fio, faixas de pedestre, postes, semáforos e
   mobiliário urbano. Sem carros circulando (por decisão de escopo).
+
+## Jogo salvo
+
+Cinco lugares, com tema de cassino. O jogo **grava sozinho** nos momentos que
+importam: quando a cutscene acaba e a casa abre, a cada compra, ao pôr ou tirar
+um móvel e a cada missão concluída. `F5` abre a tela para escolher o lugar na
+mão; no menu, **Continuar** lista os cinco.
+
+Cada lugar guarda o personagem inteiro (inclusive as cores de pele, cabelo e
+roupa, que **não cabem no protocolo de rede**), a carteira, onde você parou, as
+missões feitas, a hora do dia, a mochila e a mobília instalada na casa. Cada
+lugar tem **Exportar** e **Importar**: o arquivo é um `.json` que dá para
+guardar ou passar para outra máquina.
 
 ## As três estações
 
@@ -145,11 +172,11 @@ Ver `ARCHITECTURE.md` para o contrato entre módulos.
 Com o dev server rodando (`npm run dev`), em outro terminal:
 
 ```bash
-npm run smoke            # o jogo inteiro rodando no navegador (54 casos)
+npm run smoke            # o jogo inteiro rodando no navegador (79 casos)
 npm run teste-cassino    # as regras dos jogos, sem navegador (84 casos)
 npm run teste-nome-unico # um corpo por nome no servidor (10 casos)
 npm run teste-reiniciar  # a tecla F8 devolvendo o mundo ao inicio (14 casos)
-npm run teste-online     # dois navegadores de verdade na mesma sala (37 casos)
+npm run teste-online     # dois navegadores de verdade na mesma sala (22 casos)
 npm run teste-lobby      # a sala de 2 a 4, anfitriao e prontos (28 casos)
 npm run shot-clima       # fotos do cassino, da chuva e da neve em shots/
 npm run shot-tela        # fotos do menu, da criacao, da casa e da cutscene

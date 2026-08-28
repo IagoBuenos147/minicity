@@ -661,12 +661,16 @@ export function criarMenu({ opcoes } = {}) {
 
   const pilhaP = el('div', 'pilha')
   const btIniciar = botao('ouro', 'Iniciar o jogo', () => abrir('modo'))
+  // CONTINUAR abre a tela dos cinco lugares (ui/save-ui.js). Quem monta a tela
+  // e o main: o menu so avisa que o botao foi apertado, do mesmo jeito que faz
+  // com o SAIR.
+  const btContinuar = botao('', 'Continuar', () => chamar(cb, 'aoContinuar'))
   const btOpcoes = botao('', 'Opcoes', () => abrir('opcoes'))
   // SAIR nao tenta window.close(): aba aberta pelo usuario o navegador nao
   // deixa fechar, e um botao que nao faz nada e pior que nenhum. Quem decide o
   // que "sair" significa (voltar pro site, encerrar a sessao) e o main.
   const btSair = botao('fraco', 'Sair', () => chamar(cb, 'aoSair'))
-  pilhaP.append(btIniciar, btOpcoes, btSair)
+  pilhaP.append(btIniciar, btContinuar, btOpcoes, btSair)
   telaPrincipal.appendChild(pilhaP)
   telaPrincipal.appendChild(el('div', 'dica', 'Setas para escolher, Enter para confirmar'))
 

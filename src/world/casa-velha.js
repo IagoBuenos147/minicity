@@ -2195,5 +2195,44 @@ export function buildCasaVelha(game) {
      */
     portaId: 1,
     setPortaAberta(v) { abertaAlvo = !!v },
+
+    /** Altura do assoalho, em mundo. E onde o movel pousa. */
+    pisoY: BASE,
+
+    /**
+     * A PLANTA, do jeito que o sistema de encaixe precisa dela.
+     *
+     * Mora aqui porque quem conhece a casa e a casa: `zonas` sao os retangulos
+     * de chao LIVRE (um por comodo) e `proibidos` sao os pedacos desse chao que
+     * nao podem receber movel. O encaixe nao sabe o que e ZA nem XA — ele so
+     * compara retangulos.
+     *
+     * Os comodos se TOCAM de proposito nas bordas: a zona do braco comeca em
+     * ZA e nao em ZA+TI porque a divisoria transversal so vai ate XA+TI, entao
+     * a faixa x 47.80..50.6 / z 17.70..17.95 e chao de verdade — e e por ela
+     * que o L se liga. Zonas separadas por uma fresta declarariam o braco
+     * inalcancavel.
+     */
+    zonasDeMovel: {
+      zonas: [
+        // sala da frente
+        { x0: IN.x0, x1: IN.x1, z0: IN.z0, z1: ZA },
+        // comodo dos fundos (o que estava lacrado)
+        { x0: IN.x0, x1: XA, z0: ZA + TI, z1: IN.z1 },
+        // braco do L
+        { x0: BRACO_X0, x1: IN.x1, z0: ZA, z1: IN.z1 },
+      ],
+      proibidos: [
+        // O corredor da porta. A folha e de correr e nao varre nada, mas
+        // entupir a entrada com uma mesa de sinuca continua sendo entupir a
+        // entrada: 1,4 m de recuo e o que uma pessoa precisa pra entrar
+        // carregando alguma coisa.
+        { x0: DL - 0.2, x1: DR + 0.2, z0: IN.z0, z1: IN.z0 + 1.4, motivo: 'isso e o vao da porta' },
+        // A passagem entre as duas salas, com 70 cm de folga dos dois lados.
+        { x0: 41.0, x1: 42.8, z0: ZA - 0.7, z1: ZA + TI + 0.7, motivo: 'ia trancar a passagem' },
+        // A boca do braco do L, pelo mesmo motivo.
+        { x0: BRACO_X0, x1: IN.x1, z0: ZA - 0.5, z1: ZA + TI + 0.5, motivo: 'ia trancar a passagem' },
+      ],
+    },
   }
 }

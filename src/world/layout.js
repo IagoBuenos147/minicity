@@ -135,6 +135,36 @@ export function filaDaCasa(i, n) {
   }
 }
 
+// --- Loja de jogos: quadrante nordeste, fachada para a rua z=0 -------------
+// Ocupa o lote que era predio de cenario. Esta era a unica frente de avenida
+// livre do mapa: as quatro esquinas do cruzamento ja estao tomadas e o que
+// sobra dentro dos quarteiroes sao faixas de 2 a 4 m entre predios.
+//
+// A escolha nao foi so "onde cabe", foi ONDE ADIANTA: da porta daqui (42, -12)
+// ate a porta da CASA (43, 12) sao 24 m atravessando a avenida, e ela fica de
+// frente pro CASSINO. Comprar a mesa e instalar a mesa ficam na mesma esquina.
+//
+// Fachada em z1 como barbearia e mercearia, DE PROPOSITO: assim ela passa pelo
+// buildShell de city.js e por apronOf/naFrenteDaPorta/semLotes/neve sem que
+// nenhum deles precise aprender um caso novo (um lote virado pro +X obrigaria a
+// mexer nos quatro).
+//
+// Pe-direito 4.2 porque as duas mesas de sinuca ficam em palco de 25 cm: o
+// peitoril da vitrine comeca em y=0.85 e o tampo de uma mesa de bar fica em
+// 0.80 — sem o palco, quem passa na calcada ve so a borda.
+export const LOJA_JOGOS = {
+  id: 'jogos',
+  x0: 32, x1: 52,     // 20 m
+  z0: -30, z1: -12,   // 18 m
+  wallHeight: 4.2,
+  facade: 'z1',
+  door: { center: 42, width: 2.8, height: 2.7 },
+  sign: 'TACO DE OURO',
+  // magenta: vermelho e do barbeiro, verde da mercearia, ambar do cassino e
+  // bege da casa. De longe tem que dar pra dizer QUAL loja e so pela cor.
+  signColor: 0xd93bb0,
+}
+
 // interior util (dentro das paredes)
 export function interiorOf(b) {
   return {
@@ -152,7 +182,9 @@ export function interiorOf(b) {
 // h = altura, c = cor base, style: 'brick' | 'plaster' | 'panel'
 export const FILLERS = [
   // NE (ao lado da barbearia)
-  { x0: 32, x1: 52, z0: -30, z1: -12, h: 11, c: 0x9a8570, style: 'brick' },
+  // O lote de 32..52 / -30..-12 saiu daqui: virou a LOJA DE JOGOS. Era a unica
+  // frente de avenida do mapa que ainda era predio cego, e "loja" so quer dizer
+  // alguma coisa se der pra chegar nela pela calcada.
   { x0: 14, x1: 30, z0: -52, z1: -32, h: 14, c: 0x7f8a97, style: 'panel' },
   { x0: 32, x1: 52, z0: -52, z1: -33, h: 9, c: 0xb0a08a, style: 'plaster' },
   // NW (ao lado da mercearia)
@@ -178,7 +210,7 @@ export const FILLERS = [
 // grade de telhado da chuva em clima.js, os occluders de camera do main, a
 // neve dos telhados) le esta lista em vez de repetir as tres constantes na mao
 // -- que e como o cassino ficaria de fora de um deles e ninguem notaria.
-export const LOTES = [BARBER, GROCERY, CASINO, CASA]
+export const LOTES = [BARBER, GROCERY, CASINO, CASA, LOJA_JOGOS]
 
 /** Retangulo do avental de calcada em volta de um lote, ja respeitando de que
  *  lado fica a fachada (na frente quem manda e a calcada da rua). */

@@ -18,9 +18,12 @@
 
 const CSS = `
 #hotbar, #hotbar * { box-sizing: border-box; }
+/* A barra mora DENTRO da coluna do canto inferior direito do HUD (#hud-canto),
+   e nao mais centrada na tela: quando as nove vagas da mochila chegaram, os
+   480 px delas encostavam na barra centrada em qualquer janela menor que
+   ~1174 px. Empilhadas numa coluna so, as duas convivem em qualquer largura. */
 #hotbar {
-  position: fixed; left: 50%; bottom: 22px;
-  transform: translateX(-50%);
+  position: relative;
   z-index: 21;
   display: flex; gap: 10px;
   pointer-events: none;
@@ -29,7 +32,7 @@ const CSS = `
   color: #f2f5f8;
   -webkit-font-smoothing: antialiased;
 }
-#hotbar.off { opacity: 0; transform: translate(-50%, 12px); }
+#hotbar.off { opacity: 0; transform: translateY(12px); }
 #hotbar { transition: opacity .18s ease, transform .18s ease; }
 
 #hotbar .slot {

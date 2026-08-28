@@ -91,7 +91,7 @@ game = {
 | `src/cena/abertura.js` | `criarAbertura(opts)` | a cutscene: o porao com o elenco no sofa, o dialogo, e o corte pra frente da casa |
 | `src/world/casa-velha.js` | `buildCasaVelha(game)` | a casa velha (casca + miolo em L) e a pose de onde a cutscene a encara |
 | `src/ui/customizer.js` | `createCustomizer(game)` | 19 abas: 10 de rosto (barbeiro) + 9 de roupa (provador) |
-| `src/ui/hotbar.js` | `criarHotbar(opts)` | barra de 4 itens: mãos, anel, arma de portal, revólver |
+| `src/ui/hotbar.js` | `criarHotbar(opts)` | barra de 2 itens: mãos e revólver. Mora dentro de `#hud-canto`, empilhada com o dinheiro e a mochila |
 | `src/render/luzes-efeito.js` | `criarPoolDeEfeito(scene, n, camera)` | 2 PointLight compartilhadas por TODOS os efeitos; ver a armadilha do recompile de shader no cabecalho do arquivo |
 | `src/world/clima.js` | `criarClima(opts)` | as tres estacoes: sol, chuva e neve. Gotas (1 LineSegments com cor por vertice), respingos + coroa (2 InstancedMesh), flocos (1 Points), rajada de vento, relampago. Nao acumula nada no chao — quem faz isso e `neve.js`, que le `clima.cobertura` |
 | `src/world/neve.js` | `criarNeve({groundY, ancoras})` | a neve PARADA: manto do chao, telhados, copas, arbustos, postes, lixeiras, bancos e pingentes de gelo. 5 InstancedMesh, construidas uma vez e reveladas por `setCobertura(0..1)` |
@@ -102,12 +102,16 @@ game = {
 | `src/cassino/poker.js` | `criarPoker(opts)`, `forcaDaMao(a,b)` | heads-up de 2 cartas contra a IA do ricaco (tambem pura) |
 | `src/cassino/slots.js` | `criarSlots({rng})` | 3 roletes, tabela de pagamentos, RTP calculado (92%) |
 | `src/ui/cassino-ui.js` | `criarCassinoUI(opts)` | os 4 paineis (caixa, blackjack, poker, caca-niquel). E quem DEBITA e CREDITA a carteira |
-| `src/world/agarraveis.js` | `buildAgarraveis()` | os objetos que o anel verde levita, cada um com id estável |
 | `src/armas/revolver.js` | `criarRevolver(opts)` | revólver de 6 balas, mira, recarga tambor a tambor, `aoAcerto` |
-| `src/npc/zumbi.js` | `criarZumbi(opts)` | NPC 1004 da porta da mercearia: são → adoecendo (10 s) → zumbi → morto → sumido. Online quem decide é o servidor; este arquivo só desenha |
+| `src/inventario/inventario.js` | `criarInventario(opts)` | as 9 vagas da mochila. `adicionar` é **atômico**: simula antes e só escreve se couber inteiro |
+| `src/mobilia/catalogo.js` | `MOBILIA`, `itemDe`, `limiteDe` | os 9 itens da loja (geometria + preço + pegada em metros). Um item = um `build()` que devolve um `Object3D` |
+| `src/world/loja-jogos.js` | `buildLojaJogos(game)` | a loja TACO DE OURO: fachada, salão, balcão, mostruário e a Wanda atrás do balcão |
+| `src/ui/loja-ui.js` | `criarLojaUI(opts)` | a janela da loja: abas, grade de cards com −/0/+, carrinho e o botão comprar |
+| `src/ui/miniatura3d.js` | `criarFotografo(renderer)` | fotografa um `build()` do catálogo num render target de 384 px e devolve um data URL. Cacheado por id |
+| `src/systems/encaixe.js` | `criarEncaixe(opts)` | pôr e tirar móvel: fantasma verde/vermelho, pegada no chão, R/Q gira, segurar E guarda |
+| `src/save/save.js` | `criarSave(fontes)` | os 5 lugares de jogo salvo. Não conhece módulo nenhum: recebe funções que leem e escrevem cada pedaço |
+| `src/ui/save-ui.js` | `criarSaveUI(opts)` | a tela dos 5 lugares, nos modos `continuar` e `salvar`, com exportar/importar/apagar |
 | `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
-| `src/poder/anel.js` | `criarAnel(opts)` | telecinese do anel verde + montagem do helicóptero |
-| `src/poder/portalgun.js` | `criarPortalGun(opts)` | arma de portal: abre portal verde que leva à barbearia |
 
 ## Uma laje por metro quadrado
 
@@ -230,6 +234,65 @@ aposta e devolvem um `retorno`. Quem debita e credita e `src/ui/cassino-ui.js`.
 E isso que permite `node tools/teste-cassino.mjs` provar as 84 regras do jogo
 (contagem de As, 3:2 do blackjack, ordem das maos de poker, RTP do caca-niquel)
 sem abrir navegador nenhum.
+
+## A mochila, a loja e a mobília
+
+Quatro módulos que se seguram pelas bordas. A ordem entre eles é a regra:
+
+1. **A mochila tem 9 vagas e é a única verdade sobre o que o jogador carrega.**
+   `adicionar(id, qtd)` devolve o índice da última vaga usada, ou `-1`. Ele é
+   **atômico**: `simular()` roda a distribuição inteira em memória e só então a
+   função escreve. A versão ingênua — perguntar "cabe?" e depois "adiciona" —
+   mente quando o item ocupa mais de uma vaga: responde sim contando vaga por
+   vaga e depois enche a mochila pela metade, com o preço já cobrado.
+
+2. **A compra é espaço → ouro → entrega, nessa ordem.** `loja-ui.js` chama
+   `vagasNecessarias()` (que simula o carrinho INTEIRO), depois
+   `carteira.gastarOuro`, e só então `inventario.adicionar`. Na ordem trocada o
+   jogador paga por um móvel que não tem onde caber.
+
+3. **O encaixe faz três testes, e todos vêm da CASA.** `casa.zonasDeMovel`
+   entrega as `zonas` (retângulos onde a pegada tem que caber INTEIRA) e os
+   `proibidos` (vão da porta, passagens), cada um com o seu `motivo` — que é o
+   texto que o jogador lê no prompt. O terceiro teste é contra os móveis já
+   postos. Verde só quando os três passam.
+
+4. **A pegada não é o gabinete.** A mesa de sinuca de 7 pés mede 3,10 × 4,14 m
+   de pegada, mas o colisor registrado é a caixa do móvel — a folga do taco é
+   espaço de USO, e o jogador tem que poder andar nela.
+
+`podeEm(id, x, z, giro)`, `mirarEm(x, z, giro)` e `guardarEm(i)` existem para o
+teste de fumaça e para o console: mirar com a câmera num teste testaria o
+raycaster, e não os três testes de encaixe, que são o que importa.
+
+## Save em cinco lugares
+
+`src/save/save.js` **não importa módulo nenhum do jogo**. Ele recebe de `main.js`
+um objeto de funções (`lerOnde`/`escreverOnde`, `lerAparencia`/`escreverAparencia`,
+`lerInventario`/`escreverInventario`, …). Se conhecesse os módulos, cada um deles
+passaria a ter dois donos — e no dia em que `player.teleport` mudasse de
+assinatura o save quebraria em silêncio.
+
+**O que entra:** nome, aparência (os 20 índices **e** as 4 cores cruas, que não
+cabem no protocolo e por isso só sobrevivem a um F5 aqui), carteira, posição,
+missões feitas, hora do dia, itens destravados, mochila e a mobília instalada.
+
+**O que não entra:** as OPÇÕES (são da máquina, não do personagem — carregar um
+save não pode mudar a sensibilidade do mouse) e o MUNDO COMPARTILHADO (o dono
+dele é `servidor/sala.js`; uma segunda verdade sobre ele é bug garantido no coop).
+
+**Grava sozinho** no fim da cutscene, em cada compra, ao pôr ou tirar um móvel e
+a cada missão concluída. `salvar()` agrupa em 400 ms: escrever no `localStorage`
+é síncrono e trava a thread do desenho, e entrar na casa dispara missão, toast e
+gravação no mesmo quadro. **F5** abre a tela para escolher o lugar na mão.
+
+Quem entrou pelo botão JOGAR não escolheu lugar nenhum: a primeira gravação cai
+no primeiro lugar VAZIO, e com os cinco ocupados **não grava** — apagar o jogo de
+três horas de alguém para gravar um de três minutos é o pior erro que um save
+pode cometer.
+
+`esquema` sobe quando o formato muda de um jeito que o leitor velho não entende.
+Ler um lugar de esquema mais novo devolve `null` em silêncio.
 
 ## Assinaturas exatas
 
