@@ -269,7 +269,7 @@ export const CAMPOS_APARENCIA = [
 // catalogo JAQUETAS esta vazio e o campo continua no pacote por causa dos 20
 // bytes fixos, sempre em 0. Ver o comentario de JAQUETAS em roupas.js.
 export const APARENCIA_OPCOES = [
-  13, 10, 10, 10, 10, 10, 10, 10, 11, 10,
+  13, 10, 22, 10, 10, 10, 10, 10, 11, 10,
   11, 11, 19, 11, 11, 11, 11, 11, 1, 0,
 ]
 

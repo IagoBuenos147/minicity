@@ -7,6 +7,10 @@
 //   no torso, rotation.x > 0 -> inclina o tronco para a FRENTE
 // ---------------------------------------------------------------------------
 
+// A unica coisa que este arquivo pega do three sao Box3 e Matrix4, e so pra
+// medir onde a palpebra fecha (ver measureEyes). O resto continua sendo seno.
+import * as THREE from 'three'
+
 const TAU = Math.PI * 2
 const DEG = Math.PI / 180
 
@@ -86,52 +90,63 @@ export function createAnimator(character) {
   let blinkIn = 1.2 + Math.random() * 3.5
   let blinkT = -1
   let eyesBaseY = null   // posicao original do slot (nem sempre e zero)
-  let eyesPivotY = 0     // altura media dos globos, pra piscar sem escorregar
+  let eyesPivotY = 0     // meio da altura dos globos: e em volta dele que fecha
+  const _cxOlho = new THREE.Box3()
+  const _cxTmp = new THREE.Box3()
+  const _mInv = new THREE.Matrix4()
+  const _mTmp = new THREE.Matrix4()
 
   function eyesGroup() {
     const s = character && character.slots
     return (s && s.eyes) || null
   }
 
-  // Altura media das FOLHAS (os globos), somando os offsets do caminho. Se o
-  // catalogo devolver os olhos dentro de um grupo intermediario, a media dos
-  // filhos diretos daria zero e o olho escorregaria pra baixo ao piscar.
-  function scanEyes(o, offY, acc, depth) {
-    if (depth > 4 || !o.children) return
-    for (let i = 0; i < o.children.length; i++) {
-      const c = o.children[i]
-      if (!c || !c.position) continue
-      const y = offY + c.position.y
-      if (c.children && c.children.length) scanEyes(c, y, acc, depth + 1)
-      else { acc.sum += y + centroDaGeo(c); acc.n++ }
-    }
-  }
-
-  // Altura do miolo da geometria da folha, e nao so a posicao do no.
-  // Sem isto o forno de personagem (player/congelar.js) quebra a piscada dos
-  // NPCs: ele funde os globos num mesh so, e esse mesh fica na ORIGEM do slot
-  // com a altura toda dentro da geometria. A media das posicoes daria zero, o
-  // olho passaria a achatar em volta do lugar errado e escorregaria pra baixo
-  // a cada piscada. Com o miolo da geometria a conta continua certa antes e
-  // depois do forno.
-  function centroDaGeo(m) {
-    const g = m && m.geometry
-    if (!g || !g.attributes || !g.attributes.position) return 0
-    if (!g.boundingBox) g.computeBoundingBox()
-    const b = g.boundingBox
-    if (!b) return 0
-    const sy = m.scale ? m.scale.y : 1
-    return ((b.min.y + b.max.y) / 2) * sy
-  }
-
+  /**
+   * Onde a palpebra fecha.
+   *
+   * A piscada e uma so linha - achatar o GRUPO dos olhos em Y -, e a unica
+   * coisa que ela precisa saber e em volta de que altura achatar. Errar esse
+   * numero e o que punha "olhos piscando acima da cabeca": a conta anterior
+   * ignorava a escala dos grupos-pai (os globos sao esferas de raio 1 dentro de
+   * um grupo com escala 0.06) e media um pivo de 46 cm no lugar de 4,7 cm - a
+   * cada piscada os olhos saltavam meio metro pra cima do boneco.
+   *
+   * A conta certa e a CAIXA de tudo que existe dentro do grupo, expressa no
+   * sistema do proprio grupo, e o meio dela. Duas armadilhas que a versao
+   * intermediaria ainda caiu:
+   *
+   *  - somar posicao com centro de geometria a mao erra quando a peca esta
+   *    GIRADA, e as palpebras sao calotas giradas. A caixa local delas nao e a
+   *    extensao delas no espaco do grupo. Aqui cada caixa vem pelo caminho de
+   *    matriz completo (inversa do grupo vezes a matriz da peca), e Box3
+   *    transforma os oito cantos - giro incluso.
+   *  - MEDIA das pecas nao e MEIO da extensao. O olho tem mais calota em cima
+   *    (palpebra e cilio) do que embaixo, entao a media fica alta e fechar em
+   *    volta dela faz o olho escorregar. Fechar em volta do meio da extensao
+   *    nao escorrega, por construcao.
+   *
+   * A varredura olha a GEOMETRIA e nao so a posicao do no porque o forno de
+   * personagem (player/congelar.js) funde os globos num mesh so na ORIGEM do
+   * slot, com a altura toda dentro da geometria.
+   */
   function measureEyes(g) {
     if (eyesBaseY === null) eyesBaseY = g.position.y
-    const acc = { sum: 0, n: 0 }
-    scanEyes(g, 0, acc, 0)
-    eyesPivotY = acc.n ? acc.sum / acc.n : 0
+    g.updateWorldMatrix(true, true)
+    _mInv.copy(g.matrixWorld).invert()
+    _cxOlho.makeEmpty()
+    g.traverse((o) => {
+      const geo = o.geometry
+      if (!geo || !geo.attributes || !geo.attributes.position) return
+      if (!geo.boundingBox) geo.computeBoundingBox()
+      if (!geo.boundingBox) return
+      _cxTmp.copy(geo.boundingBox)
+      _mTmp.multiplyMatrices(_mInv, o.matrixWorld)
+      _cxTmp.applyMatrix4(_mTmp)
+      _cxOlho.union(_cxTmp)
+    })
+    eyesPivotY = _cxOlho.isEmpty() ? 0 : (_cxOlho.min.y + _cxOlho.max.y) / 2
   }
 
-  // abertura: 1 = olho aberto, 0 = fechado
   function setBlink(open) {
     if (character && typeof character.setBlink === 'function') {
       character.setBlink(open)
@@ -139,6 +154,8 @@ export function createAnimator(character) {
     }
     const g = eyesGroup()
     if (!g) return
+    // Quem refaz a medida a cada piscada e updateBlink, com o olho ABERTO.
+    // Aqui so o primeiro uso na vida do animador.
     if (eyesBaseY === null) measureEyes(g)
     g.scale.y = open
     g.position.y = eyesBaseY + eyesPivotY * (1 - open)

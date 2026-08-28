@@ -146,48 +146,108 @@ function resolverFoco(nome) {
 }
 
 // ---------------------------------------------------------------------------
-// MINIATURAS — enquadramento por CAMPO da aparencia.
+// MINIATURAS - enquadramento por CAMPO da aparencia.
 //
-//   foco       de qual preset sai a orbita e a junta
-//   quadro     altura visivel; e o zoom real da miniatura. Olho e pupila pedem
-//              menos de 30 cm de quadro, senao a peca some num card de 192 px
-//   giro       posicao do pedestal so pra esta foto
-//   orbY/orbP  angulo da camera, quando o do foco nao serve (o anel pede uma
-//              vista de cima que na tela cheia seria estranha)
-//   lado       desloca a peca no quadro, em fracao da largura. So a pupila usa:
-//              o olho fica fora do eixo do corpo e centralizar no eixo poria
-//              meio olho em cada borda
-//   esconde    campos zerados NA MINIATURA (nunca no boneco do jogador). Sem
-//              isto a foto do corte de cabelo sai com o chapeu por cima e as
-//              oito opcoes ficam identicas — que e exatamente a reclamacao das
-//              "seis pilulas cinzas iguais", so que em 3D
+// Duas geracoes de tabela convivem aqui, e a diferenca entre elas e o que
+// consertou os cards vazios.
+//
+// A PRIMEIRA (quadro/sobe na mao) aponta a camera pra JUNTA e recorta um
+// numero de metros escolhido a olho. Funciona pra peca grande e presa a junta
+// - a camisa, a calca. Falha em tudo que e pequeno ou que anda de lugar: o
+// card do olho mostrava meia cabeca, o da boca mostrava um cranio careca com
+// um risco embaixo, o do cabelo cortava a franja no alto do quadro. Cada uma
+// dessas fotos so ficava certa com um par de numeros diferente, e qualquer
+// cabeca nova do catalogo desmanchava o ajuste.
+//
+// A SEGUNDA (alvo: 'peca') nao tem numero de posicao nenhum: ela MEDE a caixa
+// da peca ja construida no boneco auxiliar e enquadra em volta dela. O card
+// passa a estar certo por construcao, e continua certo quando o catalogo
+// cresce - que e a diferenca entre consertar as dez fotos de hoje e consertar
+// a regra que gera todas elas.
+//
+//   alvo:'peca'  liga a medicao. A tabela vira so a MOLDURA: quanta folga em
+//                volta e de que angulo
+//   medePor      de qual slot sai a caixa (padrao: o proprio campo). A pupila
+//                mora dentro do slot dos olhos e nao tem slot proprio
+//   folga        quadro = maior lado da caixa x folga. 1.0 corta a peca rente;
+//                abaixo de 1 e close DENTRO dela
+//   metade       -1/+1 centraliza numa das metades em X. E o que faz a pupila
+//                virar UM olho grande em vez de dois olhos minusculos
+//   soPeca       esconde o RESTO do boneco. O card do colar mostrava um busto
+//                inteiro com um fio dourado de tres pixels; agora mostra o
+//                colar, que era o pedido
+//   fundo        'claro' troca o cartao escuro por um claro. So a tatuagem
+//                usa: a tinta e quase preta e sumia no cartao escuro assim que
+//                o corpo por tras dela saiu
+//   quadro       altura visivel em metros - vira RESERVA quando a peca medida
+//                da caixa vazia ('Nenhum' nao constroi nada pra medir)
+//   giro         posicao do pedestal so pra esta foto
+//   orbY/orbP    angulo da camera, quando o do foco nao serve
+//   lado         desloca a peca no quadro, em fracao da largura (so a via
+//                antiga usa; na via medida quem faz isso e 'metade')
+//   esconde      campos zerados NA MINIATURA (nunca no boneco do jogador). Sem
+//                isto a foto do corte de cabelo sai com o chapeu por cima e as
+//                opcoes ficam identicas
 // ---------------------------------------------------------------------------
 const MINI = {
   cabeca: { foco: 'rosto', quadro: 0.60, giro: 0.34, esconde: ['chapeu', 'cabelo'] },
-  olhos: { foco: 'rosto', quadro: 0.36, giro: 0.04, sobe: 0.044, esconde: ['chapeu'] },
-  pupila: { foco: 'rosto', quadro: 0.20, giro: 0.04, sobe: 0.046, lado: -0.40, esconde: ['chapeu'] },
-  nariz: { foco: 'rosto', quadro: 0.32, giro: 0.42, sobe: 0.004, esconde: ['chapeu'] },
-  boca: { foco: 'rosto', quadro: 0.30, giro: 0.24, sobe: -0.072, esconde: ['chapeu', 'barba'] },
-  barba: { foco: 'rosto', quadro: 0.48, giro: 0.32, sobe: -0.040, esconde: ['chapeu'] },
-  cabelo: { foco: 'rosto', quadro: 0.60, giro: 0.44, sobe: 0.045, esconde: ['chapeu'] },
-  sobrancelha: { foco: 'rosto', quadro: 0.34, giro: 0.04, sobe: 0.058, esconde: ['chapeu', 'cabelo'] },
+
+  // --- rosto: tudo aqui e medido -------------------------------------------
+  // O cabelo entra no 'esconde' dos tracos do olho pra cima porque a franja do
+  // corte padrao cobre a sobrancelha, e foto de sobrancelha sem sobrancelha a
+  // vista e a definicao de card inutil.
+  olhos: {
+    alvo: 'peca', folga: 1.05, quadro: 0.34, foco: 'rosto', giro: 0.03,
+    orbY: 0.10, esconde: ['chapeu', 'cabelo'],
+  },
+  pupila: {
+    alvo: 'peca', medePor: 'olhos', metade: -1, folga: 1.30, quadro: 0.15,
+    foco: 'rosto', giro: 0.02, orbY: 0.04, esconde: ['chapeu', 'cabelo'],
+  },
+  nariz: {
+    alvo: 'peca', folga: 2.10, quadro: 0.30, foco: 'rosto', giro: 0.40,
+    orbY: 0.52, esconde: ['chapeu'],
+  },
+  boca: {
+    alvo: 'peca', folga: 1.45, quadro: 0.26, foco: 'rosto', giro: 0.20,
+    orbY: 0.24, esconde: ['chapeu', 'barba'],
+  },
+  barba: {
+    alvo: 'peca', folga: 1.22, quadro: 0.46, foco: 'rosto', giro: 0.30,
+    orbY: 0.34, esconde: ['chapeu'],
+  },
+  cabelo: {
+    alvo: 'peca', folga: 1.22, quadro: 0.60, foco: 'rosto', giro: 0.42,
+    orbY: 0.40, esconde: ['chapeu'],
+  },
+  sobrancelha: {
+    alvo: 'peca', folga: 1.12, quadro: 0.30, foco: 'rosto', giro: 0.03,
+    orbY: 0.08, esconde: ['chapeu', 'cabelo'],
+  },
   pele: { foco: 'rosto', quadro: 0.58, giro: 0.24, esconde: ['chapeu'] },
   corCabelo: { foco: 'rosto', quadro: 0.60, giro: 0.42, sobe: 0.045, esconde: ['chapeu'] },
 
+  // --- roupa: peca grande e presa a junta, a via antiga serve ---------------
   chapeu: { foco: 'rosto', quadro: 0.66, giro: 0.36, sobe: 0.055 },
   // 'sobe' aqui SOMA ao do foco (que ja levanta o alvo pra cabeca caber);
   // por isso estes ficam em zero e so o tamanho do quadro muda.
   blusa: { foco: 'tronco', quadro: 1.32, giro: 0.30 },
   jaqueta: { foco: 'tronco', quadro: 1.34, giro: 0.30 },
-  // tatuagem mora no peito: com blusa a foto seria oito camisetas iguais
-  // Corte no queixo (o alto do quadro cai em y ~1.33, a base do craneo): a
-  // tatuagem e no peito e nos bracos, e com a cabeca no quadro ela virava um
-  // borrao de dois pixels. Cortar EXATAMENTE no queixo le como enquadramento,
-  // nao como cabeca decepada.
-  tatuagem: { foco: 'tronco', quadro: 0.68, giro: 0.28, sobe: -0.25, esconde: ['blusa', 'jaqueta'] },
-  colar: { foco: 'pescoco', quadro: 0.80, giro: 0.10 },
   calca: { foco: 'pernas', quadro: 1.14, giro: 0.22 },
   calcado: { foco: 'pes', quadro: 0.44, giro: 0.36 },
+
+  // --- acessorio: medido E sozinho no cartao --------------------------------
+  // A tatuagem muda de LUGAR conforme a opcao (braco, antebraco, pescoco,
+  // dorso da mao, peito). Nao existe numero fixo de enquadramento que sirva
+  // pras cinco: com o quadro do peito, a do antebraco ficava fora da foto.
+  tatuagem: {
+    alvo: 'peca', soPeca: true, fundo: 'claro', folga: 1.30, quadro: 0.68,
+    foco: 'tronco', giro: 0, orbY: 0.78, orbP: 0.06, esconde: ['blusa', 'jaqueta'],
+  },
+  colar: {
+    alvo: 'peca', soPeca: true, folga: 1.45, quadro: 0.80,
+    foco: 'pescoco', giro: 0.06, orbY: 0.10, orbP: 0.10,
+  },
   // O anel fica ~9 cm ABAIXO da junta da mao (ele mora no dedo anelar, e o
   // dedo aponta pra baixo no boneco parado). Enquadrar pela junta punha a foto
   // no antebraco e o anel virava um ponto dourado no canto.
@@ -248,6 +308,29 @@ function haloTex() {
   r.addColorStop(1.0, 'rgba(0,0,0,0)')
   g.fillStyle = r
   g.fillRect(0, 0, 128, 128)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+
+/**
+ * Cartao CLARO, pras pecas que sao quase pretas.
+ *
+ * A tatuagem e tinta rgba(26,24,38) - no cartao escuro, e com o corpo por tras
+ * dela escondido, o desenho ficava preto sobre azul-escuro e o card saia
+ * vazio. Num cartao claro a mesma tinta le como desenho em papel, que e o que
+ * uma folha de tatuagem e de verdade.
+ */
+function fundoMiniClaro() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const g = c.getContext('2d')
+  const r = g.createRadialGradient(32, 26, 2, 32, 32, 44)
+  r.addColorStop(0.0, '#e9e3d5')
+  r.addColorStop(0.60, '#cfc6b3')
+  r.addColorStop(1.0, '#8e8575')
+  g.fillStyle = r
+  g.fillRect(0, 0, 64, 64)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.SRGBColorSpace
   return t
@@ -641,6 +724,15 @@ export function criarProvador(opcoes = {}) {
   let miniPronto = false
   let cenaMini = null
   let camMini = null
+  let fundoEscuro = null
+  let fundoClaro = null
+  // Medida da peca fotografada. De modulo, e nao locais: miniatura() e chamada
+  // em rajada (a grade inteira de uma aba) e alocar tres objetos por card
+  // pagaria coletor de lixo no meio da animacao de entrada dos cards.
+  const _cxPeca = new THREE.Box3()
+  const _centroPeca = new THREE.Vector3()
+  const _tamPeca = new THREE.Vector3()
+  const _ocultos = []
   let aux = null
   let auxCampo = null       // campo que esta sobrescrito no boneco auxiliar
   let rt = null
@@ -657,7 +749,9 @@ export function criarProvador(opcoes = {}) {
     miniPronto = true
 
     cenaMini = new THREE.Scene()
-    cenaMini.background = guarda(fundoMini())
+    fundoEscuro = guarda(fundoMini())
+    fundoClaro = guarda(fundoMiniClaro())
+    cenaMini.background = fundoEscuro
 
     camMini = new THREE.PerspectiveCamera(34, 1, 0.02, 30)
 
@@ -738,6 +832,57 @@ export function criarProvador(opcoes = {}) {
     aux.root.updateWorldMatrix(true, true)
   }
 
+  /**
+   * Mede a caixa da peca `kind` no boneco auxiliar. Devolve false quando o
+   * slot esta vazio - que e o caso normal do 'Nenhum' de cada catalogo, e
+   * tambem o de peca que desenha em cima da pele sem geometria propria.
+   */
+  function medirPeca(kind) {
+    const alvos = aux.pecasDe ? aux.pecasDe(kind) : null
+    if (!alvos || !alvos.length) return false
+    _cxPeca.makeEmpty()
+    for (let i = 0; i < alvos.length; i++) {
+      if (alvos[i].children.length || alvos[i].isMesh) _cxPeca.expandByObject(alvos[i])
+    }
+    if (_cxPeca.isEmpty()) return false
+    _cxPeca.getCenter(_centroPeca)
+    _cxPeca.getSize(_tamPeca)
+    // caixa degenerada (peca de espessura zero em todos os eixos) nao serve
+    return (_tamPeca.x + _tamPeca.y + _tamPeca.z) > 1e-4
+  }
+
+  /**
+   * Esconde todo mesh do auxiliar que NAO pertence a peca fotografada.
+   *
+   * Mexe so em `visible`, e guarda quem foi apagado pra devolver depois: o
+   * auxiliar e um so pra pagina inteira e a proxima foto pode ser de um campo
+   * que precisa do corpo. Grupo fica visivel de proposito - em three.js pai
+   * invisivel apaga o filho, e o caminho da ancora ate a peca passa por varios
+   * grupos que nao sao dela.
+   */
+  function isolarPeca(kind) {
+    const alvos = aux.pecasDe ? aux.pecasDe(kind) : null
+    if (!alvos || !alvos.length) return
+    for (let i = 0; i < alvos.length; i++) alvos[i].userData.miniAlvo = true
+    aux.root.traverse((o) => {
+      if (!o.isMesh || !o.visible) return
+      let n = o
+      while (n) {
+        if (n.userData.miniAlvo) return
+        n = n.parent
+      }
+      o.visible = false
+      _ocultos.push(o)
+    })
+    for (let i = 0; i < alvos.length; i++) alvos[i].userData.miniAlvo = false
+  }
+
+  /** Devolve o corpo que isolarPeca escondeu. */
+  function devolverCorpo() {
+    for (let i = 0; i < _ocultos.length; i++) _ocultos[i].visible = true
+    _ocultos.length = 0
+  }
+
   /** Le o render target e devolve o PNG ja reduzido pro tamanho do card. */
   function lerPNG() {
     renderer.readRenderTargetPixels(rt, 0, 0, MINI_RT, MINI_RT, pixels)
@@ -773,6 +918,47 @@ export function criarProvador(opcoes = {}) {
     aux.root.rotation.y = mini.giro || 0
     aux.root.updateWorldMatrix(true, true)
 
+    // --- via MEDIDA -----------------------------------------------------------
+    // Tudo que e pequeno ou que anda de lugar passa por aqui. Ela nao usa
+    // enquadrar(): enquadrar mira na JUNTA, e o ponto desta via e justamente
+    // mirar na PECA. O resto (orbita, distancia pelo fov) e a mesma conta.
+    const orbY = mini.orbY !== undefined ? mini.orbY : f.orbY
+    const orbP = mini.orbP !== undefined ? mini.orbP : f.orbP
+    let medida = false
+    if (mini.alvo === 'peca') medida = medirPeca(mini.medePor || campo)
+    // 'Nenhum' num campo que fotografa a peca sozinha: cartao VAZIO. Cair na
+    // via antiga aqui traria o boneco inteiro de volta so nesse card, e a
+    // primeira foto da grade do colar seria a unica com um corpo dentro.
+    const vazio = !medida && mini.soPeca
+    if (vazio) aux.root.visible = false
+    if (medida) {
+      let lx = _tamPeca.x
+      let cx = _centroPeca.x
+      // 'metade' e a pupila: a caixa dos DOIS olhos vira a caixa de UM. Sai da
+      // propria medida (e nao de um deslocamento em metros escrito na tabela)
+      // pra continuar certa quando o catalogo mudar o afastamento dos olhos.
+      if (mini.metade) {
+        lx *= 0.5
+        cx += mini.metade * lx * 0.5
+      }
+      // O maior lado manda: o card e quadrado, entao caber na altura nao basta
+      // (o par de olhos e tres vezes mais largo que alto).
+      const maior = Math.max(lx, _tamPeca.y, _tamPeca.z * 0.7)
+      const quadroM = Math.max(0.02, maior * (mini.folga || 1.30))
+      _alvoDes.set(cx, _centroPeca.y, _centroPeca.z)
+      const cpM = Math.cos(orbP)
+      _dir.set(Math.sin(orbY) * cpM, Math.sin(orbP), Math.cos(orbY) * cpM)
+      _posDes.copy(_alvoDes).addScaledVector(_dir, (quadroM * 0.5) / Math.tan(f.fov * 0.5 * DEG))
+      if (mini.soPeca) isolarPeca(mini.medePor || campo)
+      const claro = mini.fundo === 'claro'
+      cenaMini.background = claro && fundoClaro ? fundoClaro : fundoEscuro
+      const png = renderMini(f.fov)
+      cenaMini.background = fundoEscuro
+      devolverCorpo()
+      cache.set(chave, png)
+      return png
+    }
+
     const desvioAntes = desvio
     // o card nao tem painel em cima, entao a peca fica centralizada — a nao ser
     // que ela nao more no eixo do corpo (ver 'lado' na tabela MINI)
@@ -785,14 +971,25 @@ export function criarProvador(opcoes = {}) {
     // e o proprio quadro.
     _fMini.junta = f.junta
     _fMini.fov = f.fov
-    _fMini.orbY = mini.orbY !== undefined ? mini.orbY : f.orbY
-    _fMini.orbP = mini.orbP !== undefined ? mini.orbP : f.orbP
+    _fMini.orbY = orbY
+    _fMini.orbP = orbP
     _fMini.sobe = f.sobe
     _fMini.larguraMin = quadro
     enquadrar(aux, _fMini, quadro, 1, mini.sobe || 0, centroAux)
     desvio = desvioAntes
 
-    camMini.fov = f.fov
+    const claroVazio = vazio && mini.fundo === 'claro'
+    if (claroVazio && fundoClaro) cenaMini.background = fundoClaro
+    const url = renderMini(f.fov)
+    if (claroVazio) cenaMini.background = fundoEscuro
+    if (vazio) aux.root.visible = true
+    cache.set(chave, url)
+    return url
+  }
+
+  /** Desenha o que estiver em _posDes/_alvoDes no render target e le o PNG. */
+  function renderMini(fov) {
+    camMini.fov = fov
     camMini.aspect = 1
     camMini.updateProjectionMatrix()
     camMini.position.copy(_posDes)
@@ -806,10 +1003,7 @@ export function criarProvador(opcoes = {}) {
     renderer.render(cenaMini, camMini)
     renderer.setRenderTarget(rtAntes)
     renderer.shadowMap.enabled = sombraAntes
-
-    const url = lerPNG()
-    cache.set(chave, url)
-    return url
+    return lerPNG()
   }
 
   /** Ja tenho a foto desta peca? (o customizer usa pra decidir o esqueleto) */

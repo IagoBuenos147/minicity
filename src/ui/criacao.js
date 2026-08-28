@@ -341,7 +341,6 @@ export function criarCriacao(args = {}) {
   const rodape = el('div', 'cri-rodape')
   const btnDado = el('button', 'cri-dado')
   btnDado.type = 'button'
-  btnDado.title = 'Sortear um visual (R)'
   btnDado.setAttribute('aria-label', 'Sortear um visual')
   const dica = el('div', 'cri-dica')
   dica.innerHTML = 'Setas trocam a peca, Tab troca a aba.<br>Enter confirma.'

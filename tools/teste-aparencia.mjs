@@ -55,9 +55,30 @@ ok('a ORDEM dos campos e a do contrato',
     'anelAcess', 'tatuagem', 'relogio', 'jaqueta', 'reservado',
   ].join(','), C.join(','))
 
-ok('o numero de opcoes bate com o contrato',
-  Proto.APARENCIA_OPCOES.join(',') === '8,5,5,5,5,5,5,5,6,5,6,6,6,6,6,6,6,6,6,0',
-  Proto.APARENCIA_OPCOES.join(','))
+// Aqui NAO se congela a lista de numeros. Ela ja foi congelada uma vez
+// ('8,5,5,5,...') e o resultado foi o pior dos dois mundos: o teste passou a
+// reprovar toda vez que alguem acrescentava uma camisa, e mesmo assim nao
+// pegava o defeito de verdade — a tabela ficar pra tras dos catalogos —,
+// porque um numero errado congelado continua batendo consigo mesmo.
+// Quem confere tabela CONTRA CATALOGO e o smoke ('APARENCIA_OPCOES bate com os
+// catalogos'), que roda no navegador e por isso pode importar appearance.js e
+// roupas.js. O que sobra pra este arquivo, que so enxerga o protocolo, sao as
+// invariantes de FORMA da tabela.
+{
+  const O = Proto.APARENCIA_OPCOES
+  const problemas = []
+  if (O.length !== C.length) problemas.push('tem ' + O.length + ' entradas pra ' + C.length + ' campos')
+  for (let i = 0; i < O.length; i++) {
+    const n = O[i]
+    if (!Number.isInteger(n) || n < 0 || n > 255) problemas.push(C[i] + '=' + n + ' fora de 0..255')
+  }
+  // Os dois campos que existem so pra ocupar o byte: jaqueta virou parte de
+  // blusa (uma opcao, o zero) e o ultimo byte e reserva pro proximo campo.
+  if (O[C.indexOf('jaqueta')] !== 1) problemas.push('jaqueta deveria ser 1')
+  if (O[C.indexOf('reservado')] !== 0) problemas.push('reservado deveria ser 0')
+  ok('a tabela de opcoes tem uma entrada valida por campo',
+    problemas.length === 0, problemas.join(' | ') || O.length + ' campos, todos em 0..255')
+}
 
 // A aparencia de 20 bytes foi o que levou a versao de 2 para 3; depois dela o
 // zumbi no servidor levou para 4. Este caso confere o PISO, e nao o numero

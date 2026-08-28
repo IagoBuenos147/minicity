@@ -1010,6 +1010,143 @@ function addLid(shell, sgn, spec, skin, lower) {
   return lid
 }
 
+// ---------------------------------------------------------------------------
+// IRIS COM FORMA
+//
+// A iris redonda e tres calotas empilhadas (iris, pupila, brilho) e nao da pra
+// fazer uma fenda de gato ou uma estrela com elas: calota e sempre um circulo.
+// A queixa era essa - "varias pupilas so mudam de cor, nao muda praticamente
+// nada".
+//
+// A saida e PINTAR a iris inteira numa textura e usar UMA calota so. E o mapa
+// UV da calota que faz isso valer a pena: capGeo() e uma SphereGeometry com o
+// polo virado pra frente, entao u anda em VOLTA do polo e v anda DO polo pra
+// borda. A textura ja e, de graca, um desenho em coordenadas POLARES - a
+// coluna e o angulo, a linha e o raio. Estrela, fenda, cruz e engrenagem viram
+// contas de meia linha nesse sistema, e o desenho acompanha a curvatura do
+// globo sem deformar, do mesmo jeito que a calota acompanhava.
+//
+// A calota da forma e ESTICA vezes maior que a iris redonda equivalente, e o
+// que passa do desenho fica transparente. E o que deixa a ponta da estrela
+// sair do circulo em vez de bater numa borda invisivel.
+const ESTICA = 1.30
+
+/**
+ * mascara(x, y) recebe a posicao em unidades de RAIO DA IRIS (o circulo da
+ * iris e x^2+y^2 = 1) e devolve:
+ *   0 nada (transparente, aparece a esclera)   2 pupila (preto)
+ *   1 iris (cor do catalogo)                   3 realce claro
+ */
+function irisTex(id, hex, mascara) {
+  return tex('iris-forma:' + id, 128, (g, s) => {
+    const c = new THREE.Color(hex)
+    const rI = Math.round(c.r * 255), gI = Math.round(c.g * 255), bI = Math.round(c.b * 255)
+    const img = g.createImageData(s, s)
+    const d = img.data
+    for (let y = 0; y < s; y++) {
+      // linha 0 = polo da calota. flipY da CanvasTexture ja poe a linha de cima
+      // em v = 1, que e exatamente onde o polo esta.
+      const rr = ((y + 0.5) / s) * ESTICA
+      for (let x = 0; x < s; x++) {
+        const ang = ((x + 0.5) / s) * Math.PI * 2
+        const px = Math.cos(ang) * rr
+        const py = Math.sin(ang) * rr
+        const q = mascara(px, py, rr, ang)
+        const i = (y * s + x) * 4
+        if (!q) { d[i + 3] = 0; continue }
+        d[i + 3] = 255
+        if (q === 2) { d[i] = 12; d[i + 1] = 10; d[i + 2] = 13; continue }
+        if (q === 3) { d[i] = 244; d[i + 1] = 246; d[i + 2] = 250; continue }
+        // Iris: fibra radial fina e anel escuro na borda. Sem os dois a cor
+        // chapada le como adesivo colado no olho.
+        const fibra = 0.88 + 0.12 * Math.sin(ang * 34)
+        // anel escuro so na BORDA mesmo. Comecando em 0.82 e caindo pra 0.55
+        // ele comia um terco da iris, e a forma preta no meio mais o anel
+        // escuro em volta deixavam sobrando um fiapo de cor: as doze pupilas
+        // novas sairam todas "pretas" na primeira folha de contato.
+        const limbo = rr > 0.88 ? 0.66 : 1
+        const k = fibra * limbo
+        d[i] = rI * k; d[i + 1] = gI * k; d[i + 2] = bI * k
+      }
+    }
+    g.putImageData(img, 0, 0)
+  })
+}
+
+// --- as mascaras -----------------------------------------------------------
+// Todas trabalham em raio-de-iris. `dentro` e o circulo da iris; o que cada uma
+// faz de diferente e o buraco preto no meio.
+const disco = (x, y, r) => (x * x + y * y) < r * r
+
+/** Estrela de n pontas, raio maximo r e vale em `vale` do raio. */
+function estrela(x, y, r, n, vale) {
+  const a = Math.atan2(y, x)
+  const rr = Math.sqrt(x * x + y * y)
+  const k = (Math.cos(a * n) + 1) * 0.5
+  return rr < r * (vale + (1 - vale) * k)
+}
+
+/** Coracao em coordenadas normalizadas, ponta pra baixo. */
+function coracao(x, y, r) {
+  const u = x / r, v = -y / r * 1.08 + 0.32
+  const t = u * u + v * v - 0.34
+  return (t * t * t - u * u * v * v * v) < 0
+}
+
+const FORMAS = {
+  fenda: (x, y, rr) => (rr < 1 ? (Math.abs(x) < 0.20 && rr < 0.94 ? 2 : 1) : 0),
+  cabra: (x, y, rr) => (rr < 1 ? (Math.abs(y) < 0.17 && Math.abs(x) < 0.80 ? 2 : 1) : 0),
+  estrela: (x, y, rr) => (rr < 1 ? (estrela(x, y, 0.66, 5, 0.42) ? 2 : 1) : 0),
+  coracao: (x, y, rr) => (rr < 1 ? (coracao(x, y, 0.66) ? 2 : 1) : 0),
+  cruz: (x, y, rr) => {
+    if (rr >= 1) return 0
+    const braco = (Math.abs(x) < 0.17 && Math.abs(y) < 0.68) || (Math.abs(y) < 0.17 && Math.abs(x) < 0.68)
+    return braco ? 2 : 1
+  },
+  alvo: (x, y, rr) => {
+    if (rr >= 1) return 0
+    if (rr < 0.30) return 2
+    if (rr > 0.50 && rr < 0.62) return 3
+    if (rr > 0.70 && rr < 0.78) return 2
+    return 1
+  },
+  dupla: (x, y, rr) => {
+    if (rr >= 1) return 0
+    // 0.08 de folga entre as duas nao separava nada a 190 px: as duas pupilas
+    // colavam numa so e a opcao ficava igual a 'media escura'.
+    return (disco(x - 0.36, y, 0.21) || disco(x + 0.36, y, 0.21)) ? 2 : 1
+  },
+  flor: (x, y, rr, ang) => {
+    // a IRIS e que tem petala; a pupila continua redonda
+    const borda = 0.80 + 0.26 * Math.abs(Math.cos(ang * 3))
+    if (rr >= borda) return 0
+    return rr < 0.30 ? 2 : 1
+  },
+  espiral: (x, y, rr, ang) => {
+    if (rr >= 1) return 0
+    if (rr < 0.18) return 2
+    // Braco FINO e mais voltas. Com 0.34 de largura e 1.7 volta o preto tomava
+    // metade do disco e o que se via era uma mancha, nao um espiral.
+    const fase = (ang / (Math.PI * 2) + rr * 2.6) % 1
+    return fase < 0.20 ? 2 : 1
+  },
+  losango: (x, y, rr) => (rr < 1 ? ((Math.abs(x) + Math.abs(y)) < 0.62 ? 2 : 1) : 0),
+  quebrada: (x, y, rr, ang) => {
+    if (rr >= 1) return 0
+    if (rr < 0.32) return 2
+    // Cinco fendas em CUNHA: finas junto da pupila e abrindo pra borda, que e
+    // como vidro racha. A versao anterior testava um seno quase saturado e as
+    // rachaduras tinham menos de um pixel de largura - nao apareciam.
+    const d = Math.abs(((ang * 5 / (Math.PI * 2)) % 1) - 0.5)
+    return (d < 0.018 + rr * 0.055 && rr < 0.93) ? 2 : 1
+  },
+  engrenagem: (x, y, rr, ang) => {
+    if (rr >= 1) return 0
+    const dente = 0.44 + 0.13 * (Math.cos(ang * 8) > 0 ? 1 : 0)
+    return rr < dente ? 2 : 1
+  },
+}
+
 /** Iris + pupila + brilho, colados na superficie do globo `g`. */
 function addPupil(shell, sgn, g, p) {
   // Raios lineares do catalogo viram angulos de calota (r = rx * sen(theta)).
@@ -1020,6 +1157,30 @@ function addPupil(shell, sgn, g, p) {
   // vezes), entao a cor do segundo olho tem que sair do sinal do lado. Um slot
   // separado por olho custaria mais um byte no pacote de aparencia.
   const irisHex = sgn > 0 && p.cor2 !== undefined ? p.cor2 : p.cor
+
+  // --- via da FORMA: uma calota pintada, sem calota de pupila --------------
+  if (p.forma && FORMAS[p.forma]) {
+    const theta = Math.min(1.45, irisTheta * ESTICA)
+    const m = stdMat('iris-forma-mat:' + p.forma + ':' + irisHex.toString(16), {
+      map: irisTex(p.forma + ':' + irisHex.toString(16), irisHex, FORMAS[p.forma]),
+      transparent: true,
+      // alphaTest junto com transparent: o alphaTest joga fora o pixel vazio
+      // antes do teste de profundidade (senao a esclera atras some), e o
+      // transparent suaviza a borda do desenho, que a 128 px serrilha feio.
+      alphaTest: 0.4,
+      roughness: 0.24, metalness: 0.05, side: THREE.FrontSide,
+    })
+    const cap = flatPiece(new THREE.Mesh(capGeo(theta, 40, 20), m))
+    cap.scale.setScalar(L_IRIS)
+    cap.receiveShadow = true
+    shell.add(cap)
+    const gl = flatPiece(new THREE.Mesh(capGeo(pupilTheta * (p.glint || 0.44), 12, 6), glintMat()))
+    gl.scale.setScalar(L_GLINT)
+    gl.rotation.set(-0.16, -sgn * 0.32, 0)
+    shell.add(gl)
+    return
+  }
+
   const iris = flatPiece(new THREE.Mesh(capGeo(irisTheta, 26, 12), irisMatOf(irisHex)))
   iris.scale.setScalar(L_IRIS)
   iris.receiveShadow = true
@@ -1071,6 +1232,23 @@ const PUPIL_SPECS = [
   { iris: 0.0240, pupil: 0.0095, cor: 0x8d9aa0, veins: false, glint: 0.62 },
   // A que da carater: um olho azul, outro mel. Ver addPupil.
   { iris: 0.0235, pupil: 0.0105, cor: 0x4f93a6, cor2: 0xa0651f, veins: false, glint: 0.58 },
+
+  // --- COM FORMA ------------------------------------------------------------
+  // Daqui pra baixo o campo `pupil` nao desenha nada (a forma vem da textura),
+  // mas continua declarado: e ele que dimensiona o BRILHO, e olho sem brilho
+  // fica morto. `iris` continua mandando no tamanho da calota.
+  { iris: 0.0245, pupil: 0.0130, cor: 0xc9a227, forma: 'fenda', veins: false, glint: 0.50 },
+  { iris: 0.0245, pupil: 0.0130, cor: 0x8a6f3c, forma: 'cabra', veins: false, glint: 0.46 },
+  { iris: 0.0250, pupil: 0.0140, cor: 0x7d4fc0, forma: 'estrela', veins: false, glint: 0.52 },
+  { iris: 0.0250, pupil: 0.0140, cor: 0xc4506e, forma: 'coracao', veins: false, glint: 0.54 },
+  { iris: 0.0245, pupil: 0.0130, cor: 0x3f8fb5, forma: 'cruz', veins: false, glint: 0.48 },
+  { iris: 0.0255, pupil: 0.0120, cor: 0x2e8b74, forma: 'alvo', veins: false, glint: 0.44 },
+  { iris: 0.0245, pupil: 0.0125, cor: 0xc07a3a, forma: 'dupla', veins: false, glint: 0.50 },
+  { iris: 0.0250, pupil: 0.0120, cor: 0x4f86c6, forma: 'flor', veins: false, glint: 0.56 },
+  { iris: 0.0255, pupil: 0.0115, cor: 0x7f63bd, forma: 'espiral', veins: false, glint: 0.42 },
+  { iris: 0.0245, pupil: 0.0130, cor: 0xb03a3a, forma: 'losango', veins: false, glint: 0.50 },
+  { iris: 0.0250, pupil: 0.0130, cor: 0x99a0a8, forma: 'quebrada', veins: true, glint: 0.46 },
+  { iris: 0.0250, pupil: 0.0125, cor: 0xa8801f, forma: 'engrenagem', veins: false, glint: 0.48 },
 ]
 
 const PUPIL_NAMES = [
@@ -1084,6 +1262,18 @@ const PUPIL_NAMES = [
   ['mel', 'Mel'],
   ['cinza', 'Cinza'],
   ['hetero', 'Heterocromia'],
+  ['fenda', 'Fenda de gato'],
+  ['cabra', 'Barra de cabra'],
+  ['estrela', 'Estrela'],
+  ['coracao', 'Coracao'],
+  ['cruz', 'Cruz'],
+  ['alvo', 'Alvo'],
+  ['dupla', 'Pupila dupla'],
+  ['flor', 'Petala'],
+  ['espiral', 'Espiral'],
+  ['losango', 'Losango'],
+  ['quebrada', 'Rachada'],
+  ['engrenagem', 'Engrenagem'],
 ]
 
 /** Indice de pupila que veio no ctx (nome novo ou antigo). */

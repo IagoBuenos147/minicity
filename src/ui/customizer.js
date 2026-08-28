@@ -543,13 +543,23 @@ const CSS = `
  *  - uma pilula dourada escorrega de uma aba pra outra, entao da pra ver que
  *    voce ENTROU em outra aba e nao so que uma cor trocou.
  */
+// NENHUM `title` NESTE ARQUIVO, DE PROPOSITO.
+//
+// O atributo title do navegador vira aquele balaozinho que aparece sozinho um
+// segundo depois do mouse parar. Num painel que e uma GRADE DE FOTOS ele so
+// atrapalha: o card ja mostra a peca, e o balao surge por cima justamente da
+// foto que a pessoa esta olhando pra decidir. Foi pedido pra sair.
+//
+// No lugar dele ficou aria-label: a mesma informacao pro leitor de tela, e
+// zero pixel na tela de quem enxerga.
 export function criarBarraAbas(opcoes = {}) {
   injectStyle()
   const root = el('div', 'cz-tabnav')
   const btnPrev = el('button', 'cz-navbtn', '‹')
   const btnNext = el('button', 'cz-navbtn', '›')
   btnPrev.type = 'button'; btnNext.type = 'button'
-  btnPrev.title = 'Aba anterior'; btnNext.title = 'Proxima aba'
+  btnPrev.setAttribute('aria-label', 'Aba anterior')
+  btnNext.setAttribute('aria-label', 'Proxima aba')
   const faixa = el('div', 'cz-tabs')
   const marca = el('span', 'cz-tabmark')
   faixa.appendChild(marca)
@@ -574,7 +584,7 @@ export function criarBarraAbas(opcoes = {}) {
       grupoAnterior = def.grupo
       const b = el('button', 'cz-tab', def.label)
       b.type = 'button'
-      b.title = def.title
+      b.setAttribute('aria-label', def.title)
       b.addEventListener('click', () => setAtiva(campo, true))
       faixa.appendChild(b)
       botoes.set(campo, b)
@@ -698,7 +708,8 @@ export function criarSecao(campo, opcoes = {}) {
   const prev = el('button', 'cz-arrow', '‹')
   const next = el('button', 'cz-arrow', '›')
   prev.type = 'button'; next.type = 'button'
-  prev.title = 'Anterior'; next.title = 'Proximo'
+  prev.setAttribute('aria-label', 'Anterior')
+  next.setAttribute('aria-label', 'Proximo')
   prev.addEventListener('click', () => passoItem(-1))
   next.addEventListener('click', () => passoItem(+1))
   const label = el('span', 'cz-seclabel', def.title)
@@ -717,7 +728,7 @@ export function criarSecao(campo, opcoes = {}) {
       dot.type = 'button'
       dot.style.setProperty('--c', cssHex(opt && opt.hex))
       dot.style.setProperty('--d', Math.min(i, 14) * 22 + 'ms')
-      dot.title = nomeDe(opt, i)
+      dot.setAttribute('aria-label', nomeDe(opt, i))
       dot.addEventListener('click', () => escolher(i))
       caixa.appendChild(dot)
       cards.push(dot)
@@ -730,7 +741,7 @@ export function criarSecao(campo, opcoes = {}) {
       card.type = 'button'
       card.style.setProperty('--v', String(i))
       card.style.setProperty('--d', Math.min(i, 14) * 22 + 'ms')
-      card.title = nomeDe(opt, i)
+      card.setAttribute('aria-label', nomeDe(opt, i))
 
       const thumb = el('span', 'cz-thumb')
       const glifo = el('span', 'cz-glyph g-' + def.glyph + ' v' + i)

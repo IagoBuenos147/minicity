@@ -853,6 +853,222 @@ export function createCharacter(opts = {}) {
     for (const t of tinted) t.mesh.material = M[t.tone]
   }
 
+  // As caixas sao de modulo, e nao locais: acomodar() roda a cada troca de
+  // aparencia e alocar dois Box3 por clique so pra medir seria lixo de graca.
+  const _cxCabelo = new THREE.Box3()
+  const _cxChapeu = new THREE.Box3()
+  const _cxCranio = new THREE.Box3()
+  const _pontoJunta = new THREE.Vector3()
+
+  /**
+   * O CHAPEU TAPA O CABELO POR CIMA.
+   *
+   * O problema: cada bone declara a propria folga sobre o cranio (o bone
+   * vermelho usa 1.13) e essa folga foi medida contra o CABELO CURTO, cuja
+   * casca e 1.078. Corte grande nao cabe la dentro: os espetos saem a 1.5 do
+   * raio do cranio e o afro e mais largo que a copa, entao a mecha atravessa o
+   * pano e o boneco fica de cabelo POR CIMA do bone. Foi o que o dono do
+   * projeto viu na tela.
+   *
+   * A correcao nao e por peca, e por MEDIDA: o penteado inteiro e achatado em
+   * Y ate o topo dele entrar debaixo do topo do chapeu. Achatar em volta da
+   * junta da cabeca (que e a origem do slot) faz o certo nas duas pontas — a
+   * mecha de cima desce pra dentro da copa e o cabelo comprido encurta um
+   * pouco, que e exatamente o que cabelo enfiado embaixo de um bone faz.
+   *
+   * Por que MEDIR e nao marcar cada chapeu na mao:
+   *  - um chapeu novo passa a funcionar sem ninguem lembrar de marcar nada;
+   *  - a conta e a mesma pros 13 formatos de cabeca (cranio alto pede mais
+   *    achatamento que cranio baixo, e a medida sabe disso sozinha).
+   *
+   * Faixa de cabelo, tiara e viseira NAO achatam nada: o topo delas fica
+   * ABAIXO do alto do cranio, entao nao ha o que tapar — e o teste e esse
+   * mesmo, comparar o topo do chapeu com o topo da cabeca nua.
+   *
+   * O piso de 0.55 existe pra um caso so: peca rasa marcada como copa. Sem ele
+   * a conta mandaria k = 0.2 e o cabelo viraria uma pelicula pintada no cranio.
+   */
+  function acomodarCabeloSobOChapeu() {
+    const cab = slots.cabelo
+    if (!cab) return
+    cab.scale.set(1, 1, 1)                // sempre do zero: a conta e idempotente
+    const cha = slots.chapeu
+    if (!cha || !cha.children.length || !cab.children.length || !headMesh) return
+
+    cab.updateWorldMatrix(true, true)
+    cha.updateWorldMatrix(true, true)
+    _cxCabelo.setFromObject(cab)
+    _cxChapeu.setFromObject(cha)
+    _cxCranio.setFromObject(headMesh)
+    if (_cxCabelo.isEmpty() || _cxChapeu.isEmpty() || _cxCranio.isEmpty()) return
+
+    // Tudo em Y de MUNDO e relativo a junta: assim a conta nao muda quando o
+    // personagem esta com opts.scale (o boneco das miniaturas usa) nem quando
+    // o pedestal girou (giro em Y nao mexe em altura).
+    head.getWorldPosition(_pontoJunta)
+    const base = _pontoJunta.y
+    const topoChapeu = _cxChapeu.max.y - base
+    const topoCabelo = _cxCabelo.max.y - base
+    const topoCranio = _cxCranio.max.y - base
+    // Copa ou faixa? A conta so faz sentido pra peca que tem COPA. A primeira
+    // versao exigia que o topo do chapeu passasse do topo do cranio, e isso
+    // reprovava o chapeu de aba e o bone - a copa deles fica ABAIXO do alto da
+    // cabeca (a cabeca e um ovo, o chapeu assenta no ovo) e os dois voltaram a
+    // deixar o espeto do cabelo furar o pano. O corte em 62% da altura do
+    // cranio separa o que se quer separar: copa de um lado, faixa de cabelo e
+    // viseira do outro.
+    if (topoChapeu < topoCranio * 0.62) return
+    if (topoCabelo <= 0) return
+
+    // 1,5 cm pra dentro do pano: encostar exatamente no topo deixa a mecha
+    // brigando com a casca do chapeu e piscando conforme a camera anda.
+    const alvo = topoChapeu - 0.015
+    const k = alvo / topoCabelo
+    if (k >= 1) return                    // ja cabia
+    const ky = Math.max(0.55, k)
+    cab.scale.y = ky
+    // Achatar so em Y resolve o espeto que aponta pra CIMA e nao o que aponta
+    // pra fora: no bone vermelho sobrava um espeto furando o pano na testa. O
+    // aperto lateral e de proposito mais fraco que o de cima (60%), porque
+    // cabelo saindo pelos LADOS de um bone e o que acontece de verdade - o que
+    // nao pode e sair por cima.
+    cab.scale.x = cab.scale.z = 1 - (1 - ky) * 0.6
+  }
+
+  // --- colar por cima da roupa ---------------------------------------------
+  const _raio = new THREE.Raycaster()
+  const _rOrig = new THREE.Vector3()
+  const _rDir = new THREE.Vector3()
+  const _pv = new THREE.Vector3()
+  const _mNeck = new THREE.Matrix4()
+  const _malhasRoupa = []
+  const _malhasColar = []
+  const _pa = new THREE.Vector3()
+  const _pb = new THREE.Vector3()
+
+  /**
+   * O COLAR TEM QUE SOBRESAIR A ROUPA, SEMPRE.
+   *
+   * A regra ja estava escrita em roupas.js e nao estava sendo cumprida: o
+   * catalogo de blusa cresceu pra 19 pecas (paleto, blusao, moletom com capuz,
+   * gola alta) e as constantes de raio do colar continuaram as de quando havia
+   * seis camisetas. Medindo os 190 pares blusa x colar por raio, seis dos dez
+   * colares ficavam ENTERRADOS - a gargantilha 26 mm dentro do pano em todas
+   * as blusas, o cordao grosso ate 58 mm. Era a queixa "alguns nao estao
+   * sobresaindo a camisa, entao nao esta mostrando".
+   *
+   * Ajustar peca por peca resolveria os dez de hoje e voltaria a quebrar na
+   * proxima jaqueta do catalogo. Entao aqui nao ha numero de raio nenhum: o
+   * codigo MEDE onde esta a superficie da roupa e abre o colar ate pousar
+   * sobre ela.
+   *
+   * Como se mede: pra cada ponto do colar tira-se o angulo em volta do pescoco
+   * e joga-se um raio DE FORA PRA DENTRO nesse mesmo angulo e altura. O
+   * primeiro toque e a cara de fora do pano naquele ponto. De fora pra dentro,
+   * e nao o contrario, porque o tecido e de uma face so: um raio saindo de
+   * dentro atravessaria o pano sem ver nada.
+   *
+   * O ajuste e uma ESCALA em X/Z do slot inteiro, e nao um empurrao em Z. O
+   * cordao e um anel centrado no pescoco; empurrar pra frente o faria sair
+   * pelas costas. Abrir o anel e o que uma corrente faz de verdade quando se
+   * veste um casaco por baixo dela.
+   */
+  function acomodarColarSobreARoupa() {
+    const col = slots.colar
+    if (!col || !col.children.length) return
+
+    // Sempre do estado ORIGINAL. Trocar so de blusa nao reconstroi o colar
+    // (DEPENDE.colar so olha 'colar'), entao sem isto o ajuste da camisa
+    // anterior somaria com o desta e o cordao ia crescendo a cada clique.
+    _malhasColar.length = 0
+    col.traverse((o) => {
+      if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return
+      let base = o.userData.colarBase
+      if (!base) {
+        base = { px: o.position.x, pz: o.position.z, sx: o.scale.x, sz: o.scale.z }
+        o.userData.colarBase = base
+      }
+      o.position.x = base.px; o.position.z = base.pz
+      o.scale.x = base.sx; o.scale.z = base.sz
+      _malhasColar.push(o)
+    })
+    if (!_malhasColar.length) return
+
+    _malhasRoupa.length = 0
+    for (const k of ['blusa', 'jaqueta']) {
+      for (const o of pecasDe(k)) o.traverse((x) => { if (x.isMesh && x.visible) _malhasRoupa.push(x) })
+    }
+    if (!_malhasRoupa.length) return
+
+    root.updateWorldMatrix(true, true)
+    _mNeck.copy(neck.matrixWorld).invert()
+
+    for (let mi = 0; mi < _malhasColar.length; mi++) {
+      const o = _malhasColar[mi]
+      const pos = o.geometry.attributes.position
+      const passo = Math.max(1, Math.floor(pos.count / 20))
+      let n = 0, somaR = 0, somaX = 0, somaZ = 0, falta = 0
+      for (let i = 0; i < pos.count; i += passo) {
+        _pv.fromBufferAttribute(pos, i)
+        o.localToWorld(_pv)
+        _pv.applyMatrix4(_mNeck)
+        if (_pv.z <= 0.004) continue              // costas: ninguem ve
+        const r = Math.hypot(_pv.x, _pv.z)
+        if (r < 0.004) continue                   // em cima do eixo: sem direcao
+        n++; somaR += r; somaX += _pv.x; somaZ += _pv.z
+        const ang = Math.atan2(_pv.x, _pv.z)
+        const sx = Math.sin(ang), sz = Math.cos(ang)
+        _rOrig.set(sx * 0.9, _pv.y, sz * 0.9).applyMatrix4(neck.matrixWorld)
+        _rDir.set(-sx, 0, -sz).transformDirection(neck.matrixWorld).normalize()
+        _raio.set(_rOrig, _rDir)
+        _raio.far = 1.8
+        const toques = _raio.intersectObjects(_malhasRoupa, false)
+        if (!toques.length) continue
+        _pv.copy(toques[0].point).applyMatrix4(_mNeck)
+        // 3 mm por fora do pano: menos que isso e o metal briga com o tecido no
+        // z-buffer e pisca conforme a camera anda.
+        const d = Math.hypot(_pv.x, _pv.z) + 0.003 - r
+        if (d > falta) falta = d
+      }
+      if (!n || falta <= 0) continue
+      // Teto de 3 cm: numa peca muito volumosa a conta pediria um aro de
+      // palhaco. Preso aqui sobra alguma coisa enterrada no caso extremo, e
+      // isso e melhor que um cordao de 25 cm de diametro boiando no peito.
+      if (falta > 0.030) falta = 0.030
+
+      const rBar = somaR / n
+      const cx = somaX / n, cz = somaZ / n
+      const rc = Math.hypot(cx, cz)
+
+      // Duas familias de peca, e elas pedem correcoes OPOSTAS.
+      //
+      // ANEL EM VOLTA DO PESCOCO (corrente, gargantilha): o centro dele esta no
+      // eixo, entao nao ha pra onde empurrar - empurrar pra frente faria o aro
+      // sair pelas costas. O que se faz e ABRIR o aro.
+      //
+      // PECA SOLTA NA FRENTE (pingente, crucifixo, gravata): o centro dela ja
+      // esta fora do eixo. Abrir escalaria o desenho junto; o certo e
+      // EMPURRAR ela pra fora, na propria direcao radial.
+      if (rc < rBar * 0.4) {
+        const f = (rBar + falta) / rBar
+        o.scale.x *= f
+        o.scale.z *= f
+        continue
+      }
+      // O empurrao e calculado em espaco do PESCOCO e convertido pro espaco do
+      // PAI da peca: crucifixo e gravata moram dentro de grupos girados, e somar
+      // o vetor direto na posicao mandaria a peca pro lado.
+      _pa.set(0, 0, 0)
+      _pb.set((cx / rc) * falta, 0, (cz / rc) * falta)
+      neck.localToWorld(_pa)
+      neck.localToWorld(_pb)
+      o.parent.worldToLocal(_pa)
+      o.parent.worldToLocal(_pb)
+      o.position.x += _pb.x - _pa.x
+      o.position.z += _pb.z - _pa.z
+    }
+  }
+
   function setAppearance(next) {
     const prev = Object.assign({}, app)
     aplicar(app, next)
@@ -873,6 +1089,11 @@ export function createCharacter(opts = {}) {
     // pele do braco, que pertence a peca ANTERIOR — cobertura parcial deixaria
     // o braco escondido debaixo de uma manga que nao existe mais.
     if (mexeu) aplicarCobertura()
+    // SEMPRE, e nao so quando `mexeu`: trocar de chapeu sem trocar de cabelo
+    // (ou o contrario) muda a relacao entre os dois, e o slot que nao foi
+    // reconstruido ainda esta com o achatamento do chapeu ANTERIOR.
+    acomodarCabeloSobOChapeu()
+    acomodarColarSobreARoupa()
     return app
   }
 
@@ -881,6 +1102,8 @@ export function createCharacter(opts = {}) {
   rebuildCabeca()
   for (const kind of ORDEM) rebuild(kind)
   aplicarCobertura()
+  acomodarCabeloSobOChapeu()
+  acomodarColarSobreARoupa()
 
   // --- API ------------------------------------------------------------------
 
@@ -907,12 +1130,30 @@ export function createCharacter(opts = {}) {
 
   if (opts.scale && opts.scale !== 1) root.scale.setScalar(opts.scale)
 
+  /**
+   * Todo objeto que pertence a um slot: o Group ancorado MAIS o que a peca
+   * pendurou noutras juntas por ctx.montar() (tatuagem de braco, par de pes).
+   *
+   * Existe pro provador conseguir fotografar UMA peca sem o corpo em volta —
+   * o card do colar tinha que mostrar o colar, e mostrava um busto inteiro com
+   * um risco dourado de tres pixels no meio.
+   */
+  function pecasDe(kind) {
+    const out = []
+    const s = slots[kind]
+    if (s && s.name === 'slot:' + kind) out.push(s)
+    const m = montados[kind]
+    if (m) for (const o of m) out.push(o)
+    return out
+  }
+
   return {
     root,
     height: PLAYER.HEIGHT,
     appearance: app,
     parts,
     slots,
+    pecasDe,
     fpAnchor,
     headCenterY: HEAD_CENTER_Y,
     hipsY: HIPS_Y,

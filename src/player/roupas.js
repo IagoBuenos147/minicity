@@ -2188,7 +2188,10 @@ export const COLARES = [
     build(c) {
       const g = new THREE.Group()
       const fio = tecido(0x6b4a2c, 0.95)
-      g.add(corrente(fio, 0.0030, 0.048))
+      // Fio de 3 mm com conchas de 1 cm era um risco marrom sobre pele: de
+      // longe o colar de conchas nao existia. Aqui tudo cresceu junto pra peca
+      // ter silhueta propria em vez de virar uma linha.
+      g.add(corrente(fio, 0.0044, 0.048))
       // conchas espalhadas na volta do cordao, cada uma virada pra fora
       const concha = tecido(0xf0e4cc, 0.6)
       const n = 9
@@ -2196,12 +2199,12 @@ export const COLARES = [
         const a = -1.5 + (i / (n - 1)) * 3.0
         const r = (R_CORRENTE + 0.006)
         const s = bola(1, concha, 8)
-        s.scale.set(0.011, 0.007, 0.014)
+        s.scale.set(0.017, 0.010, 0.021)
         s.position.set(Math.sin(a) * r, 0.048 - Math.cos(a) * 0.008, Math.cos(a) * r * 0.95)
         s.rotation.y = a
         g.add(s)
       }
-      const dente = caixa(0.010, 0.026, 0.006, concha)
+      const dente = caixa(0.014, 0.034, 0.007, concha)
       dente.rotation.x = -0.30
       pingente(c, g, fio, dente, 0.160)
       return g
@@ -2237,15 +2240,20 @@ export const COLARES = [
       // alta no pescoco (0.070) e larga: e o unico colar que nao desce nada.
       // Mesmo assim nasce do raio da gola alta â€” colada na pele ela sumiria
       // dentro daquela peca.
-      const banda = tubo(R_CORRENTE + 0.001, R_CORRENTE + 0.004, 0.026, m, 16, true)
-      banda.position.y = 0.070
+      // A 0.070 ela ficava DEBAIXO DO QUEIXO: fotografada de frente, a
+      // mandibula tapava a peca inteira e a gargantilha era a unica opcao do
+      // catalogo que nao aparecia em nenhuma roupa. A 0.052 ela continua alta
+      // (o cordao comum tambem mora nessa altura) e passa a ser vista.
+      const Y = 0.052
+      const banda = tubo(R_CORRENTE + 0.001, R_CORRENTE + 0.005, 0.030, m, 16, true)
+      banda.position.y = Y
       g.add(banda)
-      const chapa = caixa(0.022, 0.020, 0.008, metal(0xc9ced4))
-      chapa.position.set(0, 0.070, (R_CORRENTE + 0.004) * 0.98)
+      const chapa = caixa(0.026, 0.024, 0.008, metal(0xc9ced4))
+      chapa.position.set(0, Y, (R_CORRENTE + 0.005) * 0.98)
       g.add(chapa)
       for (const sgn of [1, -1]) {
-        const t = caixa(0.008, 0.026, 0.006, metal(0xc9ced4))
-        t.position.set(sgn * 0.036, 0.070, (R_CORRENTE + 0.004) * 0.80)
+        const t = caixa(0.009, 0.030, 0.006, metal(0xc9ced4))
+        t.position.set(sgn * 0.036, Y, (R_CORRENTE + 0.005) * 0.80)
         t.rotation.y = -sgn * 0.55
         g.add(t)
       }
@@ -2457,17 +2465,60 @@ export const ANEIS = [
 // mais barato e mais flexivel que pintar um mapa novo pra cada tom de pele:
 // a tinta e a mesma, a pele por baixo continua sendo a do personagem.
 
-function tintaMat(id, desenho) {
-  const map = tex('tatu:' + id, 128, desenho, 1)
+const LADO_TATU = 128        // o sistema de coordenadas em que os desenhos foram feitos
+
+function tintaMat(id, desenho, voltas = 1) {
+  // A textura sai em 192 (com alphaTest a borda do recorte e dura, e a escada
+  // de 128 px aparecia na pele agora que o traco engrossou), mas o desenho
+  // continua sendo feito no quadro de 128: as figuras posicionam tudo em
+  // PIXEL FIXO - 'const y = 34 + i * 58' -, entao passar 192 pra elas empurra
+  // a arte toda pro canto de cima e deixa metade da faixa em branco. Foi o que
+  // aconteceu na primeira tentativa: a tatuagem de pescoco sumiu da pele.
+  // g.scale leva o traco junto, entao a grossura relativa nao muda.
+  // `voltas` existe por causa da geometria: a faixa e um CILINDRO e a camera
+  // ve no maximo um terco da volta. Um desenho de figura unica (o escorpiao, a
+  // ancora) tem uma chance em tres de estar virado pro lado certo, e nas outras
+  // duas a tatuagem "nao aparece" - foi assim que ela chegou na tela do dono do
+  // projeto. Com duas voltas sempre ha uma figura de frente, e a figura fica
+  // espremida na textura na mesma proporcao em que a volta a estica de volta na
+  // pele, entao o bicho nao sai achatado. Banda continua (tribal, arame) fica
+  // em uma volta so: repetir um padrao que ja se repete nao muda nada.
+  const map = tex('tatu:' + id + (voltas > 1 ? 'x' + voltas : ''), 192, (g, s) => {
+    const k = s / LADO_TATU
+    for (let i = 0; i < voltas; i++) {
+      g.save()
+      g.translate((s * i) / voltas, 0)
+      g.scale(k / voltas, k)
+      desenho(g, LADO_TATU)
+      g.restore()
+    }
+  }, 1)
   // alphaTest em vez de transparent: recorte por descarte de pixel nao entra na
   // fila de transparencia, entao a tinta nunca aparece por cima do braco errado
-  return stdMat('tatu-mat:' + id, {
+  return stdMat('tatu-mat:' + id + ':' + voltas, {
     map, transparent: false, alphaTest: 0.4, roughness: 0.95, metalness: 0,
     side: THREE.DoubleSide,
   })
 }
 
-const TINTA = 'rgba(26,24,38,0.92)'
+/**
+ * A TINTA E O TAMANHO DELA.
+ *
+ * A queixa foi "algumas tatuagens nao estao mostrando no corpo e nao estao com
+ * um devido destaque", e fotografando o boneco de perto da pra ver por que: o
+ * desenho e pintado num quadrado de textura que depois se enrola em volta do
+ * braco. A circunferencia do braco tem 30 cm e so um terco dela olha pra
+ * camera, entao um traco de 7 px do desenho chega na tela com ~1,5 cm - do
+ * tamanho de um arranhao. A tatuagem de PEITO, que e chapa e nao rolo, sempre
+ * apareceu bem; as de membro e que sumiam.
+ *
+ * Duas correcoes, as duas globais pra nao ter que reequilibrar dez desenhos:
+ *  - GROSSO engorda todo traco do setor de tatuagem de uma vez;
+ *  - a tinta passa a ser OPACA. A 0.92 ela ja clareava sobre pele clara, e
+ *    sobre os tons escuros do catalogo virava um borrao do mesmo tom da pele.
+ */
+const GROSSO = 1.75
+const TINTA = 'rgba(20,18,30,1)'
 
 /** Faixa tribal: o desenho tem que ler a 3 m, entao tracos grossos. */
 function desenhoTribal(g, s) {
@@ -2476,7 +2527,7 @@ function desenhoTribal(g, s) {
   g.lineCap = 'round'
   // Duas faixas onduladas e alguns raios. A versao densa de antes cobria a
   // textura inteira e o braco virava uma mancha preta a 3 m de distancia.
-  g.lineWidth = 7
+  g.lineWidth = 7 * GROSSO
   for (let i = 0; i < 2; i++) {
     g.beginPath()
     const y = 34 + i * 58
@@ -2484,7 +2535,7 @@ function desenhoTribal(g, s) {
     for (let x = 0; x <= s; x += 12) g.lineTo(x, y + Math.sin(x * 0.16 + i * 2) * 11)
     g.stroke()
   }
-  g.lineWidth = 3.5
+  g.lineWidth = 3.5 * GROSSO
   for (let i = 0; i < 6; i++) {
     g.beginPath()
     g.moveTo(i * 22 + 6, 70)
@@ -2506,9 +2557,13 @@ function desenhoCaveira(g, s) {
 
 function desenhoEstrelas(g, s) {
   g.clearRect(0, 0, s, s)
-  g.fillStyle = 'rgba(20,18,28,0.9)'
-  for (let i = 0; i < 9; i++) {
-    const x = (i * 37) % s, y = (i * 53) % s, r = 6 + (i % 3) * 4
+  g.fillStyle = TINTA
+  // Eram 9 estrelas de raio 6 a 14 num quadro de 128 que depois se enrola em
+  // 27 cm de antebraco: cada uma chegava na tela com meio centimetro e o
+  // antebraco parecia limpo. Agora sao 14 de raio 13 a 25 - continua sendo uma
+  // chuva de estrelas, mas com estrelas que se veem.
+  for (let i = 0; i < 14; i++) {
+    const x = (i * 37) % s, y = (i * 53) % s, r = 13 + (i % 3) * 6
     estrela(g, x, y, r)
   }
 }
@@ -2539,22 +2594,22 @@ function desenhoEscorpiao(g, s) {
     g.fill()
   }
   // cauda enrolada por cima, com o ferrao virado pra frente
-  g.lineWidth = 7
+  g.lineWidth = 7 * GROSSO
   g.beginPath()
   g.moveTo(cx, cy - 44)
   g.quadraticCurveTo(cx + 30, cy - 62, cx + 16, cy - 88)
   g.stroke()
   g.beginPath(); g.moveTo(cx + 16, cy - 88); g.lineTo(cx - 2, cy - 78)
-  g.lineWidth = 5; g.stroke()
+  g.lineWidth = 5 * GROSSO; g.stroke()
   // pincas e patas
-  g.lineWidth = 6
+  g.lineWidth = 6 * GROSSO
   for (const sgn of [1, -1]) {
     g.beginPath()
     g.moveTo(cx + sgn * 8, cy + 4)
     g.quadraticCurveTo(cx + sgn * 30, cy + 6, cx + sgn * 26, cy - 14)
     g.stroke()
     for (let i = 0; i < 3; i++) {
-      g.lineWidth = 4
+      g.lineWidth = 4 * GROSSO
       g.beginPath()
       g.moveTo(cx + sgn * 7, cy - 8 - i * 12)
       g.lineTo(cx + sgn * 26, cy + 2 - i * 16)
@@ -2569,25 +2624,25 @@ function desenhoAncora(g, s) {
   g.fillStyle = TINTA
   g.lineCap = 'round'
   const cx = s / 2
-  g.lineWidth = 9
+  g.lineWidth = 9 * GROSSO
   g.beginPath(); g.moveTo(cx, 26); g.lineTo(cx, 100); g.stroke()
-  g.lineWidth = 8
+  g.lineWidth = 8 * GROSSO
   g.beginPath(); g.moveTo(cx - 26, 44); g.lineTo(cx + 26, 44); g.stroke()
   // pata da ancora: meio circulo com as pontas viradas pra cima
-  g.lineWidth = 9
+  g.lineWidth = 9 * GROSSO
   g.beginPath(); g.arc(cx, 92, 30, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke()
-  g.lineWidth = 7
+  g.lineWidth = 7 * GROSSO
   g.beginPath(); g.moveTo(cx - 29, 100); g.lineTo(cx - 38, 84); g.stroke()
   g.beginPath(); g.moveTo(cx + 29, 100); g.lineTo(cx + 38, 84); g.stroke()
   // argola
-  g.lineWidth = 7
+  g.lineWidth = 7 * GROSSO
   g.beginPath(); g.arc(cx, 22, 10, 0, 7); g.stroke()
 }
 
 function desenhoArame(g, s) {
   g.clearRect(0, 0, s, s)
   g.strokeStyle = TINTA
-  g.lineWidth = 6
+  g.lineWidth = 6 * GROSSO
   g.lineCap = 'round'
   // DOIS periodos inteiros na largura: a faixa da a volta no braco e emenda
   // com ela mesma, entao qualquer numero quebrado deixaria um degrau na costura
@@ -2599,7 +2654,7 @@ function desenhoArame(g, s) {
     }
     g.stroke()
   }
-  g.lineWidth = 5
+  g.lineWidth = 5 * GROSSO
   for (let i = 0; i < 8; i++) {
     const x = i * (s / 8) + 8
     const y = s / 2 + Math.sin((x / s) * Math.PI * 4) * 16
@@ -2629,7 +2684,7 @@ function desenhoLetras(g, s) {
   g.font = 'italic bold 22px "Times New Roman", serif'
   g.fillText('E TUDO', s / 2, s / 2 + 16, s * 0.8)
   g.strokeStyle = TINTA
-  g.lineWidth = 3
+  g.lineWidth = 3 * GROSSO
   g.beginPath(); g.moveTo(18, s / 2 + 38); g.lineTo(s - 18, s / 2 + 38); g.stroke()
 }
 
@@ -2742,7 +2797,7 @@ export const TATUAGENS = [
     build(c) {
       // ombro/braco DIREITO virado pra frente: o bicho tem cabeca e cauda,
       // entao ele so le se nascer no arco da frente e nao dando a volta
-      const f = faixaMembro(tintaMat('escorpiao', desenhoEscorpiao), 0.048, 0.150)
+      const f = faixaMembro(tintaMat('escorpiao', desenhoEscorpiao, 2), 0.048, 0.150)
       f.position.y = -0.100
       c.montar(f, 'armRUpper')
       return null
@@ -2752,7 +2807,7 @@ export const TATUAGENS = [
     id: 'ancora',
     nome: 'Ancora de marinheiro',
     build(c) {
-      const f = faixaMembro(tintaMat('ancora', desenhoAncora), 0.0435, 0.150)
+      const f = faixaMembro(tintaMat('ancora', desenhoAncora, 2), 0.0435, 0.150)
       f.position.y = -c.medida.FORE_ARM * 0.48
       c.montar(f, 'armRLower')
       return null
@@ -2774,7 +2829,7 @@ export const TATUAGENS = [
     id: 'estrela-ombro',
     nome: 'Estrela no ombro',
     build(c) {
-      const f = faixaMembro(tintaMat('estrela-ombro', desenhoEstrelaOmbro), 0.0505, 0.100, 12)
+      const f = faixaMembro(tintaMat('estrela-ombro', desenhoEstrelaOmbro, 2), 0.0505, 0.100, 12)
       f.position.y = -0.026
       c.montar(f, 'armRUpper')
       return null

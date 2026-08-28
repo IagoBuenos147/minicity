@@ -132,6 +132,153 @@ export const GRUPOS = {
       quadros: 60, espera: 900,
     },
   ],
+  // contato das miniaturas: uma folha com todas as fotos de alguns campos
+  minis: [
+    {
+      nome: 'minis-1-rosto',
+      antes: `G.fluxo.foto(true)
+        const campos = ['olhos','pupila','boca','cabelo','sobrancelha','barba','nariz','colar','tatuagem']
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:12px monospace;color:#ddd;padding:6px'
+        for (const f of campos) {
+          const lin = document.createElement('div')
+          lin.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:4px'
+          const t = document.createElement('b'); t.textContent = f; t.style.width='90px'
+          lin.appendChild(t)
+          for (let i=0;i<8;i++) {
+            const u = G.provador.miniatura(f, i)
+            if (!u) continue
+            const im = document.createElement('img'); im.src = u
+            im.style.cssText = 'width:88px;height:88px;background:#222;border:1px solid #444'
+            lin.appendChild(im)
+          }
+          d.appendChild(lin)
+        }
+        document.body.appendChild(d)`,
+      espera: 900, semQuadro: true,
+    },
+    {
+      nome: 'minis-2-pupilas',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:12px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:3px'
+        for (let i=0;i<22;i++) {
+          const u = G.provador.miniatura('pupila', i)
+          if (!u) continue
+          const im = document.createElement('img'); im.src = u
+          im.style.cssText = 'width:150px;height:150px;background:#222;border:1px solid #444'
+          d.appendChild(im)
+        }
+        document.body.appendChild(d)`,
+      espera: 900, semQuadro: true,
+    },
+  ],
+  colar: [
+    {
+      nome: 'colar-1-combos',
+      antes: `G.fluxo.foto(true)
+        const combos = [[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],[12,3],[12,5],[12,8],[12,10],[2,4],[9,7]]
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        for (const [bl,co] of combos) {
+          const w = document.createElement('div')
+          const t = document.createElement('div'); t.textContent = 'blusa '+bl+' colar '+co
+          G.provador.setAparencia(Object.assign({}, G.appearance, {blusa:bl, colar:co}))
+          G.provador.focar('tronco', true)
+          G.provador.atualizar(0.5)
+          G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:196px;height:172px;object-fit:cover;object-position:50% 30%;background:#222;border:1px solid #444'
+          w.appendChild(t); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 900, semQuadro: true,
+    },
+  ],
+  tatu: [
+    {
+      nome: 'tatu-1-corpo',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        for (const pele of [0]) {
+          for (let t = 1; t < 11; t++) {
+            const w = document.createElement('div')
+            const lb = document.createElement('div'); lb.textContent = 'pele '+pele+' tatu '+t
+            G.provador.setAparencia(Object.assign({}, G.appearance, {blusa:0, tatuagem:t, pele:pele}))
+            G.provador.focar('tronco', true)
+            G.provador.atualizar(0.5); G.provador.render()
+            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+            im.style.cssText = 'width:300px;height:340px;object-fit:none;object-position:50% 70%;background:#222;border:1px solid #444'
+            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+          }
+        }
+        document.body.appendChild(d)`,
+      espera: 900, semQuadro: true,
+    },
+  ],
+  chapeu: [
+    {
+      nome: 'chapeu-1-cabelo',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        for (const ch of [0, 1, 2, 4, 6, 8]) {
+          for (const cab of [1, 7]) {
+            const w = document.createElement('div')
+            const lb = document.createElement('div'); lb.textContent = 'chapeu '+ch+' cabelo '+cab
+            G.provador.setAparencia(Object.assign({}, G.appearance, {chapeu:ch, cabelo:cab}))
+            G.provador.focar('rosto', true)
+            G.provador.atualizar(0.5); G.provador.render()
+            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+            im.style.cssText = 'width:300px;height:190px;object-fit:contain;background:#222;border:1px solid #444'
+            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+          }
+        }
+        document.body.appendChild(d)`,
+      espera: 900, semQuadro: true,
+    },
+  ],
+  // Dentro da casa velha, de dia e de noite. E o par que mostra se a luz
+  // interna resolve o "ta muito escuro dentro da casa".
+  // Dentro da casa velha, de dia e de noite. E o par que mostra se a luz
+  // interna resolve o "ta muito escuro dentro da casa".
+  casaluz: [
+    {
+      nome: 'casa-luz-1-noite',
+      antes: `G.fluxo.foto(true)
+        G.lighting.pauseCycle = true
+        const c = G.camera
+        c.position.set(46.4, 1.95, 15.9); c.lookAt(40.6, 0.95, 13.1)
+        c.fov = 70; c.updateProjectionMatrix()
+        G.lighting.setTimeOfDay(0.80); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 500, semQuadro: true,
+    },
+    {
+      nome: 'casa-luz-2-dia',
+      antes: `const c = G.camera
+        G.lighting.setTimeOfDay(0.22); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
+    },
+    {
+      nome: 'casa-luz-3-porta-noite',
+      antes: `const c = G.camera
+        c.position.set(44.2, 1.76, 15.4); c.lookAt(42.6, 0.45, 12.5)
+        c.fov = 74; c.updateProjectionMatrix()
+        G.lighting.setTimeOfDay(0.80); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
+    },
+    {
+      nome: 'casa-luz-4-porta-dia',
+      antes: `const c = G.camera
+        G.lighting.setTimeOfDay(0.22); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
+    },
+  ],
   cutscene: [
     {
       nome: 'tela-10-porao',
@@ -141,6 +288,7 @@ export const GRUPOS = {
           { id:1, nome:'Iago',  aparencia:G.appearance, anfitriao:true },
           { id:2, nome:'Irmao', aparencia:Object.assign({}, G.appearance, {cabeca:4,cabelo:6,pele:5,blusa:9,calca:4,chapeu:2}), anfitriao:false },
           { id:3, nome:'Primo', aparencia:Object.assign({}, G.appearance, {cabeca:9,cabelo:3,pele:8,blusa:14,calca:7,colar:3}), anfitriao:false },
+          { id:4, nome:'Amigo', aparencia:Object.assign({}, G.appearance, {cabeca:6,cabelo:8,pele:3,blusa:5,calca:9,chapeu:4}), anfitriao:false },
         ])
         for (let i=0;i<90;i++) G.abertura.atualizar(1/60)`,
       quadros: 3, espera: 500,
@@ -148,6 +296,18 @@ export const GRUPOS = {
     {
       nome: 'tela-11-porao-fala',
       antes: 'for (let i=0;i<300;i++) G.abertura.atualizar(1/60)',
+      quadros: 3, espera: 400,
+    },
+    {
+      // o instante do CASSINO: e onde todos falam e (agora) levantam juntos
+      nome: 'tela-12-porao-cassino',
+      antes: 'for (let i=0;i<1250;i++) G.abertura.atualizar(1/60)',
+      quadros: 3, espera: 400,
+    },
+    {
+      // a parte 2: a fila em frente a casa
+      nome: 'tela-13-rua-fila',
+      antes: 'for (let i=0;i<340;i++) G.abertura.atualizar(1/60)',
       quadros: 3, espera: 400,
     },
   ],
