@@ -145,13 +145,22 @@ export function createCollisionWorld() {
   // e so incluem o que realmente tapa a visao: paredes e predios.
   const occluders = []
 
+  /**
+   * DEVOLVE a caixa criada, e ela tem `ativo`. E assim que o cenario que esta
+   * escondido para de tapar a camera: os predios continuam na lista, mas com
+   * `ativo = false` a camera atravessa como se nao existissem. Sem isto, trocar
+   * de cenario deixaria a camera batendo em paredes invisiveis.
+   */
   function addOccluder(minX, minY, minZ, maxX, maxY, maxZ, tag) {
-    occluders.push({
+    const o = {
       minX: Math.min(minX, maxX), maxX: Math.max(minX, maxX),
       minY: Math.min(minY, maxY), maxY: Math.max(minY, maxY),
       minZ: Math.min(minZ, maxZ), maxZ: Math.max(minZ, maxZ),
       tag: tag || '',
-    })
+      ativo: true,
+    }
+    occluders.push(o)
+    return o
   }
 
   function pointInside(b, x, y, z) {
@@ -169,6 +178,7 @@ export function createCollisionWorld() {
     let best = 1
     for (let i = 0; i < occluders.length; i++) {
       const o = occluders[i]
+      if (!o.ativo) continue
       const minX = o.minX - pad, maxX = o.maxX + pad
       const minY = o.minY - pad, maxY = o.maxY + pad
       const minZ = o.minZ - pad, maxZ = o.maxZ + pad
@@ -202,6 +212,7 @@ export function createCollisionWorld() {
     const g = new THREE.Group()
     const mat = new THREE.MeshBasicMaterial({ color: 0xff5588, wireframe: true })
     for (const b of occluders) {
+      if (!b.ativo) continue
       const m = new THREE.Mesh(new THREE.BoxGeometry(
         b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ), mat)
       m.position.set((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2)

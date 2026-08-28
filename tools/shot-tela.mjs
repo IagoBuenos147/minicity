@@ -240,6 +240,64 @@ export const GRUPOS = {
     },
   ],
   // A coluna do canto: mao, dinheiro e as nove vagas da mochila.
+  // A troca de cenario: a cidade, o quarteirao de Paracatu e o vazio.
+  cenario: [
+    {
+      nome: 'cenario-1-cidade',
+      antes: `G.fluxo.jogar()
+        G.cenarios.mostrar('cidade')
+        G.fluxo.foto(true)
+        const c = G.camera
+        c.position.set(43, 12, 30); c.lookAt(40, 2, 6)`,
+      quadros: 20, espera: 500,
+    },
+    {
+      nome: 'cenario-2-hudson-alto',
+      antes: `G.cenarios.mostrar('hudson')
+        G.fluxo.foto(true)
+        const c = G.camera
+        c.position.set(-96, 62, 104); c.lookAt(0, 0, 0)`,
+      quadros: 20, espera: 900,
+    },
+    {
+      nome: 'cenario-3-caldas',
+      antes: `const c = G.camera
+        c.position.set(66, 1.9, 46); c.lookAt(63, 2.2, -30)`,
+      quadros: 14, espera: 400,
+    },
+    {
+      nome: 'cenario-4-caixeta',
+      antes: `const c = G.camera
+        c.position.set(-40, 1.9, 68); c.lookAt(40, 2.4, 66)`,
+      quadros: 14, espera: 400,
+    },
+    {
+      nome: 'cenario-5-caixito',
+      antes: `const c = G.camera
+        c.position.set(-40, 2.0, -70); c.lookAt(40, 3.0, -68)`,
+      quadros: 14, espera: 400,
+    },
+    {
+      nome: 'cenario-6-josino',
+      antes: `const c = G.camera
+        c.position.set(-66, 1.9, -40); c.lookAt(-63, 2.2, 40)`,
+      quadros: 14, espera: 400,
+    },
+    {
+      nome: 'cenario-7-casa-perto',
+      antes: `const c = G.camera
+        c.position.set(70, 2.6, 10); c.lookAt(58, 2.0, 2)`,
+      quadros: 14, espera: 400,
+    },
+    {
+      nome: 'cenario-8-vazio',
+      antes: `G.cenarios.mostrar('cidade')
+        G.cenarios.sumir(true)
+        const c = G.camera
+        c.position.set(43, 12, 30); c.lookAt(40, 2, 6)`,
+      quadros: 20, espera: 500,
+    },
+  ],
   // A tela dos cinco lugares de save.
   save: [
     {

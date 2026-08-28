@@ -60,6 +60,8 @@ import { criarCassinoUI } from './ui/cassino-ui.js'
 import { criarLojaUI } from './ui/loja-ui.js'
 import { buildCasaVelha } from './world/casa-velha.js'
 import { buildLojaJogos } from './world/loja-jogos.js'
+import { criarCenarios } from './cenario/cenarios.js'
+import { buildQuadraHudson } from './world/hudson/quadra.js'
 import { criarProvador } from './ui/provador.js'
 import { criarCriacao } from './ui/criacao.js'
 import { criarMenu, lerOpcoes } from './ui/menu.js'
@@ -292,6 +294,28 @@ function registerCameraOccluders(col) {
   }
 }
 
+// --- CENARIOS ---------------------------------------------------------------
+//
+// O jogo tem dois mundos: a cidade do cassino (a de sempre) e a QUADRA HUDSON,
+// um quarteirao real de Paracatu-MG. F6 troca, F7 faz sumir. O cabecalho de
+// cenario/cenarios.js explica por que a troca e GRAVADA em vez de listada.
+const cenarios = criarCenarios({
+  scene, colisao: collision, interacao: interaction,
+  game, player, hud, lighting, moduleUpdates, propUpdates,
+})
+game.cenarios = cenarios
+
+cenarios.registrar('cidade', {
+  nome: 'Cidade do Cassino',
+  // O spawn e a calcada em frente a casa velha: o mesmo lugar em que a cutscene
+  // deixa o jogador, pra voltar da Quadra Hudson nao ser uma surpresa.
+  spawn: { x: 43, z: 8.8, yaw: Math.PI },
+})
+cenarios.registrar('hudson', {
+  nome: 'Quadra Hudson — Paracatu, MG',
+  construir: (g, reg) => buildQuadraHudson(g, reg),
+})
+
 // --- Mundo -----------------------------------------------------------------
 function mount(result, name) {
   if (!result) { console.warn('modulo sem retorno:', name); return }
@@ -324,6 +348,12 @@ function pintarMochila() {
   hud.setMochila(inventario.slots, fotoDe, vagaSelecionada)
 }
 inventario.aoMudar(pintarMochila)
+
+// TUDO daqui ate o fecharGravacao() la embaixo vira propriedade do cenario
+// 'cidade': os grupos, os colisores, os occluders, os pontos de interacao e os
+// updates — inclusive o que nasceu la dentro de buildCity, que este arquivo
+// nunca enxerga. E isso que a tecla F6 desliga de uma vez so.
+cenarios.abrirGravacao('cidade')
 
 const city = buildCity(game)
 mount(city, 'city')
@@ -405,18 +435,7 @@ const veiculos = criarVeiculos({
 game.veiculos = veiculos
 scene.add(veiculos.grupo)
 
-// --- clima, neve e revolver ------------------------------------------------
-// Comeca no SOL: a cidade se ve inteira, e a tecla C (documentada no painel de
-// ajuda) leva pra chuva e pra neve. Comecar chovendo escondia metade do mapa de
-// quem abria o jogo pela primeira vez.
-const clima = criarClima({
-  scene, camera, renderer, lighting,
-  groundY: (x, z) => game.groundY(x, z),
-  inicial: 'sol',
-})
-game.clima = clima
-if (clima.grupo) scene.add(clima.grupo)
-
+// --- neve e revolver -------------------------------------------------------
 // A NEVE PARADA (no chao, nos telhados, nas arvores) e outro modulo: o clima
 // cuida do floco caindo, este cuida do que ja caiu. Quem liga os dois e o laco
 // principal, passando clima.cobertura pra neve.setCobertura — assim a cobertura
@@ -510,19 +529,42 @@ if (city && Array.isArray(city.occluders)) {
   }
 }
 
-// Ciclo dia/noite acende/apaga a iluminacao publica.
-const lampLights = (city && city.lampLights) || []
-const lampMats = (city && city.lampMaterials) || []
-lighting.onNight = (isNight) => {
-  for (const l of lampLights) l.visible = isNight
-  for (const m of lampMats) m.emissiveIntensity = isNight ? 1.6 : 0.12
-}
-if (typeof lighting.isNight === 'boolean') lighting.onNight(lighting.isNight)
+// O ciclo dia/noite acende a iluminacao publica DO CENARIO EM CENA. Quem liga
+// isso e cenarios.mostrar(), porque cada mundo tem os seus postes — a lista fixa
+// que morava aqui acendia os da cidade estando o jogador em Paracatu.
 
 // props que se animam sozinhos (poste de barbeiro, semaforo, etc.)
+// Fica DENTRO da gravacao de proposito: sao updates da cidade, e num cenario
+// fora de cena eles nao devem custar um quadro sequer.
 scene.traverse((o) => {
   if (o.userData && typeof o.userData.update === 'function') propUpdates.push(o.userData.update)
 })
+
+cenarios.fecharGravacao()
+
+// O REGISTRO da cidade fica com o chao e com as luzes de poste. Quem troca de
+// cenario troca as duas coisas junto — sem isso o jogador andaria em Paracatu
+// na altura da calcada da outra cidade, e o ciclo dia/noite acenderia postes
+// que nao estao mais em cena.
+const regCidade = cenarios.registroDe('cidade')
+regCidade.groundY = (city && typeof city.groundY === 'function') ? city.groundY : (() => 0)
+regCidade.luzes = (city && city.lampLights) || []
+regCidade.materiaisLuz = (city && city.lampMaterials) || []
+// `teleportar: false`: o jogo ainda esta no menu, e mandar o jogador pro spawn
+// agora atrapalharia o passeio de camera que roda atras dele.
+cenarios.mostrar('cidade', { teleportar: false })
+
+// --- CLIMA -----------------------------------------------------------------
+// FORA da gravacao, de proposito: chuva e neve sao do CEU, e o ceu e o mesmo
+// nos dois mundos. Comeca no SOL — comecar chovendo escondia metade do mapa de
+// quem abria o jogo pela primeira vez.
+const clima = criarClima({
+  scene, camera, renderer, lighting,
+  groundY: (x, z) => game.groundY(x, z),
+  inicial: 'sol',
+})
+game.clima = clima
+if (clima.grupo) scene.add(clima.grupo)
 
 // ---------------------------------------------------------------------------
 // O PALCO (provador) — no lugar da camera de preview que existia aqui.
@@ -1036,6 +1078,9 @@ game.fluxo = {
   criacao: abrirCriacao,
   comecar: comecarPartida,      // aceita um elenco falso (ferramenta de foto)
   menu() { estado = 'menu'; hud.setJogando(false); menu.abrir('principal') },
+  /** Troca de mundo sem passar pela tecla. `id` opcional: sem ele, cicla. */
+  cenario(id) { return id ? cenarios.mostrar(id) : cenarios.proximo() },
+  sumir(v) { return cenarios.sumir(v) },
   /**
    * Pula direto pro JOGO, sem menu, sem criacao e sem cutscene.
    *
@@ -1216,6 +1261,14 @@ function frame() {
   // quem quer escolher EM QUAL lugar, ou guardar um jogo antes de experimentar
   // alguma coisa. preventDefault mora no core/input: F5 recarrega a pagina.
   if (input.wasPressed('F5') && !uiAberta() && estado === 'jogo') saveUI.abrir('salvar')
+  // F6 TROCA DE CENARIO, F7 FAZ O CENARIO SUMIR.
+  //
+  // Trocar leva o jogador junto (nasce no spawn do mundo novo); sumir deixa ele
+  // exatamente onde esta, no vazio — e assim que da pra fotografar o personagem
+  // sem uma parede atras. As duas mexem no MUNDO e nao no jogador, entao valem
+  // tambem no menu: e la que se ve o passeio de camera do cenario novo.
+  if (input.wasPressed('F6') && !uiAberta()) cenarios.proximo()
+  if (input.wasPressed('F7') && !uiAberta()) cenarios.sumir()
   if (input.wasPressed('KeyC') && !uiAberta()) {
     const nova = clima.proximaEstacao()
     hud.toast(NOME_ESTACAO[nova] || nova)

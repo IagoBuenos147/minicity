@@ -272,6 +272,8 @@ const HELP_ROWS = [
   [['C'], 'Trocar a estacao: sol / chuva / neve'],
   [['F3'], 'Painel de rede'],
   [['F5'], 'Salvar o jogo'],
+  [['F6'], 'Trocar de cenario'],
+  [['F7'], 'Fazer o cenario sumir'],
   [['F8', 'F8'], 'Reiniciar o mundo (aperte duas vezes)'],
   [['Tab'], 'Ajuda'],
   [['Esc'], 'Liberar mouse'],

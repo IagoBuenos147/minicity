@@ -6,20 +6,26 @@ export function createInteractionSystem() {
   const items = []
   let current = null
 
+  /** DEVOLVE os itens criados, pra quem precisa liga-los e desliga-los depois
+   *  (a troca de cenario desliga os pontos do cenario que saiu de cena). */
   function add(list) {
-    if (!list) return
+    if (!list) return []
     const arr = Array.isArray(list) ? list : [list]
+    const feitos = []
     for (const it of arr) {
       if (!it || !it.position) continue
-      items.push({
+      const novo = {
         id: it.id || 'it' + items.length,
         position: it.position,
         radius: it.radius || 2,
         label: it.label || 'Interagir',
         onInteract: it.onInteract || (() => {}),
         enabled: it.enabled !== false,
-      })
+      }
+      items.push(novo)
+      feitos.push(novo)
     }
+    return feitos
   }
 
   /** Retorna o interactable ativo (ou null). */

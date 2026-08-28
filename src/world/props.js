@@ -104,7 +104,7 @@ const M = {
 // Verdes DESSATURADOS de proposito (o resto da cidade e lavado; verde puro
 // pulava da tela como plastico).
 const LEAF = [0x4a5c39, 0x566a42, 0x63794c, 0x718a58, 0x829b66, 0x94ad77, 0xa7be8b]
-function leafMat(i) {
+export function leafMat(i) {
   const k = i < 0 ? 0 : i > LEAF.length - 1 ? LEAF.length - 1 : i | 0
   return solid(LEAF[k], 0.92, 0.0)
 }
@@ -114,7 +114,7 @@ function leafMat(i) {
  * Custo = steps * radial * 2 triangulos. Deslocamento continuo por posicao,
  * sem costura. Retorna BufferGeometry ja com normal e uv.
  */
-function limbGeo(pts, rBase, rTip, radial = 6, steps = 6) {
+export function limbGeo(pts, rBase, rTip, radial = 6, steps = 6) {
   const curve = new THREE.CatmullRomCurve3(pts)
   const fr = curve.computeFrenetFrames(steps, false)
   const pos = [], nor = [], uv = [], idx = []
@@ -161,7 +161,7 @@ function limbGeo(pts, rBase, rTip, radial = 6, steps = 6) {
  * Folhagem NUNCA usa flatShading: faceta plana e o que da o ar de pedra.
  */
 const TUFT_SEG = 6, TUFT_RINGS = 4
-function tuftGeo(variant = 0) {
+export function tuftGeo(variant = 0) {
   return geo('tuft:' + variant, () => {
     const pos = [], idx = []
     const ph = variant * 2.4
@@ -213,7 +213,7 @@ function tuftGeo(variant = 0) {
  * cx/cy/cz = centro, rad = raio da massa, size = RAIO de cada tufo,
  * n = quantidade de tufos, tone = indice base na paleta LEAF.
  */
-function foliageClump(g, cx, cy, cz, rad, size, n, tone, r, flat = 0.85) {
+export function foliageClump(g, cx, cy, cz, rad, size, n, tone, r, flat = 0.85) {
   for (let i = 0; i < n; i++) {
     // espiral do angulo aureo + casca esferica: cobre a massa por igual sem
     // alinhar os tufos em fileiras (fileira le como padrao, nao como folha)
@@ -611,7 +611,7 @@ function tierGeo(n, variant, drop) {
 // preto na sombra sem precisar de material novo.
 // 4 aneis x 3 vertices = 12 vertices, 19 triangulos, geometria CACHEADA.
 const FROND_SEG = 3
-function frondGeo(variant = 0) {
+export function frondGeo(variant = 0) {
   return geo('pine-frond:' + variant, () => {
     const pos = [], idx = []
     const ph = variant * 1.31
