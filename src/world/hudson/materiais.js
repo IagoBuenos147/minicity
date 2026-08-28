@@ -98,16 +98,35 @@ export function rebocoTex(base = '#bcb5a8', opcoes = {}) {
       grd.addColorStop(1, 'rgba(70,58,44,0)')
       g.fillStyle = grd
       g.fillRect(0, s - alturaMancha, s, alturaMancha)
-      // a borda de cima e irregular, nunca reta
-      for (let i = 0; i < 26; i++) {
-        mancha(g, r() * s, s - alturaMancha * (0.55 + r() * 0.6),
-          6 + r() * 16, 'rgba(62,50,38,0.10)', seed + i, 8)
+      // A BORDA DE CIMA e irregular, nunca reta — mas ela e feita com pincel
+      // MOLE. As duas versoes anteriores usaram manchas opacas e o muro ficou
+      // com um colar de bolas pretas: umidade nao tem contorno, ela desbota.
+      for (let i = 0; i < 30; i++) {
+        const x = r() * s
+        const y = s - alturaMancha * (0.5 + r() * 0.75)
+        const raio = 10 + r() * 26
+        const grd2 = g.createRadialGradient(x, y, 0, x, y, raio)
+        grd2.addColorStop(0, 'rgba(66,54,42,0.10)')
+        grd2.addColorStop(1, 'rgba(66,54,42,0)')
+        g.fillStyle = grd2
+        g.beginPath(); g.arc(x, y, raio, 0, 7); g.fill()
       }
-      // limo verde-escuro bem no rodape. Fino e rasteiro: a versao anterior
-      // usava raio 13 e 16 manchas, e o muro ficava com bolas pretas de meio
-      // metro que liam como mofo de filme de terror, nao como umidade.
-      for (let i = 0; i < 22; i++) {
-        mancha(g, r() * s, s - 3 - r() * 6, 2 + r() * 4, 'rgba(64,72,52,0.10)', seed + 90 + i, 5)
+      // Limo no rodape: uma FAIXA esverdeada continua, nao pontos. Verde de
+      // musgo velho, quase cinza — verde saturado nesta altura vira grama.
+      const grdL = g.createLinearGradient(0, s, 0, s - s * 0.06)
+      grdL.addColorStop(0, 'rgba(78,84,62,0.30)')
+      grdL.addColorStop(1, 'rgba(78,84,62,0)')
+      g.fillStyle = grdL
+      g.fillRect(0, s - s * 0.06, s, s * 0.06)
+      // e uns poucos escorridos verticais descendo da cinta
+      for (let i = 0; i < 6; i++) {
+        const x = r() * s
+        const h = alturaMancha * (0.5 + r() * 1.4)
+        const grd3 = g.createLinearGradient(0, s - h, 0, s)
+        grd3.addColorStop(0, 'rgba(70,58,46,0)')
+        grd3.addColorStop(1, 'rgba(70,58,46,0.16)')
+        g.fillStyle = grd3
+        g.fillRect(x, s - h, 3 + r() * 9, h)
       }
     }
 

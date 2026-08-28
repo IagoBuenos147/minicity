@@ -940,6 +940,191 @@ try {
     'motivo=' + JSON.stringify(save.lixo))
   check('primeiroLivre pula os lugares ocupados', save.livre === 0, 'livre=' + save.livre)
 
+  // --- 7c) OS DOIS MUNDOS ----------------------------------------------------
+  // A cidade do cassino e a Quadra Hudson, e as duas teclas que trocam entre
+  // elas. O que estes casos guardam nao e o desenho: e o DESLIGAMENTO. Um
+  // cenario fora de cena que deixa colisor ligado poe o jogador batendo numa
+  // parede invisivel, e esse e o pior bug que um jogo pode ter.
+
+  const troca = await page.evaluate(() => {
+    const G = window.__game
+    const C = G.cenarios
+    C.mostrar('cidade')
+    const regC = C.registroDe('cidade')
+    const antes = {
+      atual: C.atual,
+      ids: C.ids,
+      colisores: regC.colisores.length,
+      colisoresAtivos: regC.colisores.filter((b) => b.ativo).length,
+      occluders: regC.occluders.length,
+      interativos: regC.interativos.length,
+      grupos: regC.grupos.length,
+      updates: regC.updates.length,
+      chao: +G.groundY(43, 8.8).toFixed(2),
+    }
+    const t0 = performance.now()
+    C.mostrar('hudson')
+    const montou = Math.round(performance.now() - t0)
+    const regH = C.registroDe('hudson')
+    const depois = {
+      atual: C.atual,
+      cidadeColisoresAtivos: regC.colisores.filter((b) => b.ativo).length,
+      cidadeOccludersAtivos: regC.occluders.filter((o) => o.ativo).length,
+      cidadeInterativosAtivos: regC.interativos.filter((i) => i.enabled).length,
+      cidadeVisivel: regC.grupos.some((g) => g.visible),
+      hudsonColisores: regH.colisores.length,
+      hudsonVisivel: regH.grupos.some((g) => g.visible),
+      chao: +G.groundY(G.player.position.x, G.player.position.z).toFixed(2),
+      y: +G.player.position.y.toFixed(2),
+    }
+    C.mostrar('cidade')
+    const volta = {
+      atual: C.atual,
+      colisoresAtivos: regC.colisores.filter((b) => b.ativo).length,
+      interativosAtivos: regC.interativos.filter((i) => i.enabled).length,
+      hudsonColisoresAtivos: regH.colisores.filter((b) => b.ativo).length,
+      visivel: regC.grupos.some((g) => g.visible),
+      chao: +G.groundY(43, 8.8).toFixed(2),
+    }
+    return { antes, depois, volta, montou }
+  })
+  check('o jogo tem os dois cenarios registrados',
+    troca.antes.ids.length === 2 && troca.antes.ids.indexOf('hudson') >= 0,
+    'ids=' + troca.antes.ids.join(','))
+  check('a GRAVACAO pegou o mundo inteiro da cidade',
+    troca.antes.colisores > 200 && troca.antes.occluders > 10
+    && troca.antes.interativos > 20 && troca.antes.grupos > 5 && troca.antes.updates > 3,
+    'colisores=' + troca.antes.colisores + ' occluders=' + troca.antes.occluders
+    + ' interativos=' + troca.antes.interativos + ' grupos=' + troca.antes.grupos
+    + ' updates=' + troca.antes.updates)
+  check('trocar de cenario DESLIGA a cidade inteira',
+    troca.depois.cidadeColisoresAtivos === 0 && troca.depois.cidadeOccludersAtivos === 0
+    && troca.depois.cidadeInterativosAtivos === 0 && troca.depois.cidadeVisivel === false,
+    'colisores=' + troca.depois.cidadeColisoresAtivos
+    + ' occluders=' + troca.depois.cidadeOccludersAtivos
+    + ' interativos=' + troca.depois.cidadeInterativosAtivos
+    + ' visivel=' + troca.depois.cidadeVisivel)
+  check('a Quadra Hudson entra em cena com colisor e chao proprios',
+    troca.depois.hudsonVisivel === true && troca.depois.hudsonColisores > 20
+    && troca.depois.y === troca.depois.chao,
+    'colisores=' + troca.depois.hudsonColisores + ' y=' + troca.depois.y
+    + ' chao=' + troca.depois.chao)
+  check('voltar pra cidade religa tudo e nao deixa nada da Hudson ligado',
+    troca.volta.colisoresAtivos === troca.antes.colisoresAtivos
+    && troca.volta.interativosAtivos > 20
+    && troca.volta.hudsonColisoresAtivos === 0
+    && troca.volta.visivel === true && troca.volta.chao === troca.antes.chao,
+    'cidade=' + troca.volta.colisoresAtivos + '/' + troca.antes.colisoresAtivos
+    + ' interativos=' + troca.volta.interativosAtivos
+    + ' hudson ligada=' + troca.volta.hudsonColisoresAtivos
+    + ' chao=' + troca.volta.chao)
+
+  // A TECLA DE SUMIR. Ela nao pode teleportar ninguem: e usada pra tirar foto
+  // do personagem no vazio, e mover o jogador estragaria o enquadramento.
+  const sumir = await page.evaluate(() => {
+    const G = window.__game
+    G.cenarios.mostrar('cidade')
+    G.player.teleport(20, -10, 1)
+    const onde = [+G.player.position.x.toFixed(1), +G.player.position.z.toFixed(1)]
+    G.cenarios.sumir(true)
+    const reg = G.cenarios.registroDe('cidade')
+    const escondido = {
+      flag: G.cenarios.escondido,
+      visivel: reg.grupos.some((g) => g.visible),
+      colisores: reg.colisores.filter((b) => b.ativo).length,
+      onde: [+G.player.position.x.toFixed(1), +G.player.position.z.toFixed(1)],
+    }
+    G.cenarios.sumir(false)
+    return {
+      onde,
+      escondido,
+      voltou: reg.grupos.some((g) => g.visible) && reg.colisores.filter((b) => b.ativo).length > 200,
+    }
+  })
+  check('a tecla de SUMIR apaga o cenario sem mexer no jogador',
+    sumir.escondido.flag === true && sumir.escondido.visivel === false
+    && sumir.escondido.colisores === 0
+    && sumir.escondido.onde[0] === sumir.onde[0] && sumir.escondido.onde[1] === sumir.onde[1],
+    'escondido=' + sumir.escondido.flag + ' colisores=' + sumir.escondido.colisores
+    + ' jogador ' + sumir.onde.join(',') + ' -> ' + sumir.escondido.onde.join(','))
+  check('e trazer de volta devolve o cenario inteiro', sumir.voltou === true, 'voltou=' + sumir.voltou)
+
+  // F6 e F7 no teclado, passando pelo laco de verdade
+  await page.evaluate(() => { window.__game.cenarios.mostrar('cidade') })
+  await step(6, "window.dispatchEvent(new KeyboardEvent('keydown',{code:'F6'}));"
+    + "setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'F6'})),60)")
+  const f6 = await page.evaluate(() => window.__game.cenarios.atual)
+  await step(6, "window.dispatchEvent(new KeyboardEvent('keydown',{code:'F7'}));"
+    + "setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'F7'})),60)")
+  const f7 = await page.evaluate(() => window.__game.cenarios.escondido)
+  await page.evaluate(() => {
+    window.__game.cenarios.sumir(false)
+    window.__game.cenarios.mostrar('cidade')
+  })
+  check('F6 troca de cenario e F7 faz sumir', f6 === 'hudson' && f7 === true,
+    'F6 levou pra ' + f6 + ' / F7 escondeu=' + f7)
+
+  // --- A QUADRA HUDSON ------------------------------------------------------
+  // O bairro e feito de DADO (planta.js) mais um montador (lotes.js). Estes
+  // casos guardam a planta, e nao o desenho: se um lote sumir da lista ou se o
+  // quarteirao deixar de fechar, quem descobre e o teste, e nao o jogador.
+  const hud = await page.evaluate(async () => {
+    const G = window.__game
+    G.cenarios.mostrar('hudson')
+    const P = (await import('/src/world/hudson/planta.js')).PLANTA
+    const C = await import('/src/world/hudson/chao.js')
+    const lados = Object.keys(P)
+    const soma = {}
+    const tipos = {}
+    const ids = new Set()
+    let repetido = null
+    for (const lado of lados) {
+      let q = 0, o = 0
+      for (const l of P[lado].lotes) {
+        if (ids.has(l.id)) repetido = l.id
+        ids.add(l.id)
+        tipos[l.tipo] = (tipos[l.tipo] || 0) + 1
+        if (l.ladoDaRua === 'oposto') o += l.frente; else q += l.frente
+      }
+      soma[lado] = { q: +q.toFixed(1), o: +o.toFixed(1) }
+    }
+    const reg = G.cenarios.registroDe('hudson')
+    G.engine.render()
+    return {
+      lados, soma, tipos, repetido, lotes: ids.size,
+      draw: G.renderer.info.render.calls,
+      colisores: reg.colisores.length,
+      // o chao: calcada no quarteirao, asfalto no meio da rua
+      chaoLote: +C.groundY(0, 0).toFixed(2),
+      chaoRua: +C.groundY(C.EIXO.leste, 0).toFixed(2),
+      chaoCalcada: +C.groundY(C.Q.x1 + 1, 0).toFixed(2),
+      largura: +(C.Q.x1 - C.Q.x0).toFixed(1),
+      profund: +(C.Q.z1 - C.Q.z0).toFixed(1),
+    }
+  })
+  check('a planta tem as quatro ruas do quarteirao',
+    hud.lados.length === 4 && hud.lados.indexOf('sul') >= 0 && hud.lados.indexOf('norte') >= 0
+    && hud.lados.indexOf('leste') >= 0 && hud.lados.indexOf('oeste') >= 0,
+    hud.lados.join(','))
+  check('nenhum lote esta na planta duas vezes',
+    hud.repetido === null && hud.lotes === 49,
+    'repetido=' + hud.repetido + ' lotes unicos=' + hud.lotes)
+  check('ha UMA quadra coberta, e nao uma por rua',
+    hud.tipos['quadra-coberta'] === 1,
+    'quadra-coberta=' + hud.tipos['quadra-coberta'] + ' (as 3 ruas viam o mesmo ginasio)')
+  check('as testadas fecham um quarteirao plausivel nos quatro lados',
+    Object.values(hud.soma).every((s) => s.q > 80 && s.q < 140 && s.o > 80 && s.o < 140),
+    Object.entries(hud.soma).map(([k, v]) => k + ' ' + v.q + '/' + v.o).join('  '))
+  check('o quarteirao tem a medida lida nas fotos',
+    Math.abs(hud.largura - 118) < 2 && Math.abs(hud.profund - 121) < 3,
+    hud.largura + ' x ' + hud.profund + ' m')
+  check('o chao da Hudson sobe na calcada e cai na rua',
+    hud.chaoLote === 0.16 && hud.chaoCalcada === 0.16 && hud.chaoRua === 0,
+    'lote=' + hud.chaoLote + ' calcada=' + hud.chaoCalcada + ' rua=' + hud.chaoRua)
+  check('a Quadra Hudson cabe no orcamento de draw calls',
+    hud.draw < 1200, 'draw calls=' + hud.draw)
+  await page.evaluate(() => window.__game.cenarios.mostrar('cidade'))
+
   // 8) desempenho
   // Antes de medir, devolve o tempo pro sol E DERRETE a neve ate o fim. Sem
   // isto, o numero medido aqui e o do mapa nevado (a nevasca acabou de rodar,

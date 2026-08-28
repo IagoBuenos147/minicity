@@ -159,7 +159,10 @@ function nomeNoAsfalto(g, nome, x, z, girar, comprimento = 9) {
       new THREE.PlaneGeometry(comprimento, alt),
       pinturaMat(linhas[i], { larg: 1024, alt: 224 }))
     m.rotation.x = -PI / 2
-    m.position.set(0, 0, (i - 0.5) * alt * 1.18)
+    // (0.5 - i), e nao (i - 0.5): a PRIMEIRA linha tem que vir primeiro no
+    // sentido da leitura. Com o sinal trocado, "Caldas" aparecia antes de
+    // "R. Jorge" pra quem descia a rua.
+    m.position.set(0, 0, (0.5 - i) * alt * 1.18)
     bloco.add(m)
   }
   // O SINAL IMPORTA. O texto nasce lendo pro +X. Girar +PI/2 leva a leitura pro

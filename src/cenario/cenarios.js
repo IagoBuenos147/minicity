@@ -69,10 +69,15 @@ export function criarCenarios({
       luzes: [],
       materiaisLuz: [],
       construido: false,
-      // visibilidade de cada grupo ANTES de esconder: um cenario pode ter
-      // objeto que ja nascia invisivel (a luz da lampada de dia, por exemplo),
-      // e mostrar o cenario nao pode acender isso por acidente
-      visiveis: new WeakMap(),
+      // O ESTADO DE CADA COISA ANTES DE APAGAR.
+      //
+      // Nao da pra "religar tudo" ao voltar: o mundo tem peca que nasce ou fica
+      // DESLIGADA de proposito. A luz do poste fica invisivel de dia. O colisor
+      // do vao da porta da casa velha fica `ativo = false` enquanto a porta
+      // esta ABERTA — religar ele no cego poria uma parede invisivel no meio de
+      // uma porta escancarada, e o jogador nao teria como saber por que nao
+      // passa. Entao esconder GUARDA o estado, e mostrar DEVOLVE o que estava.
+      antes: new WeakMap(),
     }
   }
 
@@ -179,20 +184,25 @@ export function criarCenarios({
     }
   }
 
-  /** Liga/desliga tudo que pertence a um cenario. */
+  /**
+   * Liga/desliga tudo que pertence a um cenario, DEVOLVENDO cada coisa ao
+   * estado em que ela estava — e nao ligando tudo no cego. Ver o comentario de
+   * `antes` em novoRegistro().
+   */
   function acender(reg, ligado) {
-    for (const g of reg.grupos) {
+    const guardar = (o, campo) => {
       if (ligado) {
-        const antes = reg.visiveis.get(g)
-        g.visible = antes === undefined ? true : antes
+        const v = reg.antes.get(o)
+        o[campo] = v === undefined ? true : v
       } else {
-        reg.visiveis.set(g, g.visible)
-        g.visible = false
+        reg.antes.set(o, o[campo])
+        o[campo] = false
       }
     }
-    for (const b of reg.colisores) b.ativo = ligado
-    for (const o of reg.occluders) o.ativo = ligado
-    for (const it of reg.interativos) it.enabled = ligado
+    for (const g of reg.grupos) guardar(g, 'visible')
+    for (const b of reg.colisores) guardar(b, 'ativo')
+    for (const o of reg.occluders) guardar(o, 'ativo')
+    for (const it of reg.interativos) guardar(it, 'enabled')
     reg.ligado = ligado
   }
 

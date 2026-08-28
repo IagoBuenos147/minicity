@@ -48,6 +48,8 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
 | `R` `Q` | Girar o móvel (com um móvel na mão) |
 | `Segurar E` | Guardar de volta o móvel que está na mira |
 | `F5` | Tela dos 5 lugares de jogo salvo |
+| `F6` | **Trocar de cenário** (cidade do cassino ⇄ Quadra Hudson) |
+| `F7` | **Fazer o cenário sumir** (e voltar) |
 | `F8` `F8` | **Reiniciar o mundo** (aperte duas vezes em 4 s) |
 | `Tab` | Mostrar/ocultar ajuda |
 | `Esc` | Liberar o mouse |
@@ -85,6 +87,26 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
 - **Praça** (sudoeste): fonte, bancos, árvores e caminhos.
 - Ruas em grade com calçadas, meio-fio, faixas de pedestre, postes, semáforos e
   mobiliário urbano. Sem carros circulando (por decisão de escopo).
+
+## Os dois cenários
+
+`F6` troca entre os dois mundos do jogo; `F7` apaga o cenário inteiro — casas,
+prédios, cassino, mercearia, tudo — e deixa só o chão e o céu.
+
+- **Cidade do Cassino** — a cidade de sempre.
+- **Quadra Hudson** — um quarteirão **real** de Paracatu, Minas Gerais,
+  reconstruído a partir de 35 fotos do Google Street View. As quatro ruas em
+  volta são a **R. Josué Félix Caixeta**, a **R. Jorge Araújo Caldas**, a
+  **R. Padre Josino** e a **R. Frei Pedro Caixito**; no miolo ficam a escola, a
+  quadra poliesportiva coberta e a praça. São 49 lotes, casa por casa: muro com
+  a mancha de umidade subindo do chão, portão de chapa ondulada enferrujada,
+  telha colonial desbotada, grade de barra vertical na janela, parabólica e
+  caixa d'água azul no telhado, número pintado à mão no muro, o nome da rua
+  escrito no asfalto em duas linhas, e a rede de fios em catenária cruzando a
+  rua na diagonal. Não há carro, moto nem gente: o bairro fica vazio.
+
+O segundo cenário é montado na **primeira vez** que você aperta F6 (leva uns
+segundos), e depois a troca é instantânea.
 
 ## Jogo salvo
 
@@ -172,7 +194,7 @@ Ver `ARCHITECTURE.md` para o contrato entre módulos.
 Com o dev server rodando (`npm run dev`), em outro terminal:
 
 ```bash
-npm run smoke            # o jogo inteiro rodando no navegador (79 casos)
+npm run smoke            # o jogo inteiro rodando no navegador (95 casos)
 npm run teste-cassino    # as regras dos jogos, sem navegador (84 casos)
 npm run teste-nome-unico # um corpo por nome no servidor (10 casos)
 npm run teste-reiniciar  # a tecla F8 devolvendo o mundo ao inicio (14 casos)

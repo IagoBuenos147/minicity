@@ -290,6 +290,15 @@ export const GRUPOS = {
       quadros: 14, espera: 400,
     },
     {
+      nome: 'cenario-9-pintura',
+      antes: `G.cenarios.mostrar('hudson')
+        G.fluxo.foto(true)
+        const c = G.camera
+        c.position.set(66, 26, 4); c.lookAt(66, 0, 4.001)
+        c.rotation.z = 0`,
+      quadros: 14, espera: 400,
+    },
+    {
       nome: 'cenario-8-vazio',
       antes: `G.cenarios.mostrar('cidade')
         G.cenarios.sumir(true)

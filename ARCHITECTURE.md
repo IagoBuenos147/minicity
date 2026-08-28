@@ -109,6 +109,17 @@ game = {
 | `src/ui/loja-ui.js` | `criarLojaUI(opts)` | a janela da loja: abas, grade de cards com −/0/+, carrinho e o botão comprar |
 | `src/ui/miniatura3d.js` | `criarFotografo(renderer)` | fotografa um `build()` do catálogo num render target de 384 px e devolve um data URL. Cacheado por id |
 | `src/systems/encaixe.js` | `criarEncaixe(opts)` | pôr e tirar móvel: fantasma verde/vermelho, pegada no chão, R/Q gira, segurar E guarda |
+| `src/cenario/cenarios.js` | `criarCenarios(opts)` | os DOIS mundos e a troca entre eles. Grava o que cada cenário cria (grupos, colisores, occluders, interações, updates) e liga/desliga tudo de uma vez |
+| `src/world/hudson/planta.js` | `PLANTA` | **dado, não código**: os 49 lotes das 4 ruas da Quadra Hudson, lidos das 35 fotos |
+| `src/world/hudson/chao.js` | `buildChao()`, `groundY`, `Q` | asfalto, calçada, meio-fio, sarjeta e a pintura da rua, com a largura medida rua a rua |
+| `src/world/hudson/lotes.js` | `montarLote(spec)` | o montador: transforma um lote da planta em geometria |
+| `src/world/hudson/materiais.js` | texturas | reboco com umidade, telha colonial, chapa ondulada, tijolo, asfalto de poeira, terra, capim |
+| `src/world/hudson/pecas-casa.js` | `casaTerrea`, `muro`, `portaoChapa`, … | a casa brasileira de rua, peça por peça |
+| `src/world/hudson/pecas-infra.js` | `posteConcreto`, `redeAerea`, … | poste, fiação em catenária, boca de lobo, lixeira |
+| `src/world/hudson/pecas-verde.js` | `aroeiraSalsa`, `coqueiro`, … | a vegetação do cerrado, espécie por espécie |
+| `src/world/hudson/pecas-publico.js` | `quadraCoberta`, `escola`, … | quadra coberta, escola, praça, galpão, comércio, sobrado inacabado |
+| `src/world/hudson/entorno.js` | `buildEntorno()` | o bairro que continua depois das 4 ruas, e os morros do fundo |
+| `src/world/hudson/quadra.js` | `buildQuadraHudson(game)` | enfileira os 49 lotes, planta os postes, passa tudo pelo forno |
 | `src/save/save.js` | `criarSave(fontes)` | os 5 lugares de jogo salvo. Não conhece módulo nenhum: recebe funções que leem e escrevem cada pedaço |
 | `src/ui/save-ui.js` | `criarSaveUI(opts)` | a tela dos 5 lugares, nos modos `continuar` e `salvar`, com exportar/importar/apagar |
 | `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
@@ -264,6 +275,73 @@ Quatro módulos que se seguram pelas bordas. A ordem entre eles é a regra:
 `podeEm(id, x, z, giro)`, `mirarEm(x, z, giro)` e `guardarEm(i)` existem para o
 teste de fumaça e para o console: mirar com a câmera num teste testaria o
 raycaster, e não os três testes de encaixe, que são o que importa.
+
+## Dois mundos, e a tecla que troca
+
+O jogo tem **dois cenários**: a cidade do cassino e a **Quadra Hudson**, um
+quarteirão real de Paracatu-MG reconstruído a partir de 35 fotos do Street View.
+`F6` troca, `F7` faz o cenário sumir.
+
+**O problema não é desenhar o segundo mundo: é desligar o primeiro.** Um cenário
+deixa marca em seis lugares, e esquecer um só quebra o jogo:
+
+| onde | o que acontece se esquecer |
+|---|---|
+| a cena (`Object3D`) | o mundo velho continua aparecendo |
+| os colisores | jogador batendo numa **parede invisível** |
+| os occluders | a câmera pulando por cima de prédios que sumiram |
+| as interações | "Falar com o barbeiro" no meio de uma rua vazia |
+| os updates | pagar o custo do mundo escondido para sempre |
+| o `groundY` | andar enterrado no chão, ou voando |
+
+Por isso `cenario/cenarios.js` **não pede para ninguém registrar nada**. Ele
+**grava**: durante a construção, as portas de entrada do mundo (`collision.add`,
+`collision.addOccluder`, `interaction.add`, `scene.add`) ficam grampeadas, e tudo
+que passa por elas entra na conta daquele cenário — inclusive o que nasceu lá no
+fundo de um `buildCity` que o módulo nunca vai ler.
+
+**Apagar guarda o estado; acender devolve o que estava.** Não é "religar tudo":
+o colisor do vão da porta da casa velha fica `ativo = false` enquanto a porta
+está **aberta**, e religá-lo no cego poria uma parede invisível numa porta
+escancarada. A luz do poste, idem — ela é invisível de dia.
+
+A Quadra Hudson é construída **na primeira vez que entra em cena**, e não no
+boot: são 17 mil malhas antes do forno, e cobrar isso de quem nunca aperta F6
+seria cobrar de todo mundo pelo que poucos usam.
+
+## A Quadra Hudson
+
+Quatro ruas reais em volta de um quarteirão público (escola em L, quadra
+poliesportiva coberta e praça):
+
+| rua | lado | pista | calçada |
+|---|---|---|---|
+| R. Josué Félix Caixeta | sul | 7,0 m | 1,8 m |
+| R. Frei Pedro Caixito | norte | 8,0 m | 3,6 m |
+| R. Jorge Araújo Caldas | leste | 7,5 m | 2,2 m |
+| R. Padre Josino | oeste | 7,0 m | 2,0 m |
+
+**A planta é dado, o montador é código.** `planta.js` tem os 49 lotes com
+testada, tipo, cores, portões e extras; `lotes.js` é o único que sabe virar isso
+em geometria. Corrigir a cor de um muro depois de olhar melhor uma foto é trocar
+uma string — nunca mexer em three.js.
+
+**Todo lote nasce com a origem no chão, no meio da testada, com +Z para a rua.**
+Quem monta o quarteirão posiciona e gira; nenhum lote sabe onde fica. Os
+colisores saem em coordenada local e são rodados para AABB pelo montador.
+
+**O que uma leitura de fotos erra, e o que se fez com isso.** Quatro agentes
+leram uma rua cada, e um crítico cruzou as quatro contra as fichas. Ele achou
+três defeitos reais, todos corrigidos em `gera_planta`: as quatro ruas
+descreviam **o mesmo** quarteirão público de fora (duas chamavam de
+"quarteirão", duas de "oposto"); a **mesma** quadra coberta aparecia três vezes
+e teria virado três ginásios; e o número pintado no muro da esquina lê 210, não
+240.
+
+**Custo.** O bairro sai do montador com 17 mil malhas e 7.800 draw calls — seis
+vezes o orçamento do jogo inteiro. `bakeStatic` funde por material e derruba
+para 245 malhas e ~250 draw calls. O entorno (bairro vizinho + morros) já nasce
+fundido em três malhas e **não passa** pelo forno.
 
 ## Save em cinco lugares
 
