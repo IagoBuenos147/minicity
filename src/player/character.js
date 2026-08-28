@@ -3,6 +3,7 @@ import { PLAYER } from '../config.js'
 import * as mats from '../world/materials.js'
 import * as AP from './appearance.js'
 import * as ROUPAS from './roupas.js'
+import { soldarNormais } from './rosto/nucleo.js'
 
 const { solid } = mats
 
@@ -75,7 +76,11 @@ const SHIN = 0.3655
 const ANKLE_Y = HIPS_Y - THIGH - SHIN  // 0.0905: altura da junta do pe
 const SOLA_Y = -ANKLE_Y + 0.003        // chao (com 3 mm de folga) no espaco do pe
 
-const LOOK_LIMIT = 0.6
+// Quanto a cabeca pode girar SOZINHA em relacao ao tronco. 1.05 rad = 60 graus,
+// que e o limite confortavel de um pescoco humano; passado ele, quem tem que
+// virar e o corpo (ver o controller). O valor antigo era 0.6 (34 graus) e nao
+// era um limite anatomico, era um paliativo pra esconder o salto de fase.
+const LOOK_LIMIT = 1.05
 
 function sh(m) { m.castShadow = true; m.receiveShadow = true; return m }
 
@@ -88,32 +93,240 @@ function joint(name, x, y, z, parent) {
   return g
 }
 
-/** Capsula: a junta fica no topo, o mesh desce a partir dela. */
-function limbGeo(r, len, seg = 12) {
-  return new THREE.CapsuleGeometry(r, len, 4, seg)
+/**
+ * MEMBRO AFILADO.
+ *
+ * Era uma CapsuleGeometry — cilindro de raio CONSTANTE com duas meias esferas.
+ * Foi ela que rendeu "bracos com listras" e "cotovelos e ombros quadrados":
+ * raio constante nao tem musculo nenhum, entao a luz bate igual do ombro ao
+ * pulso e o membro le como cano de PVC; e a capsula fecha a volta duplicando a
+ * coluna de vertices, o que acendia uma listra ao longo do braco.
+ *
+ * Aqui o membro e um LOFT: uma pilha de aneis cujo raio sai de uma curva. Cada
+ * membro traz a sua:
+ *   braco      grosso no deltoide, fino no cotovelo
+ *   antebraco  bojo do braquiorradial logo abaixo do cotovelo, fino no pulso
+ *   coxa       grossa no quadril, fina no joelho
+ *   canela     barriga da panturrilha ATRAS, tornozelo fino
+ *
+ * perfilR(t) recebe t = 0 no TOPO (na junta) e 1 embaixo, e devolve o raio.
+ * atrasZ(t) empurra a secao pra tras (panturrilha) sem engordar a frente.
+ * A volta e fechada por INDICE, entao nao ha costura pra acender.
+ */
+function membroGeo(len, perfilR, seg = 14, aneis = 12, atrasZ = null) {
+  const pos = []
+  const idx = []
+  const linhas = []
+  const put = (x, y, z) => { const i = pos.length / 3; pos.push(x, y, z); return i }
+
+  // Topo em cupula rasa, nao em tampa plana: a junta de cima cobre quase
+  // sempre, mas a tampa plana aparecia de raspao quando o membro girava.
+  const rTopo = perfilR(0)
+  linhas.push([put(0, rTopo * 0.55, 0)])
+
+  for (let a = 0; a <= aneis; a++) {
+    const t = a / aneis
+    const r = Math.max(0.0015, perfilR(t))
+    const y = -t * len
+    const dz = atrasZ ? atrasZ(t) : 0
+    const linha = []
+    for (let c = 0; c < seg; c++) {
+      const ang = (c / seg) * Math.PI * 2
+      // Secao levemente OVAL: membro humano e mais largo de lado do que de
+      // frente pra tras. 0.93 e discreto o bastante pra nao ler como achatado e
+      // o bastante pra a silhueta de perfil mudar.
+      linha.push(put(Math.sin(ang) * r, y, Math.cos(ang) * r * 0.93 + dz))
+    }
+    linhas.push(linha)
+  }
+
+  const rBase = Math.max(0.0015, perfilR(1))
+  linhas.push([put(0, -len - rBase * 0.72, atrasZ ? atrasZ(1) : 0)])
+
+  // A ORDEM DOS INDICES DECIDE PRA ONDE A NORMAL APONTA. Aqui `A` e o anel de
+  // CIMA (o membro desce em -Y), o contrario do que acontece em corpoGeo, onde
+  // o perfil sobe. Escrever a mesma ordem nos dois foi o erro: os quatro
+  // membros sairam com a normal pra dentro, e membro com normal invertida nao
+  // some — ele fica CINZA E CHAPADO, porque a luz passa a bater no avesso.
+  for (let a = 0; a < linhas.length - 1; a++) {
+    const A = linhas[a], B = linhas[a + 1]
+    if (A.length === 1) { for (let j = 0; j < B.length; j++) idx.push(A[0], B[(j + 1) % B.length], B[j]); continue }
+    if (B.length === 1) { for (let i = 0; i < A.length; i++) idx.push(A[i], B[0], A[(i + 1) % A.length]); continue }
+    for (let i = 0; i < A.length; i++) {
+      const j = (i + 1) % A.length
+      idx.push(A[i], B[j], A[j], A[i], B[i], B[j])
+    }
+  }
+
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  g.computeBoundingSphere()
+  return g
 }
 
-/** Perfil revolucionado e achatado em Z — torso conico cartoon. */
+/** Interpolador suave de curva de raio: pares [[t, raio], ...]. */
+function curvaR(pares) {
+  return (t) => {
+    if (t <= pares[0][0]) return pares[0][1]
+    for (let i = 1; i < pares.length; i++) {
+      if (t <= pares[i][0]) {
+        const a = pares[i - 1], b = pares[i]
+        const k = (t - a[0]) / (b[0] - a[0])
+        return a[1] + (b[1] - a[1]) * k * k * (3 - 2 * k)
+      }
+    }
+    return pares[pares.length - 1][1]
+  }
+}
+
+/**
+ * TRONCO.
+ *
+ * A LISTRA VERTICAL NO MEIO DO PEITO NASCIA AQUI. LatheGeometry fecha a volta
+ * duplicando a coluna de vertices — e a coluna dela fica em phi = 0, que na
+ * convencao do three (sin em x, cos em z) e exatamente a FRENTE do boneco. As
+ * duas colunas ocupam a mesma posicao mas sao vertices distintos, entao
+ * computeVertexNormals da a cada uma so a media dos SEUS triangulos e a emenda
+ * acende como um risco do pescoco ao umbigo. Foi fotografado.
+ *
+ * Aqui a volta e fechada por INDICE (o ultimo anel reusa os vertices do
+ * primeiro), entao nao ha emenda pra acender. A pele nao usa textura, entao
+ * abrir mao das UVs nao custa nada. A ROUPA continua com a lathe de verdade —
+ * la o mapa importa (xadrez, listra) e quem resolve e soldarNormais().
+ *
+ * E de quebra o "peito quadrado, sem identidade": o torso deixou de ser um
+ * circulo achatado em Z. A secao agora e uma SUPERELIPSE de expoente variavel —
+ * mais retangular na caixa toracica (onde as costelas fazem o peito ser largo e
+ * chato) e redonda na cintura — com a frente mais chata que as costas.
+ * Achatar um circulo em Z dava um tubo oval do quadril ao pescoco, e e o tubo
+ * oval que o dono leu como "peito quadrado e sem identidade".
+ *
+ * O crescimento maximo sobre a elipse antiga fica em ~6% (nas diagonais, com
+ * expoente 2.4). O corpo nu esta em NU_S = 0.965 do perfil e o tecido em 1.045,
+ * entao 0.965 * 1.06 = 1.023 continua DENTRO da roupa e a pele nao atravessa a
+ * camisa. NAO aumente o expoente sem refazer essa conta.
+ */
+function corpoGeo(profile, opts = {}) {
+  const seg = opts.seg || TORSO_SEG
+  const flatZ = opts.flatZ === undefined ? FLAT_Z : opts.flatZ
+  const nDe = opts.n || (() => 2)
+  const dzDe = opts.dz || (() => 0)
+  const pos = []
+  const idx = []
+  const linhas = []
+  const put = (x, y, z) => { const i = pos.length / 3; pos.push(x, y, z); return i }
+
+  for (let k = 0; k < profile.length; k++) {
+    const r = Math.max(0.0008, profile[k][0])
+    const y = profile[k][1]
+    // ponta do perfil com raio quase zero vira um ponto so (a tampa)
+    if (r < 0.004) { linhas.push([put(0, y, 0)]); continue }
+    const n = nDe(y)
+    const e = 2 / n
+    const dz = dzDe(y)
+    const linha = []
+    for (let c = 0; c < seg; c++) {
+      const ang = (c / seg) * Math.PI * 2
+      const co = Math.cos(ang), si = Math.sin(ang)
+      const sx = Math.sign(si) * Math.pow(Math.abs(si), e)
+      const sz = Math.sign(co) * Math.pow(Math.abs(co), e)
+      linha.push(put(sx * r, y, sz * r * flatZ + dz))
+    }
+    linhas.push(linha)
+  }
+
+  for (let a = 0; a < linhas.length - 1; a++) {
+    const A = linhas[a], B = linhas[a + 1]
+    if (A.length === 1) { for (let j = 0; j < B.length; j++) idx.push(A[0], B[(j + 1) % B.length], B[j]); continue }
+    if (B.length === 1) { for (let i = 0; i < A.length; i++) idx.push(A[i], A[(i + 1) % A.length], B[0]); continue }
+    for (let i = 0; i < A.length; i++) {
+      const j = (i + 1) % A.length
+      idx.push(A[i], A[j], B[j], A[i], B[j], B[i])
+    }
+  }
+
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  g.computeBoundingSphere()
+  return g
+}
+
+/**
+ * A lathe ANTIGA, do jeito que estava — porque e ela que sai no ctx pras pecas
+ * de roupa (ctx.lathe, usado pela manga curta). Roupa precisa de UV, entao ela
+ * continua sendo uma LatheGeometry de verdade; o que mudou e que agora solda as
+ * normais da costura antes de sair.
+ */
 function latheGeo(profile, flatZ = FLAT_Z, seg = TORSO_SEG) {
   const pts = profile.map((p) => new THREE.Vector2(Math.max(0.0008, p[0]), p[1]))
   const g = new THREE.LatheGeometry(pts, seg)
   g.scale(1, 1, flatZ)
   g.computeVertexNormals()
+  soldarNormais(g)
   return g
 }
 
 // A barra da camiseta e a aresta larga em y = -0.008; abaixo dela o perfil so
 // fecha o fundo. Antes o fundo era um domo alto e a camiseta virava um sino.
+//
+// O QUE MUDOU: o trecho do meio ganhou a CINTURA. Antes o perfil ia de 0.130 a
+// 0.134 e voltava a 0.130 — quatro milimetros de variacao em trinta
+// centimetros, ou seja, um cano. O tronco agora estreita de verdade na altura
+// da cintura (0.118 em y = 0.175) e volta a abrir no arco costal. E essa
+// diferenca que da silhueta ao boneco de longe; com o cano, camisa nenhuma
+// salvava.
 const PELVIS_PROFILE = [
   [0.020, -0.048], [0.086, -0.040], [0.116, -0.026], [0.126, -0.008],
-  [0.130, 0.030], [0.134, 0.090], [0.128, 0.170], [0.124, 0.240], [0.130, 0.300],
+  [0.132, 0.030], [0.136, 0.076], [0.130, 0.122], [0.121, 0.170],
+  [0.118, 0.208], [0.122, 0.252], [0.130, 0.300],
 ]
 // Termina em r=0.074 (e nao quase zero): a lathe deixa o decote aberto e o
 // pescoco passa por ele. O ultimo trecho e o que a gola cobre.
+//
+// O QUE MUDOU: o ombro deixou de ser um corte reto. Antes o perfil ia de 0.140
+// (y 0.140) direto pra 0.122 e 0.095 em quatro centimetros — a caixa toracica
+// acabava numa quina e a capsula do braco comecava do lado dela, que e o
+// "ombro quadrado" da foto. Agora ha o trapezio: o raio cai devagar de 0.144
+// ate 0.128 subindo pela clavicula e so entao fecha no pescoco, e a queda
+// final e em tres passos, nao um.
 const CHEST_PROFILE = [
-  [0.130, 0.000], [0.140, 0.048], [0.144, 0.095], [0.140, 0.140],
-  [0.122, 0.175], [0.095, 0.196], [0.074, 0.205],
+  [0.130, 0.000], [0.141, 0.046], [0.146, 0.092], [0.144, 0.126],
+  [0.136, 0.152], [0.121, 0.174], [0.101, 0.191], [0.084, 0.200], [0.074, 0.205],
 ]
+
+// SECAO DO TRONCO — o expoente da superelipse por altura.
+//
+// 2 e a elipse. Acima disso a secao vira um retangulo de cantos redondos, que e
+// o que a caixa toracica e de verdade: costela larga, esterno chato na frente,
+// escapula chata atras. A cintura volta pra perto do circulo porque ali o que
+// manda e musculo, nao osso.
+// Teto em 2.4 por causa da conta de folga da roupa (ver corpoGeo).
+function nTronco(y) {
+  // y aqui e o do perfil do PEITO (0 = base do peito, 0.20 = pescoco)
+  if (y <= 0.02) return 2.05
+  if (y >= 0.15) return 2.10
+  return 2.05 + 0.30 * Math.sin(((y - 0.02) / 0.13) * Math.PI)
+}
+
+function nPelve(y) {
+  // quadril e cintura: quase circular embaixo, um pouco de aresta no arco costal
+  if (y <= 0.16) return 2.02
+  return 2.02 + 0.22 * Math.min(1, (y - 0.16) / 0.14)
+}
+
+/**
+ * Assimetria frente/tras. A caixa toracica humana nao e simetrica: o esterno
+ * recua um pouco em relacao ao peitoral, e as costas sao mais cheias.
+ * dz negativo empurra a secao pra TRAS. Sem isto o torso, visto de lado, e um
+ * oval perfeito — e oval perfeito nao tem frente nem costas.
+ */
+function dzTronco(y) {
+  return -0.004 * Math.max(0, 1 - Math.abs(y - 0.10) / 0.11)
+}
 
 const FLAT_Z = 0.76        // achatamento em Z do torso (ver latheGeo)
 const TORSO_SEG = 24       // faces do torso; a roupa usa o MESMO numero e a
@@ -202,18 +415,34 @@ function anel(ma, o, u, v, a, b, n, N) {
   return ids
 }
 
-/** Costura dois aneis. A fica no sentido +cross(u,v) em relacao a B. */
+/**
+ * Costura dois aneis. A fica no sentido +cross(u,v) em relacao a B.
+ *
+ * A ORDEM DOS QUATRO INDICES ESTAVA INVERTIDA. Com anel A no topo, B embaixo e
+ * os pontos girando no sentido de cos/sin no plano (u, v), a sequencia
+ * (A[i], A[j], B[j], B[i]) produz a normal apontando PRA DENTRO — da pra
+ * conferir na mao com u = X, v = Y, A em z = 1 e B em z = 0: o triangulo
+ * (1,0,1), (0,1,1), (0,1,0) tem normal (-1,-1,0), e o lado de fora ali e
+ * (+0.7,+0.7,0).
+ *
+ * Consequencia: os quatro dedos e o polegar de TODAS as maos do jogo nasciam do
+ * avesso desde que a mao foi escrita. Isso nao abre buraco — deixa a peca cinza
+ * e chapada, com a luz batendo no lado errado, e e parte do que o dono via como
+ * "maos feias". Quem pegou foi o teste de volume assinado
+ * (tools/teste-normais.mjs), depois que dois cranios sairam pretos por um erro
+ * irmao deste.
+ */
 function costurar(ma, A, B) {
   for (let i = 0; i < A.length; i++) {
     const j = (i + 1) % A.length
-    ma.quad(A[i], A[j], B[j], B[i])
+    ma.quad(A[i], B[i], B[j], A[j])
   }
 }
 
 /** Tampa em leque no lado -cross(u,v) do anel (ponta do dedo, base da palma). */
 function tampa(ma, A, cx, cy, cz) {
   const c = ma.v(cx, cy, cz)
-  for (let i = 0; i < A.length; i++) ma.tri(c, A[i], A[(i + 1) % A.length])
+  for (let i = 0; i < A.length; i++) ma.tri(c, A[(i + 1) % A.length], A[i])
 }
 
 const EIXO_Z = new THREE.Vector3(0, 0, 1)
@@ -266,51 +495,112 @@ function dedo(ma, base, dir, comp, curva, raio, ponta, N = 6, R = 5, eixo = EIXO
   tampa(ma, fim, p.x + d.x * rf * 0.55, p.y + d.y * rf * 0.55, p.z + d.z * rf * 0.55)
 }
 
-// Aneis da palma (y, meia-espessura em X, meia-largura em Z). O primeiro fica
-// DENTRO do antebraco de proposito: a emenda com o pulso nunca aparece.
+// Aneis da palma: [y, meia-espessura em X, meia-largura em Z, expoente da
+// superelipse, deslocamento em X]. O primeiro fica DENTRO do antebraco de
+// proposito: a emenda com o pulso nunca aparece.
+//
+// O QUE MUDOU (o dono escreveu "maos feias"): a palma era um slab de cinco
+// aneis simetricos com o mesmo expoente. Slab simetrico nao e mao: mao tem
+//
+//  - PULSO ESTREITO. O primeiro anel encolheu pra casar com o raio do
+//    antebraco novo (2.4 cm), senao a mao nasce mais gorda que o braco e a
+//    emenda vira um degrau.
+//  - PALMA CONCAVA. O deslocamento em X empurra a superficie da palma pra
+//    dentro e a das costas pra fora, entao a mao tem uma cova onde a palma e —
+//    e a cova e o que a luz precisa pra ler a mao como mao.
+//  - COSTAS MAIS CHATAS QUE A PALMA. O expoente cresce do pulso pro no dos
+//    dedos: no pulso a secao e quase oval (osso redondo), na linha dos nos e
+//    quase retangular (os cinco metacarpos lado a lado).
+//  - LINHA DOS NOS MAIS LARGA. A mao alarga ate os nos e so entao encolhe; a
+//    versao antiga ja vinha encolhendo desde o meio.
 const PALMA_ANEIS = [
-  [0.012, 0.0185, 0.0300],
-  [-0.012, 0.0210, 0.0360],
-  [-0.038, 0.0220, 0.0405],
-  [-0.062, 0.0215, 0.0410],
-  [-0.080, 0.0195, 0.0390],
+  [0.014, 0.0170, 0.0248, 2.30, 0.0000],  // dentro do antebraco (pulso)
+  [-0.004, 0.0192, 0.0306, 2.45, 0.0006],
+  [-0.024, 0.0212, 0.0368, 2.65, 0.0016],
+  [-0.046, 0.0218, 0.0406, 2.85, 0.0022],  // meio da palma: a cova
+  [-0.066, 0.0214, 0.0424, 3.05, 0.0018],
+  [-0.079, 0.0200, 0.0420, 3.10, 0.0008],  // linha dos nos
+  [-0.089, 0.0168, 0.0378, 2.70, 0.0000],
+]
+
+// TENAR — o coxim carnudo da base do polegar. Sao dois aneis extras costurados
+// no lado do polegar, e nao um anel a mais na pilha da palma: o tenar so existe
+// de UM lado, e engordar o anel inteiro daria uma mao inchada dos dois lados.
+// Sem ele, a mao aberta le como uma raquete e o polegar parece parafusado.
+const TENAR = [
+  [-0.018, 0.0130, 0.0210],
+  [-0.040, 0.0142, 0.0230],
+  [-0.058, 0.0120, 0.0196],
 ]
 
 // Base dos quatro dedos na linha dos nos (x, y, z) + comprimento e raio.
 // O indicador fica na FRENTE (+Z) porque a palma olha pro corpo.
+// A LINHA DOS NOS NAO E RETA: o dedo medio nasce mais baixo e o minimo bem mais
+// alto (e o arco que a mao faz quando se olha o dorso). Reta, a mao lia como um
+// pente. Os comprimentos seguem a mesma proporcao da mao de verdade — medio >
+// anelar > indicador > minimo.
 const DEDOS = [
-  { z: 0.0300, y: -0.076, comp: 0.052, raio: 0.0104, abre: 0.13 },  // indicador
-  { z: 0.0100, y: -0.080, comp: 0.056, raio: 0.0106, abre: 0.04 },  // medio
-  { z: -0.0100, y: -0.078, comp: 0.051, raio: 0.0100, abre: -0.05 }, // anelar
-  { z: -0.0290, y: -0.072, comp: 0.042, raio: 0.0092, abre: -0.15 }, // minimo
+  { z: 0.0308, y: -0.0855, comp: 0.0530, raio: 0.0104, abre: 0.13 },  // indicador
+  { z: 0.0104, y: -0.0900, comp: 0.0575, raio: 0.0107, abre: 0.04 },  // medio
+  { z: -0.0100, y: -0.0880, comp: 0.0540, raio: 0.0100, abre: -0.05 }, // anelar
+  { z: -0.0292, y: -0.0800, comp: 0.0430, raio: 0.0091, abre: -0.15 }, // minimo
 ]
 
 /** Posicao do anel de acessorio: base do dedo anelar da mao (espaco do pulso). */
 export const DEDO_ANELAR = { x: 0, y: DEDOS[2].y - 0.014, z: DEDOS[2].z }
 
+
 function construirMao() {
   const ma = malha()
   const o = new THREE.Vector3()
-  const U = new THREE.Vector3(1, 0, 0), V = new THREE.Vector3(0, 0, 1)
+  // V APONTA PRA -Z, e nao pra +Z. A regra de costurar() e que o anel A fica no
+  // sentido +cross(u, v) em relacao a B; a pilha da palma desce em Y, entao
+  // cross(U, V) tem que apontar pra +Y. Com V = +Z, cross da (0,-1,0) e a mao
+  // inteira sai VIRADA DO AVESSO — os triangulos com a normal pra dentro. Nao
+  // aparece como buraco: aparece como uma mao cinza e chapada, com a luz batendo
+  // no avesso dela. Ficou assim desde que a mao foi escrita; quem pegou foi o
+  // teste de volume assinado (tools/teste-normais.mjs), e provavelmente e parte
+  // do que o dono via como "maos feias".
+  // O anel e simetrico em Z, entao trocar o sinal de V nao move nenhum vertice.
+  const U = new THREE.Vector3(1, 0, 0), V = new THREE.Vector3(0, 0, -1)
   let ant = null
-  for (const [y, a, b] of PALMA_ANEIS) {
-    o.set(0, y, 0)
-    const A = anel(ma, o, U, V, a, b, 2.8, 8)
+  // 10 colunas em vez de 8: com 8 a superelipse de expoente 3 mostrava os
+  // cantos como facetas, e a mao aparece em PRIMEIRA PESSOA o tempo todo.
+  for (const [y, a, b, n, dx] of PALMA_ANEIS) {
+    o.set(dx, y, 0)
+    const A = anel(ma, o, U, V, a, b, n, 10)
     if (ant) costurar(ma, ant, A)
     ant = A
   }
-  tampa(ma, ant, 0, -0.089, 0.002)
+  tampa(ma, ant, 0, -0.097, 0.002)
+
+  // Tenar: uma bolha propria, costurada em si mesma e enterrada na palma.
+  // Enterrada de proposito — ela nao precisa fechar com a malha da palma, o
+  // volume dela ja aparece na silhueta e o interior ninguem ve.
+  {
+    let antT = null
+    for (const [y, a, b] of TENAR) {
+      // +Z e o lado do indicador; o polegar mora no mesmo lado, a 3 cm do eixo
+      o.set(0.0035, y, 0.0250)
+      const A = anel(ma, o, U, V, a, b, 2.2, 8)
+      if (antT) costurar(ma, antT, A)
+      antT = A
+    }
+    tampa(ma, antT, 0.0035, -0.068, 0.0250)
+  }
 
   for (const d of DEDOS) {
     // dedo levemente aberto em leque (abre) alem da curva de repouso
     const dir = new THREE.Vector3(-0.10, -1, d.abre * 0.55).normalize()
-    dedo(ma, new THREE.Vector3(0, d.y, d.z), dir, d.comp, 0.72, d.raio, 0.66)
+    dedo(ma, new THREE.Vector3(0, d.y, d.z), dir, d.comp, 0.72, d.raio, 0.66, 7)
   }
   // Polegar: encostado no lado da palma, apontando pra BAIXO e pra frente — e
   // a pose de mao relaxada. Apontando so pra frente (a primeira tentativa) ele
   // lia como uma tabua saindo do pulso.
-  dedo(ma, new THREE.Vector3(-0.012, -0.033, 0.030),
-    new THREE.Vector3(-0.30, -0.79, 0.53), 0.044, 0.78, 0.0146, 0.74, 6, 5, EIXO_POLEGAR, 2.0)
+  // O polegar sai do TENAR (a bolha que acabamos de por), nao do meio do pulso:
+  // era isso que fazia ele parecer parafusado na lateral da mao.
+  dedo(ma, new THREE.Vector3(-0.006, -0.052, 0.0340),
+    new THREE.Vector3(-0.26, -0.80, 0.54), 0.046, 0.80, 0.0142, 0.72, 8, 5, EIXO_POLEGAR, 2.1)
 
   return ma.geo()
 }
@@ -348,8 +638,8 @@ export function createCharacter(opts = {}) {
   // Ordem do merge: padrao de roupa -> catalogo -> o que o chamador pediu.
   const app = Object.assign(
     {
-      cabeca: 0, olhos: 0, pupila: 0, nariz: 0, boca: 0, barba: 0, cabelo: 0,
-      pele: 0, corCabelo: 1, sobrancelha: 0, skin: corPele(0),
+      cabeca: 0, olhos: 0, pupila: 0, nariz: 1, boca: 0, barba: 0, cabelo: 0,
+      pele: 0, corCabelo: 1, corBarba: 0, sobrancelha: 0, skin: corPele(0),
       chapeu: 0, calcado: 1, blusa: 1, calca: 0, colar: 0, anelAcess: 0,
       tatuagem: 0, relogio: 0,
       // 'jaqueta' NAO E MAIS DESENHADA. Jaqueta, blazer, terno e moletom
@@ -404,12 +694,12 @@ export function createCharacter(opts = {}) {
   const torso = joint('torso', 0, 0, 0, hips)
   const chest = joint('chest', 0, CHEST_Y, 0, torso)
 
-  const torsoNu = part(latheGeo(PELVIS_PROFILE), 'skin')
+  const torsoNu = part(corpoGeo(PELVIS_PROFILE, { n: nPelve }), 'skin')
   torsoNu.scale.set(NU_S, 1, NU_S)
   torso.add(torsoNu)
   nu.torso.push(torsoNu)
 
-  const peitoNu = part(latheGeo(CHEST_PROFILE), 'skin')
+  const peitoNu = part(corpoGeo(CHEST_PROFILE, { n: nTronco, dz: dzTronco }), 'skin')
   peitoNu.scale.set(NU_S, 1, NU_S)
   // A RESPIRACAO (animation.js applyBreath) escala os meshes filhos diretos do
   // 'chest' um por um, guardando a escala de cada um. userData.anima avisa o
@@ -421,12 +711,37 @@ export function createCharacter(opts = {}) {
 
   // --- pescoco e cabeca -----------------------------------------------------
   const neck = joint('neck', 0, NECK_Y, 0, chest)
-  // pescoco fino e curto: so uns 3 cm ficam entre a gola e o queixo
-  const neckMesh = part(new THREE.CylinderGeometry(0.047, 0.058, 0.11, 14), 'skinDark')
-  neckMesh.position.y = 0.030
-  neck.add(neckMesh)
 
-  const headPivot = joint('headPivot', 0, HEADPIVOT_Y, 0, neck)
+  // JUNTA SO DO OLHAR, entre o pescoco e a cabeca.
+  //
+  // Ela existe por um motivo bem concreto: o head look precisa girar tambem a
+  // BASE do pescoco (cabeca girando sozinha sobre um pescoco parado le como
+  // torcicolo, nao como olhar), mas `neck` e escrito pelo ANIMADOR a cada
+  // quadro. A primeira versao somava no proprio `neck` — e funcionava pro
+  // jogador, porque ali o animador roda antes e reescreve a rotacao do zero.
+  // Nos NPCs nao ha animador nenhum (src/npc/npc.js so chama setHeadLook), e a
+  // soma ia se acumulando quadro a quadro ate o NPC ficar de costas.
+  //
+  // Com uma junta propria o problema nao existe: setHeadLook escreve valor
+  // ABSOLUTO aqui e ninguem mais toca nela.
+  //
+  // O COLAR NAO ENTRA. Ele fica no `neck` de proposito: colar acompanha o
+  // TRONCO, nao o olhar — corrente girando junto com a cabeca e um dos jeitos
+  // mais rapidos de um personagem parecer de papelao.
+  const neckLook = joint('neckLook', 0, 0, 0, neck)
+  // Pescoco fino e curto: so uns 3 cm ficam entre a gola e o queixo.
+  // Era um CylinderGeometry — cone de parede reta, com costura. Agora e um
+  // perfil: o esternocleidomastoideo faz o pescoco ser mais grosso na base e
+  // afinar subindo, e ele nao e redondo (mais largo de lado do que de frente
+  // pra tras), o que corpoGeo entrega de graca com flatZ.
+  const neckMesh = part(corpoGeo([
+    [0.0630, -0.055], [0.0605, -0.030], [0.0555, 0.005],
+    [0.0508, 0.040], [0.0480, 0.062], [0.0455, 0.075],
+  ], { seg: 16, flatZ: 0.90, n: () => 2.05 }), 'skinDark')
+  neckMesh.position.y = 0.030
+  neckLook.add(neckMesh)
+
+  const headPivot = joint('headPivot', 0, HEADPIVOT_Y, 0, neckLook)
   const head = joint('head', 0, HEAD.ry, 0, headPivot)
 
   // orelhas: a posicao e recalculada a cada troca de cabeca (ver posOrelhas)
@@ -474,25 +789,80 @@ export function createCharacter(opts = {}) {
   head.add(fpAnchor)
 
   // --- bracos ---------------------------------------------------------------
-  // Capsula do braco encurtada em cima: se o topo passar do domo da manga
-  // (+0.026 acima da junta) aparece um triangulo de pele no ombro.
-  const upperArmGeo = track(limbGeo(0.045, 0.225))
-  // Antebraco encurtado nas duas pontas pra capsula MORRER no pulso: a bola de
-  // 4 cm que sobrava antes empurrava a mao pra baixo e comia a palma.
-  const foreArmGeo = track(limbGeo(0.041, FORE_ARM - 0.082))
-  const elbowGeo = track(new THREE.SphereGeometry(0.042, 12, 8))
+  //
+  // O QUE ESTAVA ERRADO (foto do dono): "bracos com listras, cotovelos e ombros
+  // quadrados". Eram tres defeitos somados, e cada um tem a sua correcao aqui:
+  //
+  // 1. LISTRA — a CapsuleGeometry fecha a volta duplicando a coluna de
+  //    vertices e a emenda acendia ao longo do braco inteiro. membroGeo fecha
+  //    por indice: nao ha emenda.
+  // 2. BRACO DE CANO — raio constante do ombro ao cotovelo. Agora o raio sai de
+  //    uma curva com o deltoide em cima e o afinamento no cotovelo.
+  // 3. OMBRO QUADRADO — a capsula comecava do LADO da caixa toracica, com um
+  //    degrau entre as duas. Agora ha o DELTOIDE: um elipsoide que cobre a
+  //    junta e encosta nos dois, e e ele que faz a leitura de ombro. Sem ele
+  //    nao ha curva de raio que resolva, porque o problema estava no VAO.
+  //
+  // O deltoide fica dentro do braco (nao do peito) de proposito: assim ele gira
+  // com o braco, que e o que um ombro faz.
+
+  // Topo em 0.020 acima da junta: mais que isso passa do domo da manga curta e
+  // aparece um triangulo de pele no ombro.
+  const RAIO_BRACO = curvaR([
+    [0.00, 0.0455],  // deltoide
+    [0.18, 0.0470],  // ventre do deltoide, o ponto mais grosso
+    [0.55, 0.0405],  // meio do umero
+    [0.86, 0.0355],  // acima do cotovelo
+    [1.00, 0.0350],
+  ])
+  const RAIO_ANTEBRACO = curvaR([
+    [0.00, 0.0385],
+    [0.16, 0.0415],  // bojo do braquiorradial, logo abaixo do cotovelo
+    [0.55, 0.0330],
+    [0.86, 0.0248],  // pulso
+    [1.00, 0.0240],
+  ])
+  // O antebraco MORRE no pulso: a bola de 4 cm que a capsula deixava sobrando
+  // empurrava a mao pra baixo e comia a palma.
+  // Cada comprimento inclui a cupula de baixo (raio final * 0.72) e foi
+  // escolhido pra a peca TERMINAR DENTRO da junta seguinte. Com a capsula
+  // antiga isso vinha de graca (ela sobrava 4 cm); com o loft, sobrar de menos
+  // abre uma fresta de fundo no cotovelo e no pulso.
+  const upperArmGeo = track(membroGeo(UPPER_ARM - 0.016, RAIO_BRACO, 14, 12))
+  const foreArmGeo = track(membroGeo(FORE_ARM - 0.018, RAIO_ANTEBRACO, 14, 12))
+  // O cotovelo NAO e uma bola: e o olecrano, uma cunha achatada que salta pra
+  // TRAS. Bola de raio uniforme e o que dava a leitura de rotula de boneco.
+  const elbowGeo = track(new THREE.SphereGeometry(1, 14, 10))
+  const deltoideGeo = track(new THREE.SphereGeometry(1, 16, 12))
 
   function buildArm(sgn, side) {
     const up = joint('arm' + side + 'Upper', sgn * SHOULDER_X, SHOULDER_Y, 0, chest)
+
+    const delt = part(deltoideGeo, 'skin', false)
+    // O TAMANHO SAI DA MANGA, nao do gosto. A manga curta e a lathe de
+    // SLEEVE_PROFILE em volta desta mesma junta, e ela chega no maximo a 5.5 cm
+    // de raio (na altura y = -0.034) e fecha em 2.6 cm la em cima (y = +0.021).
+    // O deltoide tem que caber embaixo dela em TODA altura, senao o ombro nu
+    // fura a camiseta — foi essa a primeira tentativa, e furava mesmo.
+    // Com centro em y = -0.020 e raio 5.2 cm deslocado 8 mm pra DENTRO, o ponto
+    // mais externo fica em 4.4 cm contra 5.3 cm de manga; la em cima, 3.5 contra
+    // 3.85. O topo do elipsoide passa da manga, mas ali o raio horizontal ja e
+    // quase zero e a ponta morre dentro da caixa toracica.
+    delt.scale.set(0.052, 0.058, 0.050)
+    delt.position.set(-sgn * 0.008, -0.020, 0)
+    up.add(delt)
+    nu.braco.push(delt)
+
     const upMesh = part(upperArmGeo, 'skin', false)
-    upMesh.position.y = -0.1375   // topo em +0.020, base em -0.295 (dentro do cotovelo)
     up.add(upMesh)
     nu.braco.push(upMesh)
 
     const low = joint('arm' + side + 'Lower', 0, -UPPER_ARM, 0, up)
-    low.add(part(elbowGeo, 'skin', false))
+    const cot = part(elbowGeo, 'skin', false)
+    cot.scale.set(0.0375, 0.0430, 0.0400)
+    cot.position.z = -0.004   // o olecrano salta pra tras
+    low.add(cot)
     const lowMesh = part(foreArmGeo, 'skin', false)
-    lowMesh.position.y = -FORE_ARM / 2
     low.add(lowMesh)
     nu.antebraco.push(lowMesh)
 
@@ -507,9 +877,42 @@ export function createCharacter(opts = {}) {
   const armL = buildArm(-1, 'L')
 
   // --- pernas ---------------------------------------------------------------
-  const thighGeo = track(limbGeo(0.052, THIGH, 14))
-  const shinGeo = track(limbGeo(0.045, SHIN, 14))
-  const kneeGeo = track(new THREE.SphereGeometry(0.048, 12, 8))
+  //
+  // Mesma historia do braco, e o dono pediu explicitamente: "nao e so na parte
+  // de cima, nas pernas tambem".
+  //
+  // A coxa afina do quadril pro joelho. A canela tem a BARRIGA DA PANTURRILHA,
+  // e ela nao e uma engrossada simetrica: ela fica ATRAS e ALTA. Por isso a
+  // canela usa o atrasZ do membroGeo — engordar o raio no lugar disso daria uma
+  // perna de elefante em vez de uma panturrilha.
+  const RAIO_COXA = curvaR([
+    [0.00, 0.0570],
+    [0.15, 0.0585],  // gluteo/quadriceps alto
+    [0.60, 0.0490],
+    [0.90, 0.0420],  // acima do joelho
+    [1.00, 0.0405],
+  ])
+  const RAIO_CANELA = curvaR([
+    [0.00, 0.0430],
+    [0.22, 0.0468],  // panturrilha
+    [0.55, 0.0370],
+    [0.86, 0.0268],  // tornozelo
+    [1.00, 0.0255],
+  ])
+  // Deslocamento pra TRAS da panturrilha. O pico em 0.22 e o mesmo do raio, e o
+  // 0.010 e o que faz a silhueta de perfil ter uma curva atras da perna sem
+  // mudar nada visto de frente.
+  const ATRAS_CANELA = curvaR([[0.00, 0], [0.22, -0.010], [0.62, -0.002], [1.00, 0]])
+
+  const thighGeo = track(membroGeo(THIGH - 0.014, RAIO_COXA, 16, 13))
+  // A canela vai ate o proprio tornozelo: a cupula dela e o calcanhar, e ela
+  // precisa alcancar o topo do pe (que fica 1.75 cm abaixo da junta) senao
+  // sobra um anel vazio no tornozelo.
+  const shinGeo = track(membroGeo(SHIN, RAIO_CANELA, 16, 13, ATRAS_CANELA))
+  // A patela e uma placa arredondada na FRENTE do joelho, nao uma bola em volta
+  // dele. Achatada em Z e empurrada pra frente, ela le como joelho; esferica,
+  // lia como a rotula de um boneco articulado.
+  const kneeGeo = track(new THREE.SphereGeometry(1, 14, 10))
   // Pe descalco: bloco baixo com o dedao arredondado, plantado no chao. seg = 1
   // no roundedBox porque o padrao (3) gera bevel de 3 aneis e curva de 5 — 2 mil
   // triangulos por pe, num pedaco que so aparece quando o personagem esta
@@ -520,14 +923,15 @@ export function createCharacter(opts = {}) {
   function buildLeg(sgn, side) {
     const up = joint('leg' + side + 'Upper', sgn * HIP_X, 0, 0, hips)
     const upMesh = part(thighGeo, 'skin', false)
-    upMesh.position.y = -THIGH / 2
     up.add(upMesh)
     nu.coxa.push(upMesh)
 
     const low = joint('leg' + side + 'Lower', 0, -THIGH, 0, up)
-    low.add(part(kneeGeo, 'skin', false))
+    const joelho = part(kneeGeo, 'skin', false)
+    joelho.scale.set(0.0442, 0.0480, 0.0418)
+    joelho.position.z = 0.006   // a patela fica na FRENTE
+    low.add(joelho)
     const lowMesh = part(shinGeo, 'skin', false)
-    lowMesh.position.y = -SHIN / 2
     low.add(lowMesh)
     nu.canela.push(lowMesh)
 
@@ -610,6 +1014,10 @@ export function createCharacter(opts = {}) {
       // que e como os NPCs da cidade pedem a pele deles.
       skin: app.skin,
       pele: app.pele, corCabelo: app.corCabelo, hairColor: app.corCabelo,
+      // Cor da barba: catalogo PROPRIO (o indice 0 quer dizer "igual ao
+      // cabelo"). appearance.js resolve com beardColorFrom(ctx); passar hex
+      // aqui pintaria a barba de uma cor sorteada pelo wrap do indice.
+      corBarba: app.corBarba, beardColor: app.corBarba,
       cabeca: app.cabeca, head: app.cabeca,
       olhos: app.olhos, eyes: app.olhos,
       pupila: app.pupila, pupil: app.pupila,
@@ -835,7 +1243,7 @@ export function createCharacter(opts = {}) {
     sobrancelha: ['sobrancelha', 'corCabelo', 'cabeca'],
     boca: ['boca', 'corCabelo', 'skin', 'cabeca'],
     nariz: ['nariz', 'skin', 'cabeca'],
-    barba: ['barba', 'corCabelo', 'cabeca'],
+    barba: ['barba', 'corBarba', 'corCabelo', 'cabeca'],
     chapeu: ['chapeu', 'corCabelo', 'cabeca'],
     blusa: ['blusa', 'shirt'],
     calca: ['calca', 'pants'],
@@ -1230,9 +1638,35 @@ export function createCharacter(opts = {}) {
 
   // --- API ------------------------------------------------------------------
 
+  /**
+   * Pra onde a cabeca olha, em relacao ao tronco.
+   *
+   * O GIRO E REPARTIDO ENTRE PESCOCO E CABECA, e nao todo na cabeca. Girar 60
+   * graus so no headPivot faz o cranio torcer sobre um pescoco parado — que era
+   * exatamente a queixa ("ele simplesmente teleporta a cabeca de um lado para o
+   * outro"): alem do salto, o gesto nao tinha corpo. Num pescoco de verdade a
+   * base gira junto, e o mesmo angulo repartido em duas juntas le como olhar em
+   * vez de como torcicolo.
+   *
+   * A repartição e 38% no pescoco e 62% na cabeca — mais na cabeca porque as
+   * vertebras de cima e que giram mais.
+   *
+   * O pescoco e ESCRITO POR CIMA do que o animador acabou de por nele (o
+   * animador roda antes, no mesmo quadro, e escreve rotacao ABSOLUTA a partir da
+   * pose base). Somar aqui e seguro justamente por isso: a soma nao acumula, ela
+   * e refeita do zero a cada quadro. Se algum dia alguem chamar setHeadLook sem
+   * ter rodado o animador antes, o pescoco vai acumular — a ordem importa.
+   */
   function setHeadLook(pitch, yaw) {
-    headPivot.rotation.x = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, pitch || 0))
-    headPivot.rotation.y = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, yaw || 0))
+    const py = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, pitch || 0))
+    const yw = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, yaw || 0))
+    // 38% na base do pescoco, 62% na cabeca — as vertebras de cima e que giram
+    // mais. Os dois sao ABSOLUTOS: nenhuma das duas juntas e escrita por mais
+    // ninguem.
+    neckLook.rotation.y = yw * 0.38
+    neckLook.rotation.x = py * 0.38
+    headPivot.rotation.x = py * 0.62
+    headPivot.rotation.y = yw * 0.62
   }
 
   let bodyVisible = true
@@ -1288,46 +1722,76 @@ export function createCharacter(opts = {}) {
   }
 }
 
-// Nomes antigos (6 bytes) <-> nomes do contrato de 20 campos.
+// Nomes antigos (6 bytes) -> nomes do contrato de 20 campos.
+//
+// A TABELA E DE MAO UNICA DE PROPOSITO. Antes existiam as duas (ALIAS_EN e
+// ALIAS_PT) e aplicar() escrevia OS DOIS nomes no alvo. Era esse o bug que o
+// dono do projeto reportou: "quando clica nos olhos eles nao sao equipados no
+// personagem; isso acontece com olhos, boca, cabelo, cor do cabelo e
+// sobrancelha" — exatamente os cinco campos que tinham apelido.
+//
+// O mecanismo: character.appearance ficava com 'olhos' E 'eyes'. main.js guarda
+// esse objeto e a tela de criacao trabalha sobre uma COPIA dele, entao a copia
+// tambem tinha os dois. Ao clicar num olho, a tela escrevia so 'olhos: 2' — e
+// mandava o objeto INTEIRO, com o 'eyes: 0' velho ainda dentro. aplicar()
+// percorre `for (const k in patch)`, e 'eyes' vem depois de 'olhos' na ordem de
+// insercao: chegava la, resolvia o apelido e escrevia olhos = 0 de volta.
+// Sem erro nenhum no console; o olho simplesmente nao mudava.
+//
+// A regra agora e uma so: APELIDO E ENTRADA, NUNCA ESTADO. Quem manda
+// { hair: 2 } (os NPCs de grocery.js e loja-jogos.js) continua funcionando,
+// porque a leitura traduz; mas o que fica guardado no objeto e so o nome do
+// contrato. E, pra nao herdar o problema de um objeto salvo antes desta
+// correcao, aplicar() APAGA o apelido do alvo quando o encontra.
 const ALIAS_EN = {
   hair: 'cabelo', eyes: 'olhos', brows: 'sobrancelha', mouth: 'boca',
   hairColor: 'corCabelo',
 }
-const ALIAS_PT = {
-  cabelo: 'hair', olhos: 'eyes', sobrancelha: 'brows', boca: 'mouth',
-  corCabelo: 'hairColor',
-}
 
 /**
- * Copia uma aparencia parcial resolvendo os apelidos EN <-> PT e a pele.
- * A rede e o contrato falam PT (20 campos); o codigo antigo (NPCs da cidade,
- * avatares) fala EN. Os dois chegam aqui, entao os dois nomes andam juntos.
+ * Copia uma aparencia parcial resolvendo os apelidos EN -> PT e a pele.
+ *
+ * Ordem de resolucao dos apelidos: o nome do CONTRATO ganha sempre. Se o patch
+ * trouxer 'olhos' e 'eyes' com valores diferentes (o caso do objeto salvo
+ * antes da correcao), vale 'olhos'. Por isso os apelidos sao aplicados numa
+ * SEGUNDA passada e so onde o patch nao trouxe o nome do contrato — e nao no
+ * meio do laco, onde a ordem das chaves decidiria o resultado.
  *
  * Pele tem DOIS campos: 'pele' e indice de catalogo e 'skin' e cor crua, e o
  * patch quase sempre traz os DOIS (main.js guarda um objeto so e manda ele
  * inteiro). A regra e: QUEM MANDA E O INDICE. Cor crua so vale quando nao ha
  * indice nenhum no patch, que e como os NPCs da cidade pedem a pele deles.
  *
- * A regra ja foi "vale o que MUDOU", comparando o 'pele' do patch com o do
- * alvo, e isso tinha um buraco que o dono do projeto encontrou: o tom mudava
- * quando ele clicava no tom, e VOLTAVA ao anterior no clique seguinte em
- * qualquer outra coisa. Motivo: a tela de criacao trabalha sobre uma COPIA da
- * aparencia, e nessa copia o 'skin' cru nunca era atualizado. Trocando a
- * blusa, o patch chegava com o 'pele' novo (igual ao do alvo, entao "nao
- * mudou") e o 'skin' velho — e o skin velho ganhava. Foi medido: pele 4
- * pintava 0x6f4526, e o clique seguinte devolvia 0xf7c6a4.
+ * A regra ja foi "vale o que MUDOU", e isso tinha um buraco: o tom mudava
+ * quando o jogador clicava no tom e VOLTAVA ao anterior no clique seguinte em
+ * qualquer outra coisa, porque na copia da tela de criacao o 'skin' cru nunca
+ * era atualizado e o skin velho ganhava.
  */
 function aplicar(alvo, patch) {
   if (!patch) return alvo
+
+  // 1a passada: os nomes do contrato.
   for (const k in patch) {
     const v = patch[k]
-    if (v === undefined) continue
+    if (v === undefined || ALIAS_EN[k] !== undefined) continue
     alvo[k] = v
-    const pt = ALIAS_EN[k]
-    if (pt) alvo[pt] = v
-    const en = ALIAS_PT[k]
-    if (en) alvo[en] = v
   }
+
+  // 2a passada: os apelidos, so onde o contrato nao falou.
+  for (const k in patch) {
+    const pt = ALIAS_EN[k]
+    if (pt === undefined) continue
+    const v = patch[k]
+    if (v === undefined) continue
+    if (patch[pt] === undefined) alvo[pt] = v
+  }
+
+  // O apelido nunca fica guardado. Um objeto que passou por uma versao antiga
+  // deste arquivo (ou um save antigo) chega aqui com 'eyes'/'hair' dentro; se
+  // ficassem, o proximo setAppearance que mandasse o objeto inteiro reviveria
+  // o bug na hora.
+  for (const k in ALIAS_EN) if (k in alvo) delete alvo[k]
+
   if (patch.pele !== undefined) alvo.skin = corPele(patch.pele)
   else if (patch.skin !== undefined) alvo.skin = corPele(patch.skin)
   return alvo

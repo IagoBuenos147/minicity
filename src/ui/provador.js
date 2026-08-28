@@ -206,10 +206,6 @@ const MINI = {
     alvo: 'peca', folga: 1.05, quadro: 0.34, foco: 'rosto', giro: 0.03,
     orbY: 0.10, esconde: ['chapeu', 'cabelo'],
   },
-  pupila: {
-    alvo: 'peca', medePor: 'olhos', metade: -1, folga: 1.30, quadro: 0.15,
-    foco: 'rosto', giro: 0.02, orbY: 0.04, esconde: ['chapeu', 'cabelo'],
-  },
   nariz: {
     alvo: 'peca', folga: 2.10, quadro: 0.30, foco: 'rosto', giro: 0.40,
     orbY: 0.52, esconde: ['chapeu'],
@@ -232,6 +228,9 @@ const MINI = {
   },
   pele: { foco: 'rosto', quadro: 0.58, giro: 0.24, esconde: ['chapeu'] },
   corCabelo: { foco: 'rosto', quadro: 0.60, giro: 0.42, sobe: 0.045, esconde: ['chapeu'] },
+  // Cor da barba: o card tem que mostrar a BARBA, nao o cabelo. Quadro menor,
+  // mais baixo no rosto (sobe negativo) e o chapeu fora do caminho.
+  corBarba: { foco: 'rosto', quadro: 0.46, giro: 0.26, sobe: -0.035, esconde: ['chapeu', 'cabelo'] },
 
   // --- roupa: peca grande e presa a junta, a via antiga serve ---------------
   chapeu: { foco: 'rosto', quadro: 0.66, giro: 0.36, sobe: 0.055 },

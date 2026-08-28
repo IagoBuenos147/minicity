@@ -267,9 +267,18 @@ export function bitDoItem(item) {
 // bytes que ja estao no ar — por isso VERSAO_PROTOCOLO subiu pra 3 quando ela
 // passou de 6 para 20 campos.
 //
-// O campo 19 ('reservado') existe de proposito e vale sempre 0 hoje: e a folga
-// pra um acessorio novo entrar sem mudar o TAMANHO do pacote de novo, que e o
-// que obriga a subir a versao e recusar todo cliente velho.
+// O campo 19 era 'reservado' — a folga guardada pra um campo novo entrar sem
+// mudar o TAMANHO do pacote. Ela foi GASTA agora, pela COR DA BARBA: a aba de
+// cor passou a ter cor de cabelo, cor de barba e tom de pele juntas, e barba
+// que herda a cor do cabelo nao entrega o grisalho de barba com cabelo preto,
+// que e das combinacoes mais comuns que existem.
+//
+// A VERSAO NAO SOBE por causa disto, e de proposito: o pacote continua com 20
+// bytes, a POSICAO de todos os outros campos e a mesma, e o valor que um
+// cliente velho manda nesse byte e 0 — que no catalogo novo quer dizer
+// exatamente "igual ao cabelo", o comportamento que ele tinha antes. Ou seja: o
+// cliente velho continua certo sem saber. Subir a versao aqui so serviria pra
+// recusar todo mundo por nada.
 export const CAMPOS_APARENCIA = [
   'cabeca',      //  0  formato do cranio
   'olhos',       //  1  formato/abertura da palpebra
@@ -290,7 +299,7 @@ export const CAMPOS_APARENCIA = [
   'tatuagem',    // 16  0 = nenhuma
   'relogio',     // 17  0 = nenhum
   'jaqueta',     // 18  0 = nenhuma
-  'reservado',   // 19  folga: ver o comentario acima
+  'corBarba',    // 19  cor da barba (0 = igual ao cabelo)
 ]
 
 /**
@@ -317,9 +326,16 @@ export const CAMPOS_APARENCIA = [
 // catalogo JAQUETAS esta vazio e o campo continua no pacote por causa dos 20
 // bytes fixos, sempre em 0. Ver o comentario de JAQUETAS em roupas.js.
 export const APARENCIA_OPCOES = [
-  13, 10, 22, 10, 10, 10, 10, 10, 11, 10,
-  11, 11, 19, 11, 11, 11, 11, 11, 1, 0,
+  //  cabeca olhos pupila nariz boca barba cabelo pele corCab sobrancelha
+          6,    5,     1,    4,   3,    4,     3,  10,    11,          3,
+  //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
+           7,      5,    4,    3,    4,   4,   4,      4,      1,       9,
 ]
+
+// 'pupila' vale 1 (so o zero) porque A ABA DE PUPILA DEIXOU DE EXISTIR: a iris
+// virou parte do olho, e cada um dos cinco olhos traz a propria solucao de
+// iris/pupila/brilho. O byte continua no pacote pelo mesmo motivo de 'jaqueta'
+// — 20 bytes fixos —, viajando sempre 0.
 
 /**
  * O que um jogador que nunca escolheu nada usa. Nao e tudo zero: 0 quer dizer
@@ -327,9 +343,15 @@ export const APARENCIA_OPCOES = [
  * descalco. Cabelo/rosto ficam no primeiro item do catalogo mesmo.
  */
 const APARENCIA_DEFAULT = [
-  0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-  0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+  //  cabeca olhos pupila nariz boca barba cabelo pele corCab sobrancelha
+          0,    0,     0,    1,   0,    0,     0,   0,     1,          0,
+  //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
+           0,      1,    1,    0,    0,   0,   0,      0,      0,       0,
 ]
+
+// 'nariz' nasce em 1 e nao em 0 porque o indice 0 do catalogo de nariz e
+// "sem nariz" (o dono pediu a opcao). Um padrao todo zerado entregaria um
+// jogador novo com a cara lisa e ele leria isso como bug, nao como estilo.
 
 // --- tamanhos fixos ---------------------------------------------------------
 // 20 bytes: um por campo de CAMPOS_APARENCIA. Derivado da lista de proposito —

@@ -1,6 +1,7 @@
 import {
-  TAB_DEFS, DEF_POR_CAMPO, GRUPO_ROSTO, GRUPO_ROUPA,
-  catalogo, criarBarraAbas, criarSecao, injectStyle as injetarEstiloCz, el,
+  CAMPOS_TODOS, DEF_POR_CAMPO, GRUPO_ROSTO, GRUPO_ROUPA,
+  abaTemCatalogo, catalogo, criarBarraAbas, criarSecao,
+  injectStyle as injetarEstiloCz, el,
 } from './customizer.js'
 
 // ---------------------------------------------------------------------------
@@ -27,10 +28,12 @@ import {
 const ID_ESTILO = 'mcrp-criacao-style'
 const NOME_MAX = 16
 
-// Todas as abas, rosto primeiro. Catalogo vazio nao vira aba (e o caso de
-// JAQUETAS depois que jaqueta virou parte de BLUSAS).
-function camposVisiveis() {
-  return GRUPO_ROSTO.concat(GRUPO_ROUPA).filter((f) => catalogo(f).length > 0)
+// Todas as abas, rosto primeiro. Aba sem catalogo nenhum nao entra (e o caso
+// de JAQUETAS depois que jaqueta virou parte de CAMISAS).
+// A lista e de ID DE ABA, e nem toda aba e um campo: a de COR mexe em tres
+// (cor do cabelo, cor da barba e tom de pele).
+function abasVisiveis() {
+  return GRUPO_ROSTO.concat(GRUPO_ROUPA).filter(abaTemCatalogo)
 }
 
 function injetarEstilo() {
@@ -269,8 +272,8 @@ export function criarCriacao(args = {}) {
   // uma copia a cada mudanca (aoMudar): a tela de criacao nao pode escrever no
   // objeto do jogo antes de o jogador clicar em PRONTO.
   const ap = Object.assign({}, args.aparencia || null)
-  for (const d of TAB_DEFS) {
-    if (typeof ap[d.field] !== 'number' || !isFinite(ap[d.field])) ap[d.field] = 0
+  for (const f of CAMPOS_TODOS) {
+    if (typeof ap[f] !== 'number' || !isFinite(ap[f])) ap[f] = 0
   }
 
   let aberto = false
@@ -386,24 +389,24 @@ export function criarCriacao(args = {}) {
     secoes.clear()
     corpo.innerHTML = ''
 
-    const campos = camposVisiveis()
-    abas.montar(campos, DEF_POR_CAMPO)
+    const abasIds = abasVisiveis()
+    abas.montar(abasIds, DEF_POR_CAMPO)
 
-    for (const campo of campos) {
-      const sec = criarSecao(campo, {
+    for (const idAba of abasIds) {
+      const sec = criarSecao(idAba, {
         aoEscolher: escolher,
         miniatura,
       })
       corpo.appendChild(sec.root)
-      secoes.set(campo, sec)
+      secoes.set(idAba, sec)
     }
     // o indice guardado pode nao existir no catalogo (aparencia salva antes de
     // alguem apagar uma barba): a secao normaliza sozinha e a gente le de volta
-    for (const [campo, sec] of secoes) {
-      sec.setIndice(ap[campo] | 0)
-      ap[campo] = sec.indice()
+    for (const sec of secoes.values()) {
+      const fora = sec.sincronizar(ap)
+      for (const f in fora) ap[f] = fora[f]
     }
-    if (campos.length > 0) setAba(campos[0])
+    if (abasIds.length > 0) setAba(abasIds[0])
   }
 
   function setAba(campo) {
@@ -422,13 +425,16 @@ export function criarCriacao(args = {}) {
     enquadrar(s.def.foco)
   }
 
+  // `campo` e o CAMPO DA APARENCIA, nao a aba: a aba de cor mexe em tres.
   function escolher(campo, indice) {
     if (ap[campo] === indice) return
     ap[campo] = indice
     empurrarAparencia()
-    // as fotos das OUTRAS abas mostram a roupa velha; elas se refazem quando o
+    // as fotos das OUTRAS abas mostram a peca velha; elas se refazem quando o
     // jogador entrar nelas (o provador so guarda o que ainda vale)
-    for (const [k, sec] of secoes) if (k !== campo) sec.esquecerFotos()
+    for (const sec of secoes.values()) {
+      if (sec.campos.indexOf(campo) < 0) sec.esquecerFotos()
+    }
   }
 
   function passoItem(dir) {
@@ -437,12 +443,14 @@ export function criarCriacao(args = {}) {
   }
 
   function sortear() {
-    for (const [campo, sec] of secoes) {
-      const n = sec.list.length
-      if (n < 2) continue
-      const i = Math.floor(Math.random() * n)
-      ap[campo] = i
-      sec.setIndice(i)
+    for (const sec of secoes.values()) {
+      for (const campo of sec.campos) {
+        const n = catalogo(campo).length
+        if (n < 2) continue
+        const i = Math.floor(Math.random() * n)
+        ap[campo] = i
+        sec.setIndiceDe(campo, i)
+      }
     }
     empurrarAparencia()
     for (const sec of secoes.values()) sec.esquecerFotos()
@@ -583,8 +591,9 @@ export function criarCriacao(args = {}) {
   function escolherDireto(i) {
     const s = secoes.get(campoAtivo)
     if (!s || i < 0 || i >= s.list.length) return
-    s.setIndice(i)
-    escolher(campoAtivo, i)
+    const campo = s.campoAtivo()
+    s.setIndiceDe(campo, i)
+    escolher(campo, i)
   }
 
   function onResize() {

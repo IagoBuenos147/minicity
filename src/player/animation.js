@@ -32,16 +32,246 @@ const PARTS = [
   'legRUpper', 'legRLower', 'footR',
 ]
 
-// Amplitudes da passada. Interpolamos walk->run pelo blend de corrida.
+// ---------------------------------------------------------------------------
+// A PASSADA
+//
+// O que o dono do jogo escreveu: "ele esta se movimentando como um boneco.
+// Queremos realismo, caminhar fluido e correr fluido. Tem que dar PESO e
+// identidade a ele quando se movimentar. Melhore completamente o caminhar e a
+// corrida, levando em consideracao TODO O CORPO e nao somente as pernas."
+//
+// O que havia aqui era uma senoide por junta: coxa = -A*sin(p), joelho =
+// max(0, -sin(p+0.45)), tornozelo = sin(p+2.35). Isso da um pendulo, e pendulo
+// nao e passo. Faltavam as tres coisas que fazem um passo ler como passo:
+//
+//  1. APOIO E BALANCO SAO FASES DIFERENTES, E DE DURACAO DIFERENTE. Na
+//     caminhada o pe fica no chao 62% do ciclo e no ar 38%; na corrida e o
+//     contrario (35% no chao). Uma senoide gasta metade em cada e por isso a
+//     perna parece que esta sempre no ar.
+//  2. O PE ROLA. Ataque de calcanhar, pe plano, e o antepe EMPURRA no fim do
+//     apoio. Sem o empurrao nao ha impulso, e sem impulso nao ha peso: o boneco
+//     parece que esta sendo arrastado por um trilho.
+//  3. O CORPO INTEIRO PARTICIPA. Quadril sobe, desce, desliza pro lado do pe de
+//     apoio e CAI do lado da perna que esta no ar (a "queda pelvica"); o tronco
+//     contra-gira; a cabeca desconta a rotacao pra continuar olhando pra frente.
+//
+// CONVENCAO DE FASE. `stride` anda 0..2PI por CICLO (= dois passos). A partir
+// dele cada perna recebe um `t` em [0,1) onde t = 0 e o ATAQUE DE CALCANHAR
+// daquela perna, e as duas pernas ficam meio ciclo defasadas. Todas as curvas
+// abaixo sao escritas nesse t — e o que deixa ler a tabela e comparar com um
+// grafico de marcha de verdade.
+// ---------------------------------------------------------------------------
+
+// Fracao do ciclo em que o pe esta NO CHAO.
+// 0.62 na caminhada (com os dois pes no chao 12% do tempo, o "duplo apoio") e
+// 0.34 na corrida — abaixo de 0.5 existe VOO, os dois pes fora do chao ao mesmo
+// tempo, e e o voo que separa correr de andar rapido.
+const APOIO_ANDAR = 0.62
+const APOIO_CORRER = 0.34
+
+// AS DUAS FLEXOES DE QUADRIL SAO COISAS DIFERENTES, e confundi-las foi o
+// primeiro erro desta reescrita:
+//
+//   quadrilContato  quanto a coxa esta a frente NO INSTANTE EM QUE O PE TOCA.
+//                   E ele, com a extensao, que define o COMPRIMENTO DO PASSO.
+//   quadrilPico     a flexao maxima, la no MEIO DO BALANCO, quando o joelho
+//                   sobe. Numa corrida chega a 65 graus; num contato, jamais.
+//
+// Com um valor so pros dois, o contato herdava a flexao de sprint (60 graus) —
+// e a 60 graus de coxa com o joelho reto o tornozelo esta 47 cm abaixo do
+// quadril, nao 75. A conta de altura do quadril entao pedia um quadril 36 cm
+// mais baixo pra o pe alcancar o chao, e o boneco AGACHAVA a cada passo. Foi o
+// teste de altura de quadril que pegou.
 const WALK = {
-  thigh: 0.60, knee: 0.80, foot: 0.34, arm: 0.50, elbow: 0.42,
-  twist: 0.10, hipTwist: 0.13, bob: 0.042, sway: 0.028, lean: 4 * DEG,
-  shoulder: 0.05,
+  quadrilContato: 0.42, // coxa a frente no ataque de calcanhar (24 graus)
+  quadrilPico: 0.52,    // flexao maxima, no meio do balanco
+  quadrilExt: 0.30,     // coxa atras no fim do apoio
+  joelhoContato: 0.06,  // joelho quase reto ao tocar o chao
+  joelhoApoio: 0.22,    // flexao de amortecimento logo depois do ataque
+  joelhoBalanco: 0.95,  // flexao maxima no meio do balanco
+  tornoBaixo: 0.30,     // empurrao do antepe
+  tornoAlto: 0.18,      // ponta do pe pra cima no balanco (nao raspar o chao)
+  braco: 0.42,          // amplitude do balanco do braco
+  bracoAtras: 1.35,     // o braco vai MAIS pra tras do que pra frente
+  cotovelo: 0.30,       // flexao base do cotovelo
+  cotoveloOsc: 0.34,
+  sobe: 0.026,          // altura extra do voo (so na corrida)
+  desliza: 0.020,       // deslocamento lateral pro pe de apoio
+  quedaPelvica: 0.055,  // quanto o quadril cai do lado da perna no ar
+  giroQuadril: 0.13,
+  giroTronco: 0.16,
+  lean: 3.0 * DEG,
+  ombro: 0.045,
+  passoLargo: 0.012,    // afastamento lateral do pe (a marcha nao e em linha)
+  teto: 0.075,          // queda maxima do quadril, em metros
 }
 const RUN = {
-  thigh: 1.02, knee: 1.35, foot: 0.52, arm: 0.98, elbow: 0.95,
-  twist: 0.19, hipTwist: 0.22, bob: 0.085, sway: 0.045, lean: 10 * DEG,
-  shoulder: 0.10,
+  // Passo GRANDE. Sao 6.2 m/s (22 km/h) no config; com o passo curto da versao
+  // anterior a cadencia pedida passava de 9 passos por segundo e a corrida
+  // virava um tremor de pernas. Passo de 74 cm poe a cadencia em 8.4 passos/s,
+  // que ja e cartoon mas le como corrida.
+  quadrilContato: 0.78,
+  quadrilPico: 1.15,    // o joelho sobe alto: e a marca da corrida
+  quadrilExt: 0.64,
+  // Joelho BEM dobrado no contato. Contraintuitivo mas e geometria: com a coxa
+  // 41 graus a frente, a perna ESTICADA tem projecao vertical de so 56 cm e o
+  // quadril teria que descer 19 cm pro pe alcancar o chao. Dobrar o joelho poe a
+  // canela de volta na vertical e devolve altura ao quadril — alem de ser o que
+  // um corredor faz de verdade pra amortecer.
+  joelhoContato: 0.46,
+  joelhoApoio: 0.34,
+  joelhoBalanco: 1.95,  // calcanhar quase no gluteo
+  tornoBaixo: 0.46,
+  tornoAlto: 0.26,
+  braco: 0.86,
+  bracoAtras: 1.10,
+  cotovelo: 1.05,       // na corrida o cotovelo fica travado perto de 90 graus
+  cotoveloOsc: 0.42,
+  sobe: 0.055,
+  desliza: 0.014,
+  quedaPelvica: 0.030,
+  giroQuadril: 0.20,
+  giroTronco: 0.26,
+  lean: 9.0 * DEG,
+  ombro: 0.095,
+  passoLargo: 0.006,
+  teto: 0.135,
+}
+
+// Braco de alavanca efetivo do passo, em metros.
+//
+// NAO e o comprimento da perna (0.84 m). E o numero que faz passoMetros() bater
+// com o passo que a animacao DE FATO desenha, e ele foi MEDIDO, nao deduzido:
+// tools/_teste-passo.mjs percorre o ciclo em 240 Hz e le a excursao do
+// tornozelo em Z enquanto o pe esta no chao.
+//
+//   perna esticada (0.80)   previa  0.778 m andando / 1.209 m correndo
+//   medido de verdade                0.602 m        / 0.883 m
+//
+// A diferenca e o joelho: no apoio ele nunca esta reto, entao o raio efetivo
+// encolhe. Se alguem mexer nas amplitudes de WALK/RUN, rode o teste de novo e
+// reajuste ESTE numero, nao a formula.
+const PERNA = 0.605
+
+// Os dois segmentos, separados — a altura do quadril precisa deles. Sao os
+// mesmos numeros de character.js (THIGH e SHIN). Ficam repetidos aqui, e nao
+// importados, porque animation.js tambem anima os avatares remotos e os NPCs,
+// que nao carregam o modulo do personagem inteiro. Se um dia divergirem, o
+// sintoma aparece na hora: o pe afunda no chao ou flutua ao caminhar.
+const COXA = 0.384
+const CANELA = 0.3655
+const PERNA_RETA = COXA + CANELA
+
+/**
+ * COMPRIMENTO DO PASSO, EM METROS, dado o gesto.
+ *
+ * E daqui que sai a CADENCIA, e nao o contrario. A formula antiga era
+ * `hz = min(sp/1.6, 1.35 + sp*0.13)` — dois numeros escolhidos a mao, sem
+ * relacao nenhuma com o tamanho do passo que a animacao de fato desenha. O
+ * resultado inevitavel e o pe DESLIZANDO no chao. Nenhum outro detalhe de peso
+ * salva uma passada que patina.
+ *
+ * Aqui e ao contrario: o passo sai da GEOMETRIA do gesto e a cadencia sai da
+ * velocidade dividida pelo passo. Muda a amplitude, a cadencia acompanha
+ * sozinha.
+ */
+function passoMetros(flex, ext) {
+  return PERNA * (Math.sin(flex) + Math.sin(ext))
+}
+
+/**
+ * ALTURA DO QUADRIL a partir dos angulos da perna — a queda vertical do quadril
+ * ate o tornozelo, com a coxa em `q` e o joelho em `k`.
+ *
+ * E daqui que o quadril sobe e desce, e NAO de uma senoide. A versao com
+ * senoide tinha um defeito que o teste pegou na hora: no duplo apoio ela
+ * baixava o quadril 2.6 cm com as duas pernas quase esticadas, e o pe entrava
+ * 8 mm no chao. Nao ha amplitude que conserte isso, porque o erro nao e de
+ * amplitude e sim de causa — o quadril nao sobe porque uma senoide mandou, ele
+ * sobe porque a perna de apoio ESTA MAIS ESTICADA naquele instante.
+ *
+ * Fixando o quadril nesta conta, o balanco vertical aparece sozinho, com a fase
+ * certa e na amplitude certa, e muda junto quando alguem mexe na passada. E o
+ * pe da perna de apoio nunca atravessa o chao, por construcao.
+ */
+function quedaDoQuadril(q, k) {
+  return COXA * Math.cos(q) + CANELA * Math.cos(q + k)
+}
+
+/** Rampa suave 0..1 entre a e b (fora do intervalo, grampeia). */
+function rampa(x, a, b) {
+  if (b === a) return x < a ? 0 : 1
+  return smooth01((x - a) / (b - a))
+}
+
+/** Pulso suave: 0 nas pontas, 1 no meio de [a, b]. */
+function pulso(x, a, b) {
+  if (x <= a || x >= b) return 0
+  const t = (x - a) / (b - a)
+  return Math.sin(t * Math.PI)
+}
+
+/**
+ * O CICLO DE UMA PERNA, em t = [0,1) a partir do ataque de calcanhar.
+ * Devolve os tres angulos em `out` pra nao alocar objeto por quadro por perna.
+ *
+ *   quadril  > 0 = coxa pra TRAS  (a convencao do arquivo)
+ *   joelho   > 0 = canela dobrada pra tras (o unico sentido que joelho dobra)
+ *   torno    > 0 = ponta do pe pra CIMA
+ */
+function cicloPerna(t, A, apoio, out) {
+  if (t < apoio) {
+    // --- APOIO ---------------------------------------------------------------
+    // A coxa vai da flexao de contato ate a extensao num movimento QUASE linear:
+    // no apoio o pe esta parado no chao e e o corpo que passa por cima dele,
+    // entao a velocidade angular e constante. Usar seno aqui foi o erro da
+    // versao antiga — o seno desacelera no meio do apoio, que e justo onde o
+    // corpo mais avanca.
+    const u = t / apoio
+    out.quadril = -A.quadrilContato + (A.quadrilContato + A.quadrilExt) * u
+
+    // Joelho: amortecimento logo depois do ataque (o "yield" que absorve o
+    // peso) e depois estica; no fim do apoio ja comeca a dobrar pro balanco.
+    // E o amortecimento que da a sensacao de PESO — sem ele a perna vira uma
+    // estaca e o corpo nao afunda em nada.
+    out.joelho = A.joelhoContato + A.joelhoApoio * pulso(u, 0.0, 0.60)
+      + A.joelhoBalanco * 0.22 * rampa(u, 0.82, 1.0)
+
+    // Tornozelo: ataque com o calcanhar (ponta um pouco pra cima), pe plano,
+    // a canela avanca sobre o pe (dorsiflexao no meio) e o ANTEPE EMPURRA no
+    // fim. O empurrao e o pico negativo; e a unica parte do ciclo que gera
+    // impulso pra frente.
+    out.torno = A.tornoAlto * 0.55 * (1 - rampa(u, 0.0, 0.16))
+      + 0.16 * rampa(u, 0.20, 0.72)
+      - A.tornoBaixo * rampa(u, 0.72, 1.0)
+  } else {
+    // --- BALANCO -------------------------------------------------------------
+    const u = (t - apoio) / (1 - apoio)
+    // Duas metades. Na primeira a coxa sai da extensao e sobe ate o PICO (o
+    // joelho na altura maxima); na segunda ela desce do pico ate a flexao de
+    // CONTATO, e o pe estende pra frente pra pousar. Uma rampa unica de
+    // extensao a contato — que era o que estava aqui — nao tem pico nenhum, e
+    // sem pico nao ha levantar de joelho: e o que fazia a corrida parecer um
+    // arrastar de pes acelerado.
+    const PICO = 0.58
+    if (u < PICO) {
+      out.quadril = A.quadrilExt - (A.quadrilExt + A.quadrilPico) * smooth01(u / PICO)
+    } else {
+      const v = smooth01((u - PICO) / (1 - PICO))
+      out.quadril = -A.quadrilPico + (A.quadrilPico - A.quadrilContato) * v
+    }
+
+    // Joelho: dobra forte no comeco do balanco (e assim que o pe passa longe do
+    // chao) e ESTENDE quase todo antes do ataque. Ficar dobrado no ataque e o
+    // que fazia a perna parecer que ia se ajoelhar.
+    out.joelho = A.joelhoContato + A.joelhoBalanco * pulso(u, -0.12, 0.88)
+
+    // Tornozelo: ponta pra cima no meio do balanco pra nao raspar o chao, e
+    // neutro/levemente pra cima na hora do ataque.
+    out.torno = -A.tornoBaixo * (1 - rampa(u, 0.0, 0.22))
+      + A.tornoAlto * rampa(u, 0.18, 0.60)
+  }
+  return out
 }
 
 export function createAnimator(character) {
@@ -191,6 +421,7 @@ export function createAnimator(character) {
   let wLoco = 0, wRun = 0, wAir = 0
   let wSit = 0      // peso da pose de sentado
   let leanCur = 0
+  let amp = 1            // encolhimento do gesto em velocidade baixa
   let waveT = -1      // < 0 = aceno desligado
 
   function capture() {
@@ -280,74 +511,195 @@ export function createAnimator(character) {
     // quadril, pernas e pes: ZERO. Os pes ficam plantados onde nasceram.
   }
 
-  // Passada. w = peso da locomocao, run = blend walk->run.
-  function poseLocomotion(w, run) {
+  // --- passada --------------------------------------------------------------
+  // Caixas de modulo: cicloPerna roda DUAS vezes por quadro e alocar dois
+  // objetos por quadro por boneco (ate 20 bonecos) e lixo que o coletor vem
+  // buscar no meio de uma animacao.
+  const _pernaE = { quadril: 0, joelho: 0, torno: 0 }
+  const _pernaD = { quadril: 0, joelho: 0, torno: 0 }
+  const _A = {}
+
+  /**
+   * Passada. w = peso da locomocao, run = blend andar->correr.
+   *
+   * Ordem em que as coisas sao escritas, e o porque de cada uma:
+   *   1. as duas pernas, pelo ciclo de marcha;
+   *   2. o QUADRIL, que e o que carrega o peso do corpo;
+   *   3. a coluna, que contra-gira o quadril;
+   *   4. os bracos, em contrafase com a perna do mesmo lado;
+   *   5. a CABECA, que desconta tudo isso pra continuar olhando pra frente.
+   * O item 5 e o que mais mudou a leitura do movimento: cabeca que balanca
+   * junto com o tronco e o que faz um personagem parecer um boneco de mola.
+   */
+  function poseLocomotion(w, run, amp) {
     if (w <= 0.001) return
-    const A = {
-      thigh: mix(WALK.thigh, RUN.thigh, run),
-      knee: mix(WALK.knee, RUN.knee, run),
-      foot: mix(WALK.foot, RUN.foot, run),
-      arm: mix(WALK.arm, RUN.arm, run),
-      elbow: mix(WALK.elbow, RUN.elbow, run),
-      twist: mix(WALK.twist, RUN.twist, run),
-      hipTwist: mix(WALK.hipTwist, RUN.hipTwist, run),
-      bob: mix(WALK.bob, RUN.bob, run),
-      sway: mix(WALK.sway, RUN.sway, run),
-      shoulder: mix(WALK.shoulder, RUN.shoulder, run),
-    }
-    const p = stride
-    const s = Math.sin(p)
-    const sL = s, sR = -s   // pernas em contrafase
 
-    // coxas: sin > 0 -> perna a frente (rot negativa)
-    if (d.legLUpper) d.legLUpper.rx += -A.thigh * sL * w
-    if (d.legRUpper) d.legRUpper.rx += -A.thigh * sR * w
+    const A = _A
+    for (const k in WALK) A[k] = mix(WALK[k], RUN[k], run)
+    // `amp` encolhe o gesto INTEIRO quando o personagem anda devagar. Nao e
+    // enfeite: quem anda devagar da passo curto, e e o mesmo numero que entra na
+    // conta da cadencia (ver passoMetros) — se so um dos dois usasse, o pe
+    // voltaria a deslizar.
+    A.quadrilContato *= amp
+    A.quadrilPico *= mix(0.70, 1, amp)
+    A.quadrilExt *= amp
+    A.joelhoBalanco *= mix(0.75, 1, amp)
+    A.braco *= amp
+    A.sobe *= amp
+    const apoio = mix(APOIO_ANDAR, APOIO_CORRER, run)
 
-    // joelho: flexiona mais quando a perna esta atras (impulso / balanco)
-    const kL = A.knee * Math.max(0, -Math.sin(p + 0.45)) + 0.10
-    const kR = A.knee * Math.max(0, -Math.sin(p + 0.45 + Math.PI)) + 0.10
-    if (d.legLLower) d.legLLower.rx += kL * w
-    if (d.legRLower) d.legRLower.rx += kR * w
+    // Fase 0..1 de cada perna. A esquerda vem meio ciclo depois da direita.
+    const fase = stride / TAU
+    const tD = fase - Math.floor(fase)
+    const tE = (fase + 0.5) - Math.floor(fase + 0.5)
 
-    // tornozelo: gira no fim do passo (ponta do pe empurra o chao)
-    if (d.footL) d.footL.rx += (A.foot * Math.sin(p + 2.35) - kL * 0.45) * w
-    if (d.footR) d.footR.rx += (A.foot * Math.sin(p + 2.35 + Math.PI) - kR * 0.45) * w
+    // SINAL DE REFERENCIA DO CICLO: +1 quando a perna ESQUERDA esta a frente.
+    //
+    // Ele nao e sin(stride), e essa distincao ja custou um bug: stride = 0 e o
+    // ataque de calcanhar da perna DIREITA, ou seja, o momento em que a direita
+    // esta mais a frente. Logo o sinal "esquerda a frente" vale -1 em stride = 0
+    // e +1 em stride = PI — que e exatamente -cos(stride). Com sin(stride) tudo
+    // que depende do lado (braco, queda do quadril, contra-rotacao) sai 90 graus
+    // fora de fase, e o boneco anda com o braco e a perna do mesmo lado juntos.
+    const sw = -Math.cos(stride)
+    // O outro sinal: +1 quando o peso esta sobre o pe DIREITO (meio do apoio da
+    // direita). Meio apoio da direita cai em tD = apoio/2, e o pico de
+    // sin(stride) esta perto o bastante disso pra servir.
+    const peso = Math.sin(stride)
 
-    // quadril: sobe/desce 2x por ciclo + desliza para a perna de apoio
+    cicloPerna(tE, A, apoio, _pernaE)
+    cicloPerna(tD, A, apoio, _pernaD)
+
+    if (d.legLUpper) d.legLUpper.rx += _pernaE.quadril * w
+    if (d.legRUpper) d.legRUpper.rx += _pernaD.quadril * w
+    if (d.legLLower) d.legLLower.rx += _pernaE.joelho * w
+    if (d.legRLower) d.legRLower.rx += _pernaD.joelho * w
+    if (d.footL) d.footL.rx += _pernaE.torno * w
+    if (d.footR) d.footR.rx += _pernaD.torno * w
+
+    // A perna no balanco abre um pouco pra fora pra passar pela outra: sem
+    // isso, com passada grande, um pe atravessa o outro. E tambem o que faz a
+    // marcha nao ser em linha reta, que e o jeito que ninguem anda.
+    // pulso() e obrigatorio aqui: um degrau (abre no balanco, fecha no apoio)
+    // faria a perna dar um pinote no instante do ataque.
+    const abreE = A.passoLargo * pulso(tE, apoio, 1.0)
+    const abreD = A.passoLargo * pulso(tD, apoio, 1.0)
+    if (d.legLUpper) d.legLUpper.rz += -abreE * w
+    if (d.legRUpper) d.legRUpper.rz += abreD * w
+
+    // --- quadril: o peso do corpo --------------------------------------------
     if (d.hips) {
-      d.hips.py += (A.bob * Math.cos(2 * p) - A.bob * 0.5) * w
-      d.hips.px += -A.sway * s * w
-      d.hips.ry += -A.hipTwist * s * w
-      d.hips.rz += 0.05 * s * w
+      // 1) SOBE E DESCE — pela GEOMETRIA, nao por senoide (ver quedaDoQuadril).
+      //    O quadril fica na altura que a perna MAIS ESTICADA das duas pede: e
+      //    ela que esta apoiada no chao. Assim o pe de apoio nunca atravessa o
+      //    piso e o balanco vertical sai com a fase e a amplitude corretas de
+      //    graca — duas vezes por ciclo, alto no meio do apoio, baixo no duplo
+      //    apoio.
+      const quedaE = quedaDoQuadril(_pernaE.quadril * w, _pernaE.joelho * w)
+      const quedaD = quedaDoQuadril(_pernaD.quadril * w, _pernaD.joelho * w)
+      let py = Math.max(quedaE, quedaD) - PERNA_RETA
+      // TETO DE QUEDA. Durante o VOO da corrida as duas pernas estao dobradas e
+      // a conta pediria um quadril 33 cm abaixo do normal — porque a conta
+      // pressupoe um pe no chao, e no voo nao ha. Sem o teto o boneco agachava
+      // a cada passo da corrida. O teto e mais apertado correndo justamente
+      // porque e la que existe voo; andando ele quase nunca entra (a queda
+      // maxima medida e 6.4 cm).
+      if (py < -A.teto) py = -A.teto
+      d.hips.py += py
+
+      //    O VOO da corrida e o unico pedaco que a geometria nao entrega: ali
+      //    os dois pes estao no ar e quem levanta o corpo e a inercia, nao a
+      //    perna. O pico fica entre o desprendimento de um pe e o ataque do
+      //    outro — em stride = 0.84 PI e 1.84 PI, com apoio = 0.34.
+      if (run > 0.01) {
+        const voo = Math.max(0, Math.cos(2 * stride - 1.68 * Math.PI))
+        d.hips.py += A.sobe * 0.9 * run * voo * w
+      }
+
+      // 2) DESLIZA pro lado do pe de apoio. E o que impede o boneco de andar
+      //    como se estivesse sobre um trilho: o centro de massa TEM que ficar
+      //    sobre o pe que esta no chao ou a pessoa cai.
+      d.hips.px += A.desliza * peso * w
+
+      // 3) QUEDA PELVICA. Do lado da perna que esta no ar o quadril CAI alguns
+      //    graus (na fisioterapia isso e o sinal de Trendelenburg). E o detalhe
+      //    que mais sozinho faz a caminhada parecer humana em vez de mecanica.
+      // rz > 0 levanta o lado +X (direito) e baixa o -X (esquerdo). Com o peso
+      // na direita, quem esta no ar e a esquerda — e ela que tem que cair.
+      d.hips.rz += A.quedaPelvica * peso * w
+
+      // 4) GIRO TRANSVERSO: o quadril acompanha a perna que AVANCA. Com o peso
+      //    na direita, quem avanca e a esquerda (-X), e o lado -X tem que ir
+      //    pra frente (+Z) — o que pede ry POSITIVO.
+      d.hips.ry += A.giroQuadril * peso * w
     }
 
-    // tronco faz a contra-rotacao do quadril
-    if (d.torso) { d.torso.ry += A.twist * 0.55 * s * w; d.torso.rz += -0.03 * s * w }
-    if (d.chest) { d.chest.ry += A.twist * s * w; d.chest.rx += -0.02 * Math.cos(2 * p) * w }
-    if (d.neck) d.neck.ry += -A.twist * 0.4 * s * w
-    if (d.head) {
-      d.head.rx += 0.035 * Math.cos(2 * p) * w
-      d.head.rz += 0.03 * s * w
+    // --- coluna: contra-rotacao ----------------------------------------------
+    // O tronco gira ao CONTRARIO do quadril, e a diferenca entre os dois cresce
+    // subindo pela coluna. E isso que faz o ombro e o quadril andarem em
+    // sentidos opostos — sem a contra-rotacao o corpo gira em bloco, como uma
+    // porta.
+    if (d.torso) {
+      d.torso.ry += -A.giroTronco * 0.45 * peso * w
+      d.torso.rz += -A.quedaPelvica * 0.5 * peso * w
+    }
+    if (d.chest) {
+      d.chest.ry += -A.giroTronco * peso * w
+      // o peito afunda de leve a cada aterrissagem (2x por ciclo)
+      d.chest.rx += 0.030 * (1 + run) * Math.max(0, Math.cos(2 * stride)) * w
     }
 
-    // bracos em contrafase com as pernas do mesmo lado
+    // --- bracos ---------------------------------------------------------------
+    // Em contrafase com a perna do MESMO lado. E assimetrico de proposito: o
+    // braco vai mais pra tras do que pra frente (bracoAtras > 1), que e como
+    // braco humano balanca. Simetrico, o balanco lia como um metronomo.
+    // rx > 0 leva o braco pra TRAS. Quando a perna esquerda esta a frente
+    // (sw = +1), o braco esquerdo tem que estar atras — entao bE = sw direto.
+    const bE = sw
+    const bD = -sw
+    const swing = (b) => (b > 0 ? b * A.bracoAtras : b)
+
     if (d.armLUpper) {
-      d.armLUpper.rx += A.arm * sL * w
-      d.armLUpper.rz += (-A.shoulder - 0.05 * Math.abs(s)) * w
-      d.armLUpper.ry += -0.06 * s * w
+      d.armLUpper.rx += A.braco * swing(bE) * w
+      d.armLUpper.rz += (-A.ombro - 0.04 * Math.abs(bE)) * w
+      d.armLUpper.ry += -0.05 * bE * w
     }
     if (d.armRUpper) {
-      d.armRUpper.rx += A.arm * sR * w
-      d.armRUpper.rz += (A.shoulder + 0.05 * Math.abs(s)) * w
-      d.armRUpper.ry += 0.06 * s * w
+      d.armRUpper.rx += A.braco * swing(bD) * w
+      d.armRUpper.rz += (A.ombro + 0.04 * Math.abs(bD)) * w
+      d.armRUpper.ry += 0.05 * bD * w
     }
-    // cotovelo: fecha mais quando a mao vem para a frente
-    const eL = A.elbow * (0.35 + 0.65 * Math.max(0, -sL)) + 0.12
-    const eR = A.elbow * (0.35 + 0.65 * Math.max(0, -sR)) + 0.12
-    if (d.armLLower) d.armLLower.rx += -eL * w
-    if (d.armRLower) d.armRLower.rx += -eR * w
-    if (d.handL) d.handL.rx += -0.10 * eL * w
-    if (d.handR) d.handR.rx += -0.10 * eR * w
+    // Cotovelo: fecha quando a mao vem pra FRENTE. Na corrida a flexao base
+    // sobe pra perto de 90 graus e quase nao oscila — correr de braco esticado
+    // e a marca registrada de animacao mal feita.
+    const cotE = A.cotovelo + A.cotoveloOsc * Math.max(0, -bE)
+    const cotD = A.cotovelo + A.cotoveloOsc * Math.max(0, -bD)
+    if (d.armLLower) d.armLLower.rx += -cotE * w
+    if (d.armRLower) d.armRLower.rx += -cotD * w
+    // a mao acompanha o antebraco com um atraso (inercia da mao solta)
+    if (d.handL) d.handL.rx += -0.16 * cotE * w
+    if (d.handR) d.handR.rx += -0.16 * cotD * w
+
+    // --- cabeca: estabilizacao ------------------------------------------------
+    // A cabeca DESCONTA a rotacao do tronco e a queda do quadril, em vez de
+    // somar a elas. Um humano andando mantem a cabeca praticamente parada no
+    // espaco (e o reflexo vestibulo-ocular); um boneco de mola nao. Era isso que
+    // faltava — a versao antiga somava mais balanco na cabeca.
+    // O desconto e parcial (0.75): desconto total le como cabeca presa num
+    // suporte, que e o outro extremo.
+    // A soma que chega ao pescoco e torso(-0.45) + chest(-1.00) = -1.45 vezes
+    // giroTronco; devolver 62% disso deixa a cabeca quase parada no espaco sem
+    // ela parecer presa num suporte.
+    if (d.neck) {
+      d.neck.ry += A.giroTronco * 0.90 * peso * w
+      // o mesmo pro tombo lateral: quadril(+1.00) + torso(-0.50) = +0.50 de
+      // quedaPelvica chegando aqui; devolvemos 70% disso.
+      d.neck.rz += -A.quedaPelvica * 0.35 * peso * w
+    }
+    if (d.head) {
+      // um resto minimo de movimento, senao a cabeca parece congelada
+      d.head.rx += -0.012 * Math.cos(2 * stride) * w
+    }
   }
 
   // No ar: pernas recolhidas, bracos levemente pra cima.
@@ -408,7 +760,16 @@ export function createAnimator(character) {
 
     // pesos alvo
     const locoT = grounded ? smooth01(speed / 1.5) * (moving ? 1 : smooth01(speed / 0.8)) : 0
-    const runT = clamp01((speed - 3.4) / 2.4) * (running ? 1 : 0.65)
+    // A TROCA ANDAR->CORRER COMECA EM 2 m/s, e nao em 3.4.
+    //
+    // O config poe WALK_SPEED em 3.1 m/s — que e 11 km/h, ou seja, ninguem
+    // "caminha" nessa velocidade: um humano troca pra corrida por volta de
+    // 2.1 m/s. Com o limiar em 3.4 o personagem andava o jogo inteiro em pose de
+    // CAMINHADA a 3.1 m/s, e uma caminhada nessa velocidade so fecha com uma
+    // cadencia de 7 passos por segundo — os pezinhos correndo que o dono viu.
+    // Com o limiar em 2.0 ele ja entra em trote leve na velocidade padrao, que e
+    // o gesto certo pra 11 km/h.
+    const runT = clamp01((speed - 2.0) / 2.8) * (running ? 1 : 0.85)
     const airT = grounded ? 0 : 1
 
     wSit = damp(wSit, state && state.sitting ? 1 : 0, 8, dt)
@@ -416,13 +777,27 @@ export function createAnimator(character) {
     wRun = damp(wRun, runT, 7, dt)
     wAir = damp(wAir, airT, grounded ? 9 : 16, dt)
 
-    // Cadencia da passada. Proporcional a velocidade so enquanto ele anda
-    // devagar; a partir dai satura, porque quem cresce na corrida e o TAMANHO
-    // do passo, nao a frequencia. Com o proporcional puro que havia aqui, a
-    // 6.2 m/s davam 3.9 ciclos/s e a corrida virava um tremor.
+    // CADENCIA DERIVADA DO PASSO (ver passoMetros).
+    //
+    // amp encolhe o gesto quando ele anda devagar: passo curto de quem esta
+    // caminhando devagar, passo inteiro a partir de ~1.4 m/s. O MESMO amp entra
+    // na pose, entao a conta fecha e o pe nao desliza.
     const sp = Math.min(speed, 9)
-    const hz = Math.min(sp / 1.6, 1.35 + sp * 0.13)
-    stride += TAU * hz * dt
+    amp = damp(amp, mix(0.55, 1, smooth01(sp / 1.4)), 9, dt)
+    // O passo sai do angulo NO CONTATO (nao do pico do balanco): e ele que
+    // decide onde o pe pousa, e portanto o quanto o corpo avanca por passo.
+    const flex = mix(WALK.quadrilContato, RUN.quadrilContato, wRun) * amp
+    const ext = mix(WALK.quadrilExt, RUN.quadrilExt, wRun) * amp
+    const passo = Math.max(0.12, passoMetros(flex, ext))
+    // Teto de 3.9 ciclos/s. Ele foi escolhido pra NAO ENTRAR na velocidade
+    // maxima do jogo: com RUN_SPEED = 6.2 m/s e passo de 78.7 cm a cadencia
+    // pedida e 3.94, ou seja, o teto nunca corta em jogo normal e o pe nao
+    // patina. Ele existe so como rede de seguranca pra velocidade anormal
+    // (veiculo, empurrao, teleporte), onde a passada viraria um tremor.
+    // O piso de 0.35 evita a animacao congelar quando o jogador encosta numa
+    // parede e a velocidade real cai a quase zero com o wLoco ainda subindo.
+    const hz = Math.min(3.9, sp / (2 * passo)) || 0
+    stride += TAU * Math.max(sp > 0.05 ? 0.35 : 0, hz) * dt
     if (stride > TAU) stride -= TAU * Math.floor(stride / TAU)
     tBreath += dt
     if (waveT >= 0) { waveT += dt; if (waveT > 1.9) waveT = -1 }
@@ -440,7 +815,7 @@ export function createAnimator(character) {
     updateBlink(dt)
 
     poseIdle(idleW)
-    poseLocomotion(wLoco * ground, wRun)
+    poseLocomotion(wLoco * ground, wRun, amp)
     poseAir(wAir * sitK, vy)
     poseSit(wSit)
 

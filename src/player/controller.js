@@ -22,6 +22,25 @@ function damp(cur, tgt, lambda, dt) {
   return cur + (tgt - cur) * (1 - Math.exp(-lambda * dt))
 }
 // interpolacao angular pelo caminho curto
+/**
+ * Menor angulo equivalente, em [-PI, PI].
+ *
+ * E o que impede "virar pra ali" de virar "dar quase uma volta inteira ate
+ * ali" — e, no head look, e o que faz a diferenca entre a cabeca acompanhar a
+ * camera e a cabeca dar um salto de 120 graus quando o jogador passa dos 180.
+ */
+function anguloCurto(a) {
+  let r = a % TAU
+  if (r > Math.PI) r -= TAU
+  else if (r < -Math.PI) r += TAU
+  return r
+}
+
+// Ate quantos graus a cabeca vira SEM o corpo. 1.05 rad = 60 graus, o limite
+// confortavel de um pescoco. E o mesmo LOOK_LIMIT de character.js; passado ele,
+// quem vira e o corpo.
+const LIMITE_PESCOCO = 1.05
+
 function dampAngle(cur, tgt, lambda, dt) {
   let diff = (tgt - cur + Math.PI) % TAU
   if (diff < 0) diff += TAU
@@ -68,6 +87,9 @@ export function createPlayerController({ camera, character, input, collision, sc
 
   // corpo gira suave, nunca instantaneo
   let bodyYaw = yaw + Math.PI
+  // cabeca: alvo perseguido com damp, nunca escrito cru (ver o passo 9)
+  let lookYaw = 0
+  let lookPitch = 0
   // velocidade "real" (depois da colisao) usada pela animacao
   let animSpeed = 0
 
@@ -354,6 +376,29 @@ export function createPlayerController({ camera, character, input, collision, sc
       // personagem olha pra onde anda, com giro suave
       const moveYaw = Math.atan2(velocity.x, velocity.z)
       bodyYaw = dampAngle(bodyYaw, moveYaw, 11, dt)
+    } else {
+      // PARADO, COM A CAMERA GIRANDO EM VOLTA DELE.
+      //
+      // Era aqui que a cabeca "teleportava de um lado para o outro". O corpo
+      // ficava travado no ultimo yaw de caminhada e so a cabeca acompanhava a
+      // camera, limitada a +-0.7 rad. Quando o jogador passava de 180 graus, o
+      // angulo relativo dava a volta (+PI vira -PI) e a cabeca saltava de olhar
+      // TODO pra esquerda pra olhar TODO pra direita, num quadro.
+      //
+      // A correcao nao e suavizar o salto: e nao deixar o angulo chegar la. O
+      // pescoco so alcanca ~60 graus; passou disso, quem vira e o CORPO, como
+      // acontece com uma pessoa de verdade que olha por cima do ombro e, se a
+      // coisa continua, gira o tronco. Assim o angulo relativo nunca se
+      // aproxima de 180 e nunca ha volta pra dar.
+      //
+      // O corpo persegue devagar (lambda 6): rapido demais e o personagem vira
+      // um girassol seguindo a camera e o gesto perde a leitura de "olhar".
+      const rel = anguloCurto((yaw + Math.PI) - bodyYaw)
+      const excesso = Math.abs(rel) - LIMITE_PESCOCO
+      if (excesso > 0) {
+        const alvo = bodyYaw + Math.sign(rel) * excesso
+        bodyYaw = dampAngle(bodyYaw, alvo, 6, dt)
+      }
     }
 
     if (character && character.root) {
@@ -371,16 +416,32 @@ export function createPlayerController({ camera, character, input, collision, sc
       sitting: !!seat,
     })
 
-    // 9) head look
+    // 9) head look — SEMPRE AMORTECIDO
+    //
+    // A versao antiga escrevia o angulo cru da camera na cabeca a cada quadro.
+    // Mesmo sem o salto de fase, isso e um acoplamento rigido: qualquer tranco
+    // do mouse aparecia inteiro no pescoco no mesmo quadro. Aqui a cabeca
+    // PERSEGUE o alvo com damp — o pedido foi "onde ele olhar a cabeca dele vai
+    // virar suavemente junto, de maneira coerente com o corpo".
+    //
+    // lambda 12 = a cabeca cobre ~63% da diferenca em 80 ms. Rapido o bastante
+    // pra nao parecer atrasada, lento o bastante pra o tranco virar um gesto.
     if (character && character.setHeadLook) {
+      let alvoP = 0
+      let alvoY = 0
       if (mode === 'first') {
-        character.setHeadLook(pitch, 0)
+        alvoP = pitch
       } else {
-        let rel = (yaw + Math.PI - bodyYaw + Math.PI) % TAU
-        if (rel < 0) rel += TAU
-        rel -= Math.PI
-        character.setHeadLook(pitch * 0.45, clamp(rel * 0.55, -0.7, 0.7))
+        const rel = anguloCurto((yaw + Math.PI) - bodyYaw)
+        alvoP = pitch * 0.45
+        // 0.75 do angulo relativo, limitado ao alcance do pescoco. Como o corpo
+        // ja gira quando passa de LIMITE_PESCOCO, este clamp quase nunca corta —
+        // ele e a rede de seguranca pro quadro em que o corpo ainda esta girando.
+        alvoY = clamp(rel * 0.75, -LIMITE_PESCOCO, LIMITE_PESCOCO)
       }
+      lookPitch = damp(lookPitch, alvoP, 12, dt)
+      lookYaw = dampAngle(lookYaw, alvoY, 12, dt)
+      character.setHeadLook(lookPitch, lookYaw)
     }
 
     if (character && character.root) character.root.updateMatrixWorld(true)

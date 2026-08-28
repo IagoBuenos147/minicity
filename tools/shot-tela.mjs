@@ -173,6 +173,189 @@ export const GRUPOS = {
       espera: 900, semQuadro: true,
     },
   ],
+  // ==========================================================================
+  // A REFORMA DO PERSONAGEM
+  //
+  // Uma folha de contato por aba. Nao sao fotos "bonitas": sao as fotos que
+  // mostram se a peca esta GRUDADA NA PELE nos seis cranios, que e o unico jeito
+  // de pegar um traco flutuando sem abrir o jogo item por item.
+  // ==========================================================================
+  cranio: [
+    {
+      nome: 'p1-cranios',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const base = { chapeu:0, cabelo:0, barba:0, blusa:1, nariz:1, olhos:0, boca:0, sobrancelha:0 }
+        for (const gi of [0, 1.05]) {
+          for (let cb = 0; cb < 6; cb++) {
+            const w = document.createElement('div')
+            const lb = document.createElement('div'); lb.textContent = 'cabeca ' + cb + (gi ? ' (perfil)' : ' (frente)')
+            G.provador.setAparencia(Object.assign({}, G.appearance, base, { cabeca: cb }))
+            G.provador.focar('rosto', true)
+            G.provador.girar(gi - (G.__giroAnt || 0)); G.__giroAnt = gi
+            G.provador.atualizar(0.6); G.provador.render()
+            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+            im.style.cssText = 'width:300px;height:300px;object-fit:contain;background:#222;border:1px solid #444'
+            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+          }
+        }
+        G.provador.girar(-(G.__giroAnt || 0)); G.__giroAnt = 0
+        document.body.appendChild(d)`,
+      espera: 1400, semQuadro: true,
+    },
+  ],
+  olhos: [
+    {
+      nome: 'p2-olhos',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        for (let i = 0; i < 5; i++) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = 'olho ' + i
+          G.provador.setAparencia(Object.assign({}, G.appearance, { olhos:i, chapeu:0, cabelo:0, barba:0, nariz:1 }))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:420px;height:340px;object-fit:none;object-position:50% 34%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1400, semQuadro: true,
+    },
+  ],
+  traco: [
+    {
+      nome: 'p3-nariz-boca',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const tiros = []
+        for (let i = 0; i < 4; i++) tiros.push(['nariz ' + i, { nariz:i }])
+        for (let i = 0; i < 3; i++) tiros.push(['boca ' + i, { boca:i }])
+        for (const [lb0, patch] of tiros) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, cabelo:0, barba:0, nariz:1 }, patch))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:360px;height:330px;object-fit:none;object-position:50% 42%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1400, semQuadro: true,
+    },
+    {
+      nome: 'p4-pelo',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const tiros = []
+        for (let i = 1; i < 4; i++) tiros.push(['barba ' + i, { barba:i }])
+        for (let i = 0; i < 3; i++) tiros.push(['cabelo ' + i, { cabelo:i }])
+        for (let i = 0; i < 3; i++) tiros.push(['sobrancelha ' + i, { sobrancelha:i, cabelo:2 }])
+        for (const [lb0, patch] of tiros) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, cabelo:0, barba:0, nariz:1, corBarba:0 }, patch))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:360px;height:360px;object-fit:contain;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1600, semQuadro: true,
+    },
+  ],
+  // O CORPO: o que o dono fotografou (listra no peito, braco listrado, ombro e
+  // cotovelo quadrados, mao feia). Frente, perfil e costas, sem roupa e com.
+  corpo: [
+    {
+      nome: 'p5-corpo',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const vistas = [['frente',0],['3/4',0.85],['perfil',1.57],['costas',3.14]]
+        for (const [nome, gi] of vistas) {
+          for (const roupa of [0, 1]) {
+            const w = document.createElement('div')
+            const lb = document.createElement('div'); lb.textContent = nome + (roupa ? ' vestido' : ' nu')
+            G.provador.setAparencia(Object.assign({}, G.appearance, { blusa: roupa, calca: 0, calcado: roupa ? 1 : 0 }))
+            G.provador.focar('corpo', true)
+            G.provador.girar(gi - (G.__g2 || 0)); G.__g2 = gi
+            G.provador.atualizar(0.6); G.provador.render()
+            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+            im.style.cssText = 'width:300px;height:420px;object-fit:contain;background:#222;border:1px solid #444'
+            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+          }
+        }
+        G.provador.girar(-(G.__g2 || 0)); G.__g2 = 0
+        document.body.appendChild(d)`,
+      espera: 1600, semQuadro: true,
+    },
+    {
+      nome: 'p6-maos-ombro',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        for (const foco of ['maos', 'tronco', 'pernas', 'pes']) {
+          for (const gi of [0, 1.2]) {
+            const w = document.createElement('div')
+            const lb = document.createElement('div'); lb.textContent = foco + (gi ? ' girado' : '')
+            G.provador.setAparencia(Object.assign({}, G.appearance, { blusa: 0, calca: 0, calcado: 0 }))
+            G.provador.focar(foco, true)
+            G.provador.girar(gi - (G.__g3 || 0)); G.__g3 = gi
+            G.provador.atualizar(0.6); G.provador.render()
+            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+            im.style.cssText = 'width:340px;height:340px;object-fit:contain;background:#222;border:1px solid #444'
+            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+          }
+        }
+        G.provador.girar(-(G.__g3 || 0)); G.__g3 = 0
+        document.body.appendChild(d)`,
+      espera: 1600, semQuadro: true,
+    },
+  ],
+  // A PASSADA: oito instantes de um ciclo, andando e correndo, vistos de lado.
+  // Uma folha assim mostra em segundos o que so se ve no jogo prestando muita
+  // atencao — se o pe planta, se o joelho amortece, se o braco acompanha.
+  passada: [
+    {
+      nome: 'p7-passada',
+      antes: `G.fluxo.jogar()
+        G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:3px'
+        const ch = G.character
+        const c = G.camera
+        // camera de perfil, presa no personagem
+        function tira(lb0) {
+          ch.root.updateMatrixWorld(true)
+          const p = ch.root.position
+          c.position.set(p.x + 3.4, p.y + 1.05, p.z)
+          c.lookAt(p.x, p.y + 0.95, p.z)
+          c.fov = 42; c.updateProjectionMatrix()
+          G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+          G.engine.render()
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:210px;height:300px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        for (const [nome, vel, correndo] of [['anda', 1.6, false], ['padrao', 3.1, false], ['corre', 6.2, true]]) {
+          for (let i = 0; i < 8; i++) {
+            for (let k = 0; k < 5; k++) G.player.animator.update(1 / 60, { speed: vel, moving: true, running: correndo, grounded: true, vy: 0 })
+            tira(nome + ' ' + i)
+          }
+        }
+        document.body.appendChild(d)`,
+      espera: 1800, semQuadro: true,
+    },
+  ],
   colar: [
     {
       nome: 'colar-1-combos',

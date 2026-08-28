@@ -41,7 +41,7 @@ const AMOSTRA = {
   cabeca: 7, olhos: 4, pupila: 3, nariz: 2, boca: 1,
   barba: 4, cabelo: 3, pele: 5, corCabelo: 5, sobrancelha: 2,
   chapeu: 5, calcado: 4, blusa: 3, calca: 2, colar: 1,
-  anelAcess: 5, tatuagem: 4, relogio: 3, jaqueta: 2, reservado: 9,
+  anelAcess: 5, tatuagem: 4, relogio: 3, jaqueta: 2, corBarba: 9,
 }
 
 // ------------------------------------------------------- 1. a tabela em si
@@ -52,7 +52,7 @@ ok('a ORDEM dos campos e a do contrato',
     'cabeca', 'olhos', 'pupila', 'nariz', 'boca',
     'barba', 'cabelo', 'pele', 'corCabelo', 'sobrancelha',
     'chapeu', 'calcado', 'blusa', 'calca', 'colar',
-    'anelAcess', 'tatuagem', 'relogio', 'jaqueta', 'reservado',
+    'anelAcess', 'tatuagem', 'relogio', 'jaqueta', 'corBarba',
   ].join(','), C.join(','))
 
 // Aqui NAO se congela a lista de numeros. Ela ja foi congelada uma vez
@@ -72,10 +72,12 @@ ok('a ORDEM dos campos e a do contrato',
     const n = O[i]
     if (!Number.isInteger(n) || n < 0 || n > 255) problemas.push(C[i] + '=' + n + ' fora de 0..255')
   }
-  // Os dois campos que existem so pra ocupar o byte: jaqueta virou parte de
-  // blusa (uma opcao, o zero) e o ultimo byte e reserva pro proximo campo.
+  // Os dois campos que existem so pra ocupar o byte: 'jaqueta' virou parte de
+  // blusa e 'pupila' virou parte do olho. Os dois tem UMA opcao, o zero.
+  // Nao ha mais byte de reserva: o ultimo virou corBarba nesta reforma.
   if (O[C.indexOf('jaqueta')] !== 1) problemas.push('jaqueta deveria ser 1')
-  if (O[C.indexOf('reservado')] !== 0) problemas.push('reservado deveria ser 0')
+  if (O[C.indexOf('pupila')] !== 1) problemas.push('pupila deveria ser 1')
+  if (O[C.indexOf('corBarba')] < 2) problemas.push('corBarba deveria ter catalogo')
   ok('a tabela de opcoes tem uma entrada valida por campo',
     problemas.length === 0, problemas.join(' | ') || O.length + ' campos, todos em 0..255')
 }

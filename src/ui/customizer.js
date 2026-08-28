@@ -54,34 +54,58 @@ export function catalogo(field) {
 }
 
 /**
- * Catalogo de abas.
- *   field  chave usada em game.setAppearance() (o nome do contrato, 20 bytes)
- *   grupo  'rosto' (barbeiro) ou 'roupa' (provador)
- *   foco   o que o palco deve enquadrar: rosto | tronco | pescoco | pernas |
- *          pes | maos | corpo (provador.js traduz os nomes antigos tambem)
- * O chapeu entra com foco 'rosto' porque e a cabeca que precisa de close.
+ * Catalogo de ABAS.
  *
- * NAO EXISTE MAIS ABA DE JAQUETA. Jaqueta, blazer, terno e moletom passaram a
- * morar dentro de BLUSAS, e o campo 'jaqueta' da aparencia ficou sempre em 0
- * (o byte continua no pacote da rede; mexer no formato binario por causa de um
- * byte dormindo custaria mais do que deixar ele dormir). Duas abas pra mesma
- * parte do corpo era o que obrigava o jogador a checar as duas pra entender por
- * que a camiseta nao aparecia.
+ *   id      chave da aba. Quase sempre e o proprio campo da aparencia; so a aba
+ *           de cor tem id proprio, porque ela mexe em TRES campos
+ *   field   campo principal (o que responde por ela nas APIs antigas)
+ *   campos  [{ field, title }] — as listas que a aba mostra, em ordem. Uma aba
+ *           normal tem uma so; quem omite ganha [{ field, title }] de graca
+ *   grupo   'rosto' (barbeiro) ou 'roupa' (provador)
+ *   foco    o que o palco enquadra: rosto | tronco | pescoco | pernas | pes |
+ *           maos | corpo
+ *
+ * O QUE MUDOU NESTA REFORMA (pedido do dono, com as palavras dele):
+ *
+ * - "apague toda a aba de PUPILAS, vamos manter apenas os diferentes olhos."
+ *   A iris virou parte do olho: cada um dos cinco olhos traz a propria solucao
+ *   de iris/pupila/brilho, com um metodo diferente em cada. Nao ha mais aba.
+ *
+ * - "na aba COR vai ter cor de cabelo, cor de barba e cor de pele, tudo em uma
+ *   aba; consequentemente a aba cor de pele vai passar pra essa aba tambem."
+ *   Dai a aba de tres listas. Cor de barba e um campo NOVO ('corBarba'), que
+ *   ocupou o byte de reserva do protocolo — barba herdando a cor do cabelo nao
+ *   entregava grisalho de barba com cabelo preto.
+ *
+ * - "mude tambem a aba ROUPAS para CAMISAS."
+ *   So o rotulo: o campo continua sendo 'blusa', que e um byte do protocolo de
+ *   rede, e renomear byte custa versao nova por um nome.
+ *
+ * NAO EXISTE ABA DE JAQUETA. Jaqueta, blazer e moletom moram dentro do catalogo
+ * de camisas, e o campo 'jaqueta' fica sempre em 0 (o byte continua no pacote;
+ * mexer no formato binario por causa de um byte dormindo custa mais do que
+ * deixar ele dormir).
  */
 export const TAB_DEFS = [
   { field: 'cabeca', label: 'CABECA', title: 'Formato da cabeca', glyph: 'cabeca', grupo: 'rosto', foco: 'rosto' },
   { field: 'olhos', label: 'OLHOS', title: 'Olhos', glyph: 'olhos', grupo: 'rosto', foco: 'rosto' },
-  { field: 'pupila', label: 'PUPILA', title: 'Pupila', glyph: 'pupila', grupo: 'rosto', foco: 'rosto' },
   { field: 'nariz', label: 'NARIZ', title: 'Nariz', glyph: 'nariz', grupo: 'rosto', foco: 'rosto' },
   { field: 'boca', label: 'BOCA', title: 'Boca', glyph: 'boca', grupo: 'rosto', foco: 'rosto' },
   { field: 'barba', label: 'BARBA', title: 'Barba', glyph: 'barba', grupo: 'rosto', foco: 'rosto' },
   { field: 'cabelo', label: 'CABELO', title: 'Corte de cabelo', glyph: 'cabelo', grupo: 'rosto', foco: 'rosto' },
-  { field: 'corCabelo', label: 'COR', title: 'Cor do cabelo', glyph: 'pele', grupo: 'rosto', foco: 'rosto' },
   { field: 'sobrancelha', label: 'SOBRANC.', title: 'Sobrancelhas', glyph: 'sobrancelha', grupo: 'rosto', foco: 'rosto' },
-  { field: 'pele', label: 'PELE', title: 'Tom de pele', glyph: 'pele', grupo: 'rosto', foco: 'rosto' },
+  {
+    id: 'cor', field: 'corCabelo', label: 'COR', title: 'Cores', glyph: 'pele',
+    grupo: 'rosto', foco: 'rosto',
+    campos: [
+      { field: 'corCabelo', title: 'Cor do cabelo' },
+      { field: 'corBarba', title: 'Cor da barba' },
+      { field: 'pele', title: 'Tom de pele' },
+    ],
+  },
 
   { field: 'chapeu', label: 'CHAPEU', title: 'Chapeu', glyph: 'chapeu', grupo: 'roupa', foco: 'rosto' },
-  { field: 'blusa', label: 'ROUPA', title: 'Roupa de cima', glyph: 'blusa', grupo: 'roupa', foco: 'tronco' },
+  { field: 'blusa', label: 'CAMISAS', title: 'Camisas', glyph: 'blusa', grupo: 'roupa', foco: 'tronco' },
   { field: 'calca', label: 'CALCA', title: 'Calca', glyph: 'calca', grupo: 'roupa', foco: 'pernas' },
   { field: 'calcado', label: 'CALCADO', title: 'Calcado', glyph: 'calcado', grupo: 'roupa', foco: 'pes' },
   { field: 'colar', label: 'COLAR', title: 'Colar', glyph: 'colar', grupo: 'roupa', foco: 'pescoco' },
@@ -90,7 +114,29 @@ export const TAB_DEFS = [
   { field: 'tatuagem', label: 'TATUAGEM', title: 'Tatuagem', glyph: 'tatuagem', grupo: 'roupa', foco: 'tronco' },
 ]
 
-export const DEF_POR_CAMPO = new Map(TAB_DEFS.map((d) => [d.field, d]))
+// Normaliza: toda aba ganha `id` e `campos`, entao ninguem mais precisa testar
+// se a aba e simples ou composta.
+for (const d of TAB_DEFS) {
+  if (!d.id) d.id = d.field
+  if (!d.campos) d.campos = [{ field: d.field, title: d.title }]
+}
+
+/** Chaveado por ID DE ABA (que na maioria dos casos e o proprio campo). */
+export const DEF_POR_CAMPO = new Map(TAB_DEFS.map((d) => [d.id, d]))
+
+/** Todos os campos da aparencia que alguma aba mexe, sem repetir. */
+export const CAMPOS_TODOS = (() => {
+  const out = []
+  for (const d of TAB_DEFS) for (const c of d.campos) if (out.indexOf(c.field) < 0) out.push(c.field)
+  return out
+})()
+
+/** Aba com pelo menos uma lista de verdade. Catalogo vazio nao vira aba. */
+export function abaTemCatalogo(idAba) {
+  const d = DEF_POR_CAMPO.get(idAba)
+  if (!d) return false
+  return d.campos.some((c) => catalogo(c.field).length > 0)
+}
 
 /**
  * Traducao do foco pro vocabulario ANTIGO, o unico que game.beginPreview
@@ -98,20 +144,18 @@ export const DEF_POR_CAMPO = new Map(TAB_DEFS.map((d) => [d.field, d]))
  *
  * Mandar 'tronco' pra la nao explode — o main faz `FOCOS[focus] || FOCOS.rosto`
  * — mas cai no CLOSE DE ROSTO, e escolher calca com a camera colada na testa e
- * a queixa que fez o palco existir. Enquanto o provador nao estiver ligado no
- * main, quem enquadra ainda e o main; o palco recebe o nome novo direto, em
- * enquadrar(), e nao passa por aqui.
+ * a queixa que fez o palco existir.
  */
 const FOCO_LEGADO = {
   tronco: 'corpo', pernas: 'corpo', maos: 'mao',
 }
 
-function camposDoGrupo(grupo) {
-  return TAB_DEFS.filter((d) => d.grupo === grupo).map((d) => d.field)
+function idsDoGrupo(grupo) {
+  return TAB_DEFS.filter((d) => d.grupo === grupo).map((d) => d.id)
 }
 
-export const GRUPO_ROSTO = camposDoGrupo('rosto')
-export const GRUPO_ROUPA = camposDoGrupo('roupa')
+export const GRUPO_ROSTO = idsDoGrupo('rosto')
+export const GRUPO_ROUPA = idsDoGrupo('roupa')
 
 // open(kind) aceita os nomes novos e os antigos ('hair'/'face' = a cadeira do
 // barbeiro de antes, que so mexia no rosto).
@@ -281,6 +325,22 @@ const CSS = `
 
 .mcrp-cz .cz-sec{ display:none; }
 .mcrp-cz .cz-sec.is-active{ display:block; }
+
+/* Aba de VARIAS listas (a de cor: cabelo, barba e pele).
+   A linha separadora existe pra o jogador ler tres listas e nao uma grade
+   comprida de bolinhas: sem ela, cor de cabelo e cor de barba viravam a mesma
+   fileira e escolher a segunda parecia trocar a primeira.
+   O realce is-foco so aparece quando ha mais de uma lista — com uma so, ele
+   seria um destaque sem alternativa. */
+.mcrp-cz .cz-multi .cz-bloco + .cz-bloco{
+  margin-top:14px; padding-top:13px; border-top:1px solid rgba(255,255,255,.08);
+}
+.mcrp-cz .cz-multi .cz-bloco{
+  border-left:2px solid transparent; padding-left:9px; margin-left:-11px;
+  transition:border-color .16s;
+}
+.mcrp-cz .cz-multi .cz-bloco.is-foco{ border-left-color:rgba(255,184,77,.55); }
+.mcrp-cz .cz-multi .cz-legenda{ margin-bottom:0; }
 
 .mcrp-cz .cz-secbar{ display:flex; align-items:center; gap:9px; margin:2px 0 11px; }
 .mcrp-cz .cz-seclabel{
@@ -677,32 +737,128 @@ export function criarBarraAbas(opcoes = {}) {
 }
 
 /**
- * Uma aba inteira: barra (setas de item + titulo + contador), a grade de cards
- * (ou a roda de cores) e o nome da peca embaixo.
+ * Uma aba inteira: uma ou mais LISTAS, cada uma com a propria barra (setas de
+ * item + titulo + contador), a propria grade de cards (ou roda de cores) e a
+ * propria legenda.
+ *
+ * Quase toda aba tem uma lista so. A de COR tem tres — cor do cabelo, cor da
+ * barba e tom de pele — porque o dono pediu as tres juntas, e com razao: com
+ * uma aba por cor, comparar barba com cabelo obrigava a sair de uma aba, entrar
+ * na outra e voltar, que e exatamente o que ninguem faz.
  *
  * opcoes = {
  *   aoEscolher(campo, indice),
  *   miniatura(campo, indice) -> dataURL | null   // do provador; opcional
  * }
- * devolve { campo, def, list, root, setIndice(i), indice(), entrar(), sair(),
- *           destruir() }
+ *
+ * devolve {
+ *   campo (= id da aba), def, root, campos: [campos das listas],
+ *   list  -> a lista do bloco ATIVO (o ultimo mexido); as APIs antigas leem daqui
+ *   setIndice(i) / indice()            -> bloco ativo
+ *   setIndiceDe(campo, i) / indiceDe(campo),
+ *   sincronizar(obj) -> le obj[campo] em TODOS os blocos e devolve os indices
+ *                       ja normalizados,
+ *   passoItem(dir), entrar(), sair(), esquecerFotos(), destruir()
+ * }
+ */
+export function criarSecao(idAba, opcoes = {}) {
+  injectStyle()
+  const def = DEF_POR_CAMPO.get(idAba) || {
+    id: idAba, field: idAba, label: String(idAba).toUpperCase(), title: String(idAba),
+    glyph: 'blusa', grupo: 'roupa', foco: 'corpo',
+    campos: [{ field: idAba, title: String(idAba) }],
+  }
+
+  const root = el('section', 'cz-sec')
+  const blocos = []
+  let ativo = 0
+
+  for (const spec of def.campos) {
+    const b = criarBloco(spec, def, opcoes, () => {
+      const i = blocos.indexOf(b)
+      if (i >= 0) { ativo = i; marcarFoco() }
+    })
+    if (!b) continue
+    blocos.push(b)
+    root.appendChild(b.root)
+  }
+
+  // Com uma lista so, destacar "a lista ativa" seria um realce sem alternativa.
+  const multi = blocos.length > 1
+  root.classList.toggle('cz-multi', multi)
+
+  function marcarFoco() {
+    if (!multi) return
+    for (let i = 0; i < blocos.length; i++) blocos[i].root.classList.toggle('is-foco', i === ativo)
+  }
+  marcarFoco()
+
+  function bloco() { return blocos[ativo] || blocos[0] || null }
+  function blocoDe(campo) {
+    for (const b of blocos) if (b.campo === campo) return b
+    return null
+  }
+
+  return {
+    campo: def.id,
+    def,
+    root,
+    campos: blocos.map((b) => b.campo),
+    /** Campo da lista que o teclado esta mexendo (a ultima que o jogador tocou). */
+    campoAtivo() { const b = bloco(); return b ? b.campo : def.field },
+    get list() { const b = bloco(); return b ? b.list : [] },
+    get cards() { const b = bloco(); return b ? b.cards : [] },
+    setIndice(i) { const b = bloco(); if (b) b.setIndice(i) },
+    indice() { const b = bloco(); return b ? b.indice() : 0 },
+    setIndiceDe(campo, i) { const b = blocoDe(campo); if (b) b.setIndice(i) },
+    indiceDe(campo) { const b = blocoDe(campo); return b ? b.indice() : 0 },
+    /**
+     * Le os indices de `obj` (a aparencia) em todos os blocos e devolve o que
+     * ficou de verdade. Existe porque o indice guardado pode nao existir mais
+     * no catalogo — uma aparencia salva antes de alguem apagar uma barba —, e
+     * quem chamou precisa gravar de volta o valor normalizado.
+     */
+    sincronizar(obj) {
+      const fora = {}
+      for (const b of blocos) {
+        b.setIndice(obj && typeof obj[b.campo] === 'number' ? obj[b.campo] | 0 : 0)
+        fora[b.campo] = b.indice()
+      }
+      return fora
+    },
+    passoItem(dir) { const b = bloco(); if (b) b.passoItem(dir) },
+    entrar() { for (const b of blocos) b.entrar() },
+    sair() { for (const b of blocos) b.sair() },
+    esquecerFotos() { for (const b of blocos) b.esquecerFotos() },
+    destruir() {
+      for (const b of blocos) b.destruir()
+      blocos.length = 0
+      if (root.parentNode) root.parentNode.removeChild(root)
+    },
+  }
+}
+
+/**
+ * Uma LISTA dentro de uma aba: barra, grade de cards (ou roda de cores) e o
+ * nome da peca embaixo. E o corpo do antigo criarSecao, inteiro.
+ *
+ * `aoFocar` avisa a aba que este bloco virou o alvo do teclado — sem isso, numa
+ * aba de tres listas as setas mexeriam sempre na primeira, independente de onde
+ * o jogador clicou.
  *
  * ENTRAR faz o stagger: os cards aparecem um 22 ms depois do outro e as fotos
  * 3D vao sendo pedidas dentro de um orcamento de tempo por quadro. Renderizar
  * doze miniaturas de uma vez travaria a tela exatamente durante a animacao que
  * deveria disfarcar o custo.
  */
-export function criarSecao(campo, opcoes = {}) {
-  injectStyle()
-  const def = DEF_POR_CAMPO.get(campo) || {
-    field: campo, label: String(campo).toUpperCase(), title: String(campo),
-    glyph: 'blusa', grupo: 'roupa', foco: 'corpo',
-  }
+function criarBloco(spec, def, opcoes, aoFocar) {
+  const campo = spec.field
   const list = catalogo(campo)
+  if (list.length === 0) return null
   const amostra = ehAmostra(list)
   const temFoto = !amostra && typeof opcoes.miniatura === 'function'
 
-  const root = el('section', 'cz-sec')
+  const root = el('div', 'cz-bloco')
 
   const bar = el('div', 'cz-secbar')
   const prev = el('button', 'cz-arrow', '‹')
@@ -710,9 +866,9 @@ export function criarSecao(campo, opcoes = {}) {
   prev.type = 'button'; next.type = 'button'
   prev.setAttribute('aria-label', 'Anterior')
   next.setAttribute('aria-label', 'Proximo')
-  prev.addEventListener('click', () => passoItem(-1))
-  next.addEventListener('click', () => passoItem(+1))
-  const label = el('span', 'cz-seclabel', def.title)
+  prev.addEventListener('click', () => { aoFocar(); passoItem(-1) })
+  next.addEventListener('click', () => { aoFocar(); passoItem(+1) })
+  const label = el('span', 'cz-seclabel', spec.title || def.title)
   const contador = el('span', 'cz-count', '0/0')
   bar.append(prev, next, label, contador)
   root.appendChild(bar)
@@ -729,7 +885,8 @@ export function criarSecao(campo, opcoes = {}) {
       dot.style.setProperty('--c', cssHex(opt && opt.hex))
       dot.style.setProperty('--d', Math.min(i, 14) * 22 + 'ms')
       dot.setAttribute('aria-label', nomeDe(opt, i))
-      dot.addEventListener('click', () => escolher(i))
+      dot.title = nomeDe(opt, i)
+      dot.addEventListener('click', () => { aoFocar(); escolher(i) })
       caixa.appendChild(dot)
       cards.push(dot)
       imagens.push(null)
@@ -763,7 +920,7 @@ export function criarSecao(campo, opcoes = {}) {
       )
 
       card.append(thumb, check, rodape)
-      card.addEventListener('click', () => escolher(i))
+      card.addEventListener('click', () => { aoFocar(); escolher(i) })
       caixa.appendChild(card)
       cards.push(card)
       imagens.push(img)
@@ -935,12 +1092,13 @@ export function createCustomizer(game) {
   let closing = false
   let bubbleTimer = 0
   let npcNome = 'ZEZO'
-  const sections = new Map() // campo -> secao (criarSecao)
+  const sections = new Map()   // id da aba -> secao
+  const secaoDoCampo = new Map() // campo da aparencia -> a secao que o mostra
 
-  // Um indice por campo do contrato. Nasce zerado e e relido de game.appearance
-  // a cada abertura.
+  // Um indice por CAMPO da aparencia (nao por aba: a aba de cor mexe em tres).
+  // Nasce zerado e e relido de game.appearance a cada abertura.
   const state = {}
-  for (const d of TAB_DEFS) state[d.field] = 0
+  for (const f of CAMPOS_TODOS) state[f] = 0
 
   // --- O PALCO --------------------------------------------------------------
   // Quem monta o provador e o main.js (ele e dono do renderer); aqui so
@@ -999,18 +1157,18 @@ export function createCustomizer(game) {
 
   function readAppearance() {
     const a = (game && game.appearance) || {}
-    for (const d of TAB_DEFS) {
-      let v = a[d.field]
+    for (const f of CAMPOS_TODOS) {
+      let v = a[f]
       // aparencia antiga (hair/eyes/brows/mouth/hairColor) ainda e aceita
-      if (typeof v !== 'number' && APELIDOS[d.field]) v = a[APELIDOS[d.field]]
-      state[d.field] = typeof v === 'number' && isFinite(v) ? v : 0
+      if (typeof v !== 'number' && APELIDOS[f]) v = a[APELIDOS[f]]
+      state[f] = typeof v === 'number' && isFinite(v) ? v : 0
     }
   }
 
   function clampState() {
-    for (const d of TAB_DEFS) {
-      const n = catalogo(d.field).length
-      state[d.field] = n > 0 ? ((state[d.field] % n) + n) % n : 0
+    for (const f of CAMPOS_TODOS) {
+      const n = catalogo(f).length
+      state[f] = n > 0 ? ((state[f] % n) + n) % n : 0
     }
   }
 
@@ -1022,18 +1180,20 @@ export function createCustomizer(game) {
 
     // so entra aba com catalogo de verdade: catalogo vazio viraria uma aba
     // morta — e e exatamente o caso de JAQUETAS depois da fusao com BLUSAS
-    tabKeys = (KIND_TABS[kind] || KIND_TABS.all).filter((f) => catalogo(f).length > 0)
+    secaoDoCampo.clear()
+    tabKeys = (KIND_TABS[kind] || KIND_TABS.all).filter(abaTemCatalogo)
     if (tabKeys.length === 0) tabKeys = ['cabelo']
 
     abas.montar(tabKeys, DEF_POR_CAMPO)
 
-    for (const campo of tabKeys) {
-      const sec = criarSecao(campo, {
+    for (const idAba of tabKeys) {
+      const sec = criarSecao(idAba, {
         aoEscolher: (c, i) => select(c, i),
         miniatura,
       })
       body.appendChild(sec.root)
-      sections.set(campo, sec)
+      sections.set(idAba, sec)
+      for (const f of sec.campos) secaoDoCampo.set(f, sec)
     }
   }
 
@@ -1059,28 +1219,42 @@ export function createCustomizer(game) {
   }
 
   // --- Selecao --------------------------------------------------------------
+  // `campo` aqui e o CAMPO DA APARENCIA, nao a aba: a aba de cor mexe em tres
+  // campos e cada um tem o proprio indice.
   function select(campo, index) {
-    const s = sections.get(campo)
-    if (!s || s.list.length === 0) return
-    const n = s.list.length
+    const s = secaoDoCampo.get(campo)
+    if (!s) return
+    const n = catalogo(campo).length
+    if (n === 0) return
     const i = ((index % n) + n) % n
-    s.setIndice(i)
+    s.setIndiceDe(campo, i)
     if (state[campo] === i) return
     state[campo] = i
     apply({ [campo]: i })   // preview ao vivo
     // trocar de peca invalida as fotos das OUTRAS abas (o provador sabe quais);
     // marcamos as secoes pra pedirem de novo quando o jogador entrar nelas
-    for (const [k, sec] of sections) if (k !== campo) sec.esquecerFotos()
+    for (const [k, sec] of sections) if (sec !== s) sec.esquecerFotos()
   }
 
-  function step(campo, dir) {
-    const s = sections.get(campo)
-    if (!s) return
-    select(campo, s.indice() + dir)
+  /** Passo de item na LISTA ATIVA da aba (a ultima que o jogador tocou). */
+  function step(idAba, dir) {
+    const s = sections.get(idAba)
+    if (!s || s.list.length === 0) return
+    select(s.campoAtivo(), s.indice() + dir)
+  }
+
+  /** Escolha direta (Home/End/1..9) na LISTA ATIVA da aba. */
+  function selectNaAba(idAba, i) {
+    const s = sections.get(idAba)
+    if (!s || s.list.length === 0) return
+    select(s.campoAtivo(), i)
   }
 
   function refresh() {
-    for (const [campo, s] of sections) s.setIndice(state[campo])
+    for (const s of sections.values()) {
+      const fora = s.sincronizar(state)
+      for (const f in fora) state[f] = fora[f]
+    }
   }
 
   // --- Teclado --------------------------------------------------------------
@@ -1097,18 +1271,18 @@ export function createCustomizer(game) {
     else if (k === 'ArrowDown') cycleTab(1)
     else if (k === 'PageUp') abas.passo(-1)
     else if (k === 'PageDown') abas.passo(+1)
-    else if (k === 'Home') select(activeTab, 0)
+    else if (k === 'Home') selectNaAba(activeTab, 0)
     else if (k === 'End') {
       const s = sections.get(activeTab)
-      if (s) select(activeTab, s.list.length - 1)
+      if (s) selectNaAba(activeTab, s.list.length - 1)
       else used = false
     } else if (k === 'c' || k === 'C') {
-      // atalho velho do barbeiro: pula direto pra cor do cabelo (se ela existe
-      // neste grupo); ja estando la, so avanca a cor
-      if (activeTab === 'corCabelo') step('corCabelo', +1)
-      else if (sections.has('corCabelo')) setTab('corCabelo')
+      // atalho velho do barbeiro: pula direto pra aba de cores; ja estando la,
+      // so avanca a lista ativa
+      if (activeTab === 'cor') step('cor', +1)
+      else if (sections.has('cor')) setTab('cor')
       else used = false
-    } else if (k >= '1' && k <= '9') select(activeTab, Number(k) - 1)
+    } else if (k >= '1' && k <= '9') selectNaAba(activeTab, Number(k) - 1)
     else used = false
     if (used) { e.preventDefault(); e.stopPropagation() }
   }
@@ -1170,7 +1344,7 @@ export function createCustomizer(game) {
     clampState()
     // snapshot so dos campos deste painel: e o que o Cancelar restaura
     snapshot = {}
-    for (const d of TAB_DEFS) snapshot[d.field] = state[d.field]
+    for (const f of CAMPOS_TODOS) snapshot[f] = state[f]
 
     buildTabs(alvo)
     aplicaCabecalho(alvo, opts)
@@ -1242,8 +1416,8 @@ export function createCustomizer(game) {
     if (!save && snapshot) {
       const volta = {}
       let mexeu = false
-      for (const d of TAB_DEFS) {
-        if (state[d.field] !== snapshot[d.field]) { volta[d.field] = snapshot[d.field]; mexeu = true }
+      for (const f of CAMPOS_TODOS) {
+        if (state[f] !== snapshot[f]) { volta[f] = snapshot[f]; mexeu = true }
       }
       if (mexeu) apply(volta)
     }
