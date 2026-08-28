@@ -44,6 +44,19 @@ export const GRUPOS = {
   ],
   criacao: [
     {
+      // A ABA DE COR com as TRES listas (cabelo, barba e pele), que era o pedido
+      // "na aba cor vai ter cor de cabelo, cor de barba e cor de pele, tudo em
+      // uma aba".
+      nome: 'tela-05c-cor',
+      antes: `G.fluxo.solo()
+        setTimeout(() => {
+          const b = [...document.querySelectorAll('.mcrp-cri .cz-tab')]
+          const alvo = b.find(x => /^COR$/i.test((x.textContent || '').trim()))
+          if (alvo) alvo.click()
+        }, 40)`,
+      quadros: 60, espera: 1200,
+    },
+    {
       nome: 'tela-05-criacao',
       // pelo FLUXO de verdade (o mesmo que o botao SOLO do menu dispara), e
       // nao abrindo o painel na mao: e o estado 'criacao' que faz o laco
@@ -218,7 +231,7 @@ export const GRUPOS = {
           G.provador.focar('rosto', true)
           G.provador.atualizar(0.6); G.provador.render()
           const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-          im.style.cssText = 'width:420px;height:340px;object-fit:none;object-position:50% 34%;background:#222;border:1px solid #444'
+          im.style.cssText = 'width:420px;height:300px;object-fit:none;object-position:50% 38%;background:#222;border:1px solid #444'
           w.appendChild(lb); w.appendChild(im); d.appendChild(w)
         }
         document.body.appendChild(d)`,
@@ -233,7 +246,7 @@ export const GRUPOS = {
         d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
         const tiros = []
         for (let i = 0; i < 4; i++) tiros.push(['nariz ' + i, { nariz:i }])
-        for (let i = 0; i < 3; i++) tiros.push(['boca ' + i, { boca:i }])
+        for (let i = 0; i < 3; i++) tiros.push(['boca ' + i, { boca:i, nariz:0 }])
         for (const [lb0, patch] of tiros) {
           const w = document.createElement('div')
           const lb = document.createElement('div'); lb.textContent = lb0
@@ -241,7 +254,7 @@ export const GRUPOS = {
           G.provador.focar('rosto', true)
           G.provador.atualizar(0.6); G.provador.render()
           const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-          im.style.cssText = 'width:360px;height:330px;object-fit:none;object-position:50% 42%;background:#222;border:1px solid #444'
+          im.style.cssText = 'width:360px;height:300px;object-fit:none;object-position:50% ' + (lb0.startsWith('boca') ? '58%' : '42%') + ';background:#222;border:1px solid #444'
           w.appendChild(lb); w.appendChild(im); d.appendChild(w)
         }
         document.body.appendChild(d)`,
@@ -271,52 +284,182 @@ export const GRUPOS = {
     },
   ],
   // O CORPO: o que o dono fotografou (listra no peito, braco listrado, ombro e
-  // cotovelo quadrados, mao feia). Frente, perfil e costas, sem roupa e com.
+  // cotovelo quadrados, mao feia). A camera e a DO JOGO, colocada na mao: o
+  // enquadramento do provador e largo demais pra ver acabamento, e o que se quer
+  // aqui e justamente ver de perto o que estava feio.
   corpo: [
     {
       nome: 'p5-corpo',
-      antes: `G.fluxo.foto(true)
+      antes: `G.fluxo.jogar()
+        G.fluxo.foto(true)
+        G.player.teleport(43, 6, 0)
+        const ch = G.character
+        const c = G.camera
         const d = document.createElement('div')
         d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
-        const vistas = [['frente',0],['3/4',0.85],['perfil',1.57],['costas',3.14]]
-        for (const [nome, gi] of vistas) {
-          for (const roupa of [0, 1]) {
-            const w = document.createElement('div')
-            const lb = document.createElement('div'); lb.textContent = nome + (roupa ? ' vestido' : ' nu')
-            G.provador.setAparencia(Object.assign({}, G.appearance, { blusa: roupa, calca: 0, calcado: roupa ? 1 : 0 }))
-            G.provador.focar('corpo', true)
-            G.provador.girar(gi - (G.__g2 || 0)); G.__g2 = gi
-            G.provador.atualizar(0.6); G.provador.render()
-            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-            im.style.cssText = 'width:300px;height:420px;object-fit:contain;background:#222;border:1px solid #444'
-            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        function tira(lb0, ang, alvoY, dist, fov) {
+          ch.root.rotation.y = 0
+          ch.root.updateMatrixWorld(true)
+          const p = ch.root.position
+          c.position.set(p.x + Math.sin(ang) * dist, p.y + alvoY + dist * 0.10, p.z + Math.cos(ang) * dist)
+          c.lookAt(p.x, p.y + alvoY, p.z)
+          c.fov = fov; c.updateProjectionMatrix()
+          G.lighting.setTimeOfDay(0.32); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+          G.engine.render()
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:300px;height:420px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        for (const [nome, roupa] of [['nu', 0], ['vestido', 1]]) {
+          G.setAppearance({ blusa: roupa, calca: 0, calcado: roupa ? 1 : 0 })
+          for (const [vn, ang] of [['frente', 0], ['3/4', 0.9], ['perfil', 1.57], ['costas', 3.14]]) {
+            tira(vn + ' ' + nome, ang, 0.95, 2.1, 40)
           }
         }
-        G.provador.girar(-(G.__g2 || 0)); G.__g2 = 0
         document.body.appendChild(d)`,
-      espera: 1600, semQuadro: true,
+      espera: 1800, semQuadro: true,
     },
     {
-      nome: 'p6-maos-ombro',
+      nome: 'p6-detalhe',
       antes: `G.fluxo.foto(true)
+        G.setAppearance({ blusa: 0, calca: 0, calcado: 0 })
+        const ch = G.character
+        const c = G.camera
         const d = document.createElement('div')
         d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
-        for (const foco of ['maos', 'tronco', 'pernas', 'pes']) {
-          for (const gi of [0, 1.2]) {
-            const w = document.createElement('div')
-            const lb = document.createElement('div'); lb.textContent = foco + (gi ? ' girado' : '')
-            G.provador.setAparencia(Object.assign({}, G.appearance, { blusa: 0, calca: 0, calcado: 0 }))
-            G.provador.focar(foco, true)
-            G.provador.girar(gi - (G.__g3 || 0)); G.__g3 = gi
-            G.provador.atualizar(0.6); G.provador.render()
-            const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-            im.style.cssText = 'width:340px;height:340px;object-fit:contain;background:#222;border:1px solid #444'
-            w.appendChild(lb); w.appendChild(im); d.appendChild(w)
-          }
+        function perto(lb0, alvoY, ang, dist, fov) {
+          ch.root.rotation.y = 0
+          ch.root.updateMatrixWorld(true)
+          const p = ch.root.position
+          c.position.set(p.x + Math.sin(ang) * dist, p.y + alvoY, p.z + Math.cos(ang) * dist)
+          c.lookAt(p.x, p.y + alvoY, p.z)
+          c.fov = fov; c.updateProjectionMatrix()
+          G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+          G.engine.render()
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:340px;height:340px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
         }
-        G.provador.girar(-(G.__g3 || 0)); G.__g3 = 0
+        perto('peito frente', 1.25, 0, 0.85, 44)
+        perto('peito 3/4', 1.25, 0.9, 0.85, 44)
+        perto('ombro/braco', 1.28, 1.30, 0.70, 40)
+        perto('cotovelo', 1.00, 1.45, 0.55, 40)
+        perto('mao', 0.66, 1.62, 0.60, 30)
+        perto('mao de tras', 0.66, 4.60, 0.60, 30)
+        perto('quadril/coxa', 0.72, 0.5, 0.95, 44)
+        perto('joelho', 0.47, 1.20, 0.55, 40)
+        perto('pe', 0.14, 0.8, 0.55, 40)
+        perto('costas', 1.15, 3.14, 1.10, 46)
         document.body.appendChild(d)`,
-      espera: 1600, semQuadro: true,
+      espera: 1800, semQuadro: true,
+    },
+  ],
+  // AS ROUPAS: uma folha por aba, com a camera do jogo apontada na parte certa.
+  // O provador enquadra largo demais pra ver acabamento de costura e de sola.
+  roupa: [
+    {
+      nome: 'p8-camisa-calca',
+      antes: `G.fluxo.jogar()
+        G.fluxo.foto(true)
+        G.player.teleport(43, 6, 0)
+        const ch = G.character
+        const c = G.camera
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        function tira(lb0, alvoY, ang, dist, fov, w, h) {
+          ch.root.rotation.y = 0   // o boneco olha pra +Z: com ang 0 a camera fica de frente
+          ch.root.updateMatrixWorld(true)
+          const p = ch.root.position
+          c.position.set(p.x + Math.sin(ang) * dist, p.y + alvoY + dist * 0.06, p.z + Math.cos(ang) * dist)
+          c.lookAt(p.x, p.y + alvoY, p.z)
+          c.fov = fov; c.updateProjectionMatrix()
+          G.lighting.setTimeOfDay(0.32); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+          G.engine.render()
+          const wr = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:' + w + 'px;height:' + h + 'px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          wr.appendChild(lb); wr.appendChild(im); d.appendChild(wr)
+        }
+        for (let i = 1; i < 4; i++) {
+          G.setAppearance({ blusa: i, calca: 0 })
+          tira('camisa ' + i, 1.15, 0, 2.6, 38, 300, 460)
+          tira('camisa ' + i + ' 3/4', 1.15, 1.0, 2.6, 38, 300, 460)
+        }
+        G.setAppearance({ blusa: 1 })
+        for (let i = 0; i < 3; i++) {
+          G.setAppearance({ calca: i })
+          tira('calca ' + i, 0.55, 0, 2.2, 38, 300, 460)
+        }
+        document.body.appendChild(d)`,
+      espera: 1800, semQuadro: true,
+    },
+    {
+      nome: 'p9-chapeu-calcado',
+      antes: `G.fluxo.foto(true)
+        const ch = G.character
+        const c = G.camera
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        function tira(lb0, alvoY, ang, dist, fov, w, h) {
+          ch.root.rotation.y = 0   // o boneco olha pra +Z: com ang 0 a camera fica de frente
+          ch.root.updateMatrixWorld(true)
+          const p = ch.root.position
+          c.position.set(p.x + Math.sin(ang) * dist, p.y + alvoY + dist * 0.10, p.z + Math.cos(ang) * dist)
+          c.lookAt(p.x, p.y + alvoY, p.z)
+          c.fov = fov; c.updateProjectionMatrix()
+          G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+          G.engine.render()
+          const wr = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:' + w + 'px;height:' + h + 'px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          wr.appendChild(lb); wr.appendChild(im); d.appendChild(wr)
+        }
+        G.setAppearance({ chapeu: 0 })
+        for (let i = 1; i < 5; i++) {
+          G.setAppearance({ calcado: i })
+          tira('calcado ' + i, 0.11, 0.9, 1.05, 32, 330, 330)
+        }
+        document.body.appendChild(d)`,
+      espera: 1800, semQuadro: true,
+    },
+    {
+      nome: 'p10-acessorios',
+      antes: `G.fluxo.foto(true)
+        G.setAppearance({ chapeu: 0, calcado: 1, blusa: 1 })
+        const ch = G.character
+        const c = G.camera
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        function tira(lb0, alvoY, ang, dist, fov) {
+          ch.root.rotation.y = 0
+          ch.root.updateMatrixWorld(true)
+          const p = ch.root.position
+          c.position.set(p.x + Math.sin(ang) * dist, p.y + alvoY + dist * 0.06, p.z + Math.cos(ang) * dist)
+          c.lookAt(p.x, p.y + alvoY, p.z)
+          c.fov = fov; c.updateProjectionMatrix()
+          G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+          G.engine.render()
+          const wr = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:320px;height:320px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          wr.appendChild(lb); wr.appendChild(im); d.appendChild(wr)
+        }
+        for (let i = 1; i < 4; i++) { G.setAppearance({ colar: i }); tira('colar ' + i, 1.28, 0.30, 1.05, 30) }
+        G.setAppearance({ colar: 0 })
+        for (let i = 1; i < 4; i++) { G.setAppearance({ relogio: i }); tira('relogio ' + i, 0.76, 1.50, 0.75, 26) }
+        G.setAppearance({ relogio: 0 })
+        for (let i = 1; i < 4; i++) { G.setAppearance({ anelAcess: i }); tira('anel ' + i, 0.64, 1.50, 0.52, 22) }
+        G.setAppearance({ anelAcess: 0, blusa: 0 })
+        for (let i = 1; i < 4; i++) { G.setAppearance({ tatuagem: i }); tira('tatuagem ' + i, 1.15, 0.6, 2.20, 36) }
+        document.body.appendChild(d)`,
+      espera: 2000, semQuadro: true,
     },
   ],
   // A PASSADA: oito instantes de um ciclo, andando e correndo, vistos de lado.
@@ -335,15 +478,15 @@ export const GRUPOS = {
         function tira(lb0) {
           ch.root.updateMatrixWorld(true)
           const p = ch.root.position
-          c.position.set(p.x + 3.4, p.y + 1.05, p.z)
-          c.lookAt(p.x, p.y + 0.95, p.z)
-          c.fov = 42; c.updateProjectionMatrix()
+          c.position.set(p.x + 3.2, p.y + 0.95, p.z)
+          c.lookAt(p.x, p.y + 0.90, p.z)
+          c.fov = 40; c.updateProjectionMatrix()
           G.lighting.setTarget(c.position); G.lighting.update(0.0001)
           G.engine.render()
           const w = document.createElement('div')
           const lb = document.createElement('div'); lb.textContent = lb0
           const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-          im.style.cssText = 'width:210px;height:300px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
+          im.style.cssText = 'width:250px;height:560px;object-fit:none;object-position:50% 50%;background:#222;border:1px solid #444'
           w.appendChild(lb); w.appendChild(im); d.appendChild(w)
         }
         for (const [nome, vel, correndo] of [['anda', 1.6, false], ['padrao', 3.1, false], ['corre', 6.2, true]]) {

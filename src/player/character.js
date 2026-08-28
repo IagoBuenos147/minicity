@@ -119,10 +119,27 @@ function membroGeo(len, perfilR, seg = 14, aneis = 12, atrasZ = null) {
   const linhas = []
   const put = (x, y, z) => { const i = pos.length / 3; pos.push(x, y, z); return i }
 
-  // Topo em cupula rasa, nao em tampa plana: a junta de cima cobre quase
-  // sempre, mas a tampa plana aparecia de raspao quando o membro girava.
+  // CUPULA DE CIMA — meia esfera de verdade, e nao um vertice unico no alto.
+  //
+  // A primeira versao punha um ponto so em y = rTopo * 0.55 e ligava ele
+  // direto no primeiro anel. Isso nao e uma cupula, e um CONE MUITO RASO: com
+  // 4.5 cm de raio e 2.5 cm de altura, o leque de triangulos le como uma ABA
+  // CHAPADA saindo do ombro e do cotovelo. Foi fotografado — parecia uma
+  // barbatana de plastico presa na junta.
   const rTopo = perfilR(0)
-  linhas.push([put(0, rTopo * 0.55, 0)])
+  const N_CUPULA = 3
+  for (let k = 0; k < N_CUPULA; k++) {
+    const phi = (k / N_CUPULA) * (Math.PI / 2)
+    const r = rTopo * Math.sin(phi)
+    const y = rTopo * 0.72 * Math.cos(phi)
+    if (k === 0) { linhas.push([put(0, y, 0)]); continue }
+    const linha = []
+    for (let c = 0; c < seg; c++) {
+      const ang = (c / seg) * Math.PI * 2
+      linha.push(put(Math.sin(ang) * r, y, Math.cos(ang) * r * 0.93))
+    }
+    linhas.push(linha)
+  }
 
   for (let a = 0; a <= aneis; a++) {
     const t = a / aneis
@@ -140,8 +157,22 @@ function membroGeo(len, perfilR, seg = 14, aneis = 12, atrasZ = null) {
     linhas.push(linha)
   }
 
+  // CUPULA DE BAIXO, pelo mesmo motivo. Ela quase sempre morre dentro da junta
+  // seguinte, mas "quase sempre" nao e sempre: no cotovelo dobrado ela aparece.
   const rBase = Math.max(0.0015, perfilR(1))
-  linhas.push([put(0, -len - rBase * 0.72, atrasZ ? atrasZ(1) : 0)])
+  const dzBase = atrasZ ? atrasZ(1) : 0
+  for (let k = N_CUPULA - 1; k >= 1; k--) {
+    const phi = (k / N_CUPULA) * (Math.PI / 2)
+    const r = rBase * Math.sin(phi)
+    const y = -len - rBase * 0.72 * Math.cos(phi)
+    const linha = []
+    for (let c = 0; c < seg; c++) {
+      const ang = (c / seg) * Math.PI * 2
+      linha.push(put(Math.sin(ang) * r, y, Math.cos(ang) * r * 0.93 + dzBase))
+    }
+    linhas.push(linha)
+  }
+  linhas.push([put(0, -len - rBase * 0.72, dzBase)])
 
   // A ORDEM DOS INDICES DECIDE PRA ONDE A NORMAL APONTA. Aqui `A` e o anel de
   // CIMA (o membro desce em -Y), o contrario do que acontece em corpoGeo, onde
@@ -298,35 +329,53 @@ const CHEST_PROFILE = [
   [0.136, 0.152], [0.121, 0.174], [0.101, 0.191], [0.084, 0.200], [0.074, 0.205],
 ]
 
-// SECAO DO TRONCO — o expoente da superelipse por altura.
+// SECAO DO TRONCO — o expoente da superelipse, em funcao da altura ABSOLUTA.
 //
 // 2 e a elipse. Acima disso a secao vira um retangulo de cantos redondos, que e
 // o que a caixa toracica e de verdade: costela larga, esterno chato na frente,
 // escapula chata atras. A cintura volta pra perto do circulo porque ali o que
-// manda e musculo, nao osso.
-// Teto em 2.4 por causa da conta de folga da roupa (ver corpoGeo).
-function nTronco(y) {
-  // y aqui e o do perfil do PEITO (0 = base do peito, 0.20 = pescoco)
-  if (y <= 0.02) return 2.05
-  if (y >= 0.15) return 2.10
-  return 2.05 + 0.30 * Math.sin(((y - 0.02) / 0.13) * Math.PI)
+// manda e musculo, nao osso. Teto em 2.4 por causa da conta de folga da roupa
+// (ver corpoGeo).
+//
+// A ALTURA E ABSOLUTA (medida da origem do torso, com o peito somando CHEST_Y)
+// e a funcao e UMA SO PRA AS DUAS PECAS. Elas eram duas, uma pro quadril e uma
+// pro peito, e a emenda entre elas caia justo em y = 0.30, onde uma dizia 2.24 e
+// a outra 2.05 — mesmo raio, secoes diferentes, e a diagonal do tronco dava um
+// degrau de 8 mm. Na foto isso aparecia como um RISCO HORIZONTAL atravessando a
+// barriga. Com uma funcao continua o degrau nao tem como existir.
+const TRONCO_N = [
+  [0.00, 2.02],  // quadril: quase circular
+  [0.20, 2.02],  // cintura
+  [0.30, 2.06],  // a emenda peito/quadril — os dois leem o MESMO valor aqui
+  [0.40, 2.30],  // caixa toracica: onde a secao mais foge do circulo
+  [0.46, 2.16],
+  [0.52, 2.04],  // ombros e base do pescoco
+]
+
+/** Assimetria frente/tras, tambem em altura absoluta e tambem continua. */
+const TRONCO_DZ = [
+  [0.00, 0.0000],
+  [0.30, 0.0000],  // zero na emenda, senao o degrau volta em Z
+  [0.40, -0.0040], // o esterno recua em relacao ao peitoral; as costas sao mais cheias
+  [0.50, 0.0000],
+]
+
+function interp(tab, y) {
+  if (y <= tab[0][0]) return tab[0][1]
+  for (let i = 1; i < tab.length; i++) {
+    if (y <= tab[i][0]) {
+      const a = tab[i - 1], b = tab[i]
+      const t = (y - a[0]) / (b[0] - a[0])
+      return a[1] + (b[1] - a[1]) * t * t * (3 - 2 * t)
+    }
+  }
+  return tab[tab.length - 1][1]
 }
 
-function nPelve(y) {
-  // quadril e cintura: quase circular embaixo, um pouco de aresta no arco costal
-  if (y <= 0.16) return 2.02
-  return 2.02 + 0.22 * Math.min(1, (y - 0.16) / 0.14)
-}
-
-/**
- * Assimetria frente/tras. A caixa toracica humana nao e simetrica: o esterno
- * recua um pouco em relacao ao peitoral, e as costas sao mais cheias.
- * dz negativo empurra a secao pra TRAS. Sem isto o torso, visto de lado, e um
- * oval perfeito — e oval perfeito nao tem frente nem costas.
- */
-function dzTronco(y) {
-  return -0.004 * Math.max(0, 1 - Math.abs(y - 0.10) / 0.11)
-}
+function nTronco(y) { return interp(TRONCO_N, y + CHEST_Y) }
+function nPelve(y) { return interp(TRONCO_N, y) }
+function dzTronco(y) { return interp(TRONCO_DZ, y + CHEST_Y) }
+function dzPelve(y) { return interp(TRONCO_DZ, y) }
 
 const FLAT_Z = 0.76        // achatamento em Z do torso (ver latheGeo)
 const TORSO_SEG = 24       // faces do torso; a roupa usa o MESMO numero e a
@@ -513,14 +562,21 @@ function dedo(ma, base, dir, comp, curva, raio, ponta, N = 6, R = 5, eixo = EIXO
 //    quase retangular (os cinco metacarpos lado a lado).
 //  - LINHA DOS NOS MAIS LARGA. A mao alarga ate os nos e so entao encolhe; a
 //    versao antiga ja vinha encolhendo desde o meio.
+//
+// AS PROPORCOES SAO AS DA MAO, e nao um chute: numa mao humana o comprimento da
+// PALMA e o dos DEDOS sao praticamente iguais (~9 cm cada, numa mao de 18 cm), e
+// a palma tem cerca de 3 cm de espessura contra 8.5 cm de largura. A primeira
+// versao tinha palma de 10.3 cm com dedos de 5 cm e 4.4 cm de espessura — ou
+// seja, uma LUVA DE FORNO: um bloco grosso com cinco cotocos na ponta. Foi
+// fotografado de perto e era exatamente isso.
 const PALMA_ANEIS = [
-  [0.014, 0.0170, 0.0248, 2.30, 0.0000],  // dentro do antebraco (pulso)
-  [-0.004, 0.0192, 0.0306, 2.45, 0.0006],
-  [-0.024, 0.0212, 0.0368, 2.65, 0.0016],
-  [-0.046, 0.0218, 0.0406, 2.85, 0.0022],  // meio da palma: a cova
-  [-0.066, 0.0214, 0.0424, 3.05, 0.0018],
-  [-0.079, 0.0200, 0.0420, 3.10, 0.0008],  // linha dos nos
-  [-0.089, 0.0168, 0.0378, 2.70, 0.0000],
+  [0.012, 0.0148, 0.0244, 2.30, 0.0000],  // dentro do antebraco (pulso)
+  [-0.004, 0.0160, 0.0300, 2.45, 0.0006],
+  [-0.022, 0.0170, 0.0360, 2.65, 0.0016],
+  [-0.040, 0.0172, 0.0398, 2.85, 0.0022],  // meio da palma: a cova
+  [-0.058, 0.0168, 0.0416, 3.05, 0.0018],
+  [-0.070, 0.0158, 0.0412, 3.10, 0.0008],  // linha dos nos
+  [-0.079, 0.0132, 0.0372, 2.70, 0.0000],
 ]
 
 // TENAR — o coxim carnudo da base do polegar. Sao dois aneis extras costurados
@@ -528,9 +584,9 @@ const PALMA_ANEIS = [
 // de UM lado, e engordar o anel inteiro daria uma mao inchada dos dois lados.
 // Sem ele, a mao aberta le como uma raquete e o polegar parece parafusado.
 const TENAR = [
-  [-0.018, 0.0130, 0.0210],
-  [-0.040, 0.0142, 0.0230],
-  [-0.058, 0.0120, 0.0196],
+  [-0.016, 0.0102, 0.0200],
+  [-0.036, 0.0114, 0.0222],
+  [-0.052, 0.0096, 0.0190],
 ]
 
 // Base dos quatro dedos na linha dos nos (x, y, z) + comprimento e raio.
@@ -540,10 +596,10 @@ const TENAR = [
 // pente. Os comprimentos seguem a mesma proporcao da mao de verdade — medio >
 // anelar > indicador > minimo.
 const DEDOS = [
-  { z: 0.0308, y: -0.0855, comp: 0.0530, raio: 0.0104, abre: 0.13 },  // indicador
-  { z: 0.0104, y: -0.0900, comp: 0.0575, raio: 0.0107, abre: 0.04 },  // medio
-  { z: -0.0100, y: -0.0880, comp: 0.0540, raio: 0.0100, abre: -0.05 }, // anelar
-  { z: -0.0292, y: -0.0800, comp: 0.0430, raio: 0.0091, abre: -0.15 }, // minimo
+  { z: 0.0300, y: -0.0755, comp: 0.0740, raio: 0.0098, abre: 0.09 },  // indicador
+  { z: 0.0101, y: -0.0800, comp: 0.0810, raio: 0.0101, abre: 0.03 },  // medio
+  { z: -0.0098, y: -0.0782, comp: 0.0765, raio: 0.0095, abre: -0.03 }, // anelar
+  { z: -0.0286, y: -0.0708, comp: 0.0610, raio: 0.0086, abre: -0.10 }, // minimo
 ]
 
 /** Posicao do anel de acessorio: base do dedo anelar da mao (espaco do pulso). */
@@ -572,7 +628,7 @@ function construirMao() {
     if (ant) costurar(ma, ant, A)
     ant = A
   }
-  tampa(ma, ant, 0, -0.097, 0.002)
+  tampa(ma, ant, 0, -0.086, 0.002)
 
   // Tenar: uma bolha propria, costurada em si mesma e enterrada na palma.
   // Enterrada de proposito — ela nao precisa fechar com a malha da palma, o
@@ -586,7 +642,7 @@ function construirMao() {
       if (antT) costurar(ma, antT, A)
       antT = A
     }
-    tampa(ma, antT, 0.0035, -0.068, 0.0250)
+    tampa(ma, antT, 0.0035, -0.061, 0.0250)
   }
 
   for (const d of DEDOS) {
@@ -599,8 +655,8 @@ function construirMao() {
   // lia como uma tabua saindo do pulso.
   // O polegar sai do TENAR (a bolha que acabamos de por), nao do meio do pulso:
   // era isso que fazia ele parecer parafusado na lateral da mao.
-  dedo(ma, new THREE.Vector3(-0.006, -0.052, 0.0340),
-    new THREE.Vector3(-0.26, -0.80, 0.54), 0.046, 0.80, 0.0142, 0.72, 8, 5, EIXO_POLEGAR, 2.1)
+  dedo(ma, new THREE.Vector3(-0.005, -0.046, 0.0330),
+    new THREE.Vector3(-0.26, -0.80, 0.54), 0.056, 0.80, 0.0126, 0.70, 8, 5, EIXO_POLEGAR, 2.1)
 
   return ma.geo()
 }
@@ -694,7 +750,7 @@ export function createCharacter(opts = {}) {
   const torso = joint('torso', 0, 0, 0, hips)
   const chest = joint('chest', 0, CHEST_Y, 0, torso)
 
-  const torsoNu = part(corpoGeo(PELVIS_PROFILE, { n: nPelve }), 'skin')
+  const torsoNu = part(corpoGeo(PELVIS_PROFILE, { n: nPelve, dz: dzPelve }), 'skin')
   torsoNu.scale.set(NU_S, 1, NU_S)
   torso.add(torsoNu)
   nu.torso.push(torsoNu)
@@ -830,9 +886,18 @@ export function createCharacter(opts = {}) {
   // abre uma fresta de fundo no cotovelo e no pulso.
   const upperArmGeo = track(membroGeo(UPPER_ARM - 0.016, RAIO_BRACO, 14, 12))
   const foreArmGeo = track(membroGeo(FORE_ARM - 0.018, RAIO_ANTEBRACO, 14, 12))
-  // O cotovelo NAO e uma bola: e o olecrano, uma cunha achatada que salta pra
-  // TRAS. Bola de raio uniforme e o que dava a leitura de rotula de boneco.
-  const elbowGeo = track(new THREE.SphereGeometry(1, 14, 10))
+  // NAO HA MAIS BOLA DE COTOVELO.
+  //
+  // Ela existia porque a capsula do braco tinha raio constante e acabava num
+  // corte; a bola tapava o corte. Com o loft, o antebraco ja nasce com uma
+  // CUPULA de 3.85 cm no topo — maior que os 3.5 cm em que o braco termina —,
+  // entao a articulacao ja esta coberta por construcao, inclusive com o cotovelo
+  // dobrado a 90 graus.
+  // Deixar a bola ali fazia o oposto do que ela prometia: uma esfera de 3.75 cm
+  // atravessando uma cupula de 3.85 cm produz uma linha de intersecao serrilhada
+  // dando a volta na junta — e era esse anel picotado que lia como "cotovelo
+  // quadrado". Foi fotografado depois de a cupula entrar.
+  // O mesmo vale pro joelho.
   const deltoideGeo = track(new THREE.SphereGeometry(1, 16, 12))
 
   function buildArm(sgn, side) {
@@ -858,10 +923,6 @@ export function createCharacter(opts = {}) {
     nu.braco.push(upMesh)
 
     const low = joint('arm' + side + 'Lower', 0, -UPPER_ARM, 0, up)
-    const cot = part(elbowGeo, 'skin', false)
-    cot.scale.set(0.0375, 0.0430, 0.0400)
-    cot.position.z = -0.004   // o olecrano salta pra tras
-    low.add(cot)
     const lowMesh = part(foreArmGeo, 'skin', false)
     low.add(lowMesh)
     nu.antebraco.push(lowMesh)
@@ -893,7 +954,10 @@ export function createCharacter(opts = {}) {
     [1.00, 0.0405],
   ])
   const RAIO_CANELA = curvaR([
-    [0.00, 0.0430],
+    // 4.50 cm no topo, contra 4.05 cm em que a coxa termina: e essa folga que
+    // faz a cupula da canela cobrir a articulacao sozinha, sem bola de joelho.
+    [0.00, 0.0450],
+    [0.06, 0.0455],  // patela
     [0.22, 0.0468],  // panturrilha
     [0.55, 0.0370],
     [0.86, 0.0268],  // tornozelo
@@ -902,17 +966,21 @@ export function createCharacter(opts = {}) {
   // Deslocamento pra TRAS da panturrilha. O pico em 0.22 e o mesmo do raio, e o
   // 0.010 e o que faz a silhueta de perfil ter uma curva atras da perna sem
   // mudar nada visto de frente.
-  const ATRAS_CANELA = curvaR([[0.00, 0], [0.22, -0.010], [0.62, -0.002], [1.00, 0]])
+  // Positivo no topo = a PATELA pra frente; negativo no meio = a panturrilha pra
+  // tras. E a curva em S que da o perfil de uma perna vista de lado.
+  const ATRAS_CANELA = curvaR([
+    [0.00, 0.0050], [0.10, 0.0035], [0.22, -0.0100], [0.62, -0.0020], [1.00, 0],
+  ])
 
   const thighGeo = track(membroGeo(THIGH - 0.014, RAIO_COXA, 16, 13))
   // A canela vai ate o proprio tornozelo: a cupula dela e o calcanhar, e ela
   // precisa alcancar o topo do pe (que fica 1.75 cm abaixo da junta) senao
   // sobra um anel vazio no tornozelo.
   const shinGeo = track(membroGeo(SHIN, RAIO_CANELA, 16, 13, ATRAS_CANELA))
-  // A patela e uma placa arredondada na FRENTE do joelho, nao uma bola em volta
-  // dele. Achatada em Z e empurrada pra frente, ela le como joelho; esferica,
-  // lia como a rotula de um boneco articulado.
-  const kneeGeo = track(new THREE.SphereGeometry(1, 14, 10))
+  // Sem bola de joelho, pelo mesmo motivo do cotovelo: a cupula do topo da
+  // canela (4.30 cm) ja e mais larga que o fim da coxa (4.05 cm) e cobre a
+  // articulacao sozinha. A saliencia da patela vem do proprio perfil da canela,
+  // que engrossa nos primeiros centimetros.
   // Pe descalco: bloco baixo com o dedao arredondado, plantado no chao. seg = 1
   // no roundedBox porque o padrao (3) gera bevel de 3 aneis e curva de 5 — 2 mil
   // triangulos por pe, num pedaco que so aparece quando o personagem esta
@@ -927,10 +995,6 @@ export function createCharacter(opts = {}) {
     nu.coxa.push(upMesh)
 
     const low = joint('leg' + side + 'Lower', 0, -THIGH, 0, up)
-    const joelho = part(kneeGeo, 'skin', false)
-    joelho.scale.set(0.0442, 0.0480, 0.0418)
-    joelho.position.z = 0.006   // a patela fica na FRENTE
-    low.add(joelho)
     const lowMesh = part(shinGeo, 'skin', false)
     low.add(lowMesh)
     nu.canela.push(lowMesh)
@@ -955,7 +1019,13 @@ export function createCharacter(opts = {}) {
   const legL = buildLeg(-1, 'L')
 
   const parts = {
-    hips, torso, chest, neck, head, headPivot, face,
+    // 'neckLook' PRECISA estar aqui. Nao e pelo animador (a lista dele e outra):
+    // e pelo FORNO de personagem. congelarPersonagem() recebe `character.parts`
+    // como a lista de juntas que sobrevivem a fusao (ver world/barbershop.js), e
+    // toda junta que ficar de fora dessa lista e FUNDIDA no pai — o que
+    // congelaria a rotacao do olhar do NPC no valor do dia em que ele foi
+    // assado.
+    hips, torso, chest, neck, neckLook, head, headPivot, face,
     armLUpper: armL.up, armLLower: armL.low, handL: armL.hand,
     armRUpper: armR.up, armRLower: armR.low, handR: armR.hand,
     legLUpper: legL.up, legLLower: legL.low, footL: legL.foot,

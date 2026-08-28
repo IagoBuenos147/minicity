@@ -667,6 +667,15 @@ function ruidoSuave(x, y, z) {
   return acc * 2 - 1
 }
 
+// REGRA DE ALTURA: `yTop` fica entre 0.95 e 1.05 em TODOS os cranios.
+//
+// Nao e estetica, e o esqueleto: HEAD_CENTER_Y (character.js) e calculado com o
+// HEAD.ry fixo, entao um cranio com yTop 1.12 poe o topo da cabeca 8 cm acima do
+// 1.82 m que o resto do jogo assume — a camera, a capsula de colisao e a altura
+// de porta. Um jogador que escolhesse "comprida" ficava 8 cm mais alto que um
+// que escolhesse "redonda", e batia a cabeca em lugares onde o outro passava.
+// A identidade da cabeca vem da SILHUETA (largura, maxilar, testa), nao de
+// esticar o cranio pra fora do corpo.
 export const CRANIOS = [
   // -------------------------------------------------------------------------
   // 0 REDONDA — metodo A (esfera UV).
@@ -702,7 +711,7 @@ export const CRANIOS = [
   {
     id: 'comprida', nome: 'Comprida', metodo: 'aneis empilhados',
     campo: campo({
-      kx: 0.95, kz: 0.99, yTop: 1.12, taper: 0.40, taperP: 1.25, nape: 0.085,
+      kx: 0.90, kz: 0.99, yTop: 1.05, taper: 0.40, taperP: 1.25, nape: 0.085,
       temple: 0.075, templeY: 0.28, templeW: 0.36,
       zigo: 0.13, zigoY: 0.02, zigoW: 0.18,
       queixo: 0.13, queixoY: -0.80,
@@ -746,7 +755,7 @@ export const CRANIOS = [
   {
     id: 'pera', nome: 'Pera', metodo: 'aneis empilhados',
     campo: campo({
-      kx: 1.00, kz: 1.00, yTop: 1.03, taper: 0.0, taperP: 1.5,
+      kx: 1.00, kz: 1.00, yTop: 1.01, taper: 0.0, taperP: 1.5,
       flare: 0.42, crown: -0.30, nape: 0.05,
       goniaco: 0.10, goniacoY: -0.52,
       temple: 0.10, templeY: 0.40, templeW: 0.30,
@@ -772,7 +781,7 @@ export const CRANIOS = [
   {
     id: 'realista', nome: 'Realista', metodo: 'esfera UV + escultura por ruido',
     campo: campo({
-      kx: 1.06, kz: 1.08, yTop: 1.02, taper: 0.30, taperP: 1.6, nape: 0.02,
+      kx: 1.06, kz: 1.08, yTop: 1.00, taper: 0.30, taperP: 1.6, nape: 0.02,
       square: 0.40,
       temple: 0.10, templeY: 0.26, templeW: 0.40,
       occipital: 0.15, occY: -0.05,

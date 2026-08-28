@@ -5,7 +5,7 @@ import * as N from './nucleo.js'
 // src/player/roupa/colares.js — ancora: neck (origem na base do pescoco, +Z e a
 // frente). Tres colares, TRES METODOS DE CONSTRUCAO diferentes:
 //
-//   1 'elos'      ELO POR ELO. 36 toros pequenos girados 90 graus alternadamente
+//   1 'elos'      ELO POR ELO. 50 toros pequenos girados 90 graus alternadamente
 //                 ao longo de uma curva, fundidos numa geometria so. Um toro
 //                 liso do tamanho do pescoco le como arco de plastico; o que faz
 //                 uma corrente parecer corrente e o serrilhado dos elos pegando
@@ -22,26 +22,47 @@ import * as N from './nucleo.js'
 //                 vertice, com torcao e barriga, deitadas na elipse do peito.
 //
 // ---------------------------------------------------------------------------
-// A) A CINTURA DE AMPULHETA. O colar nao mora "em volta do pescoco": mora no
-//    unico ponto estreito entre o QUEIXO (que abre pra cima) e o OMBRO (que abre
-//    pra baixo). Medido por raycast no boneco nu, em 12 setores, raio da
-//    superficie por altura de MUNDO:
+// A) NAO EXISTE CINTURA NO PESCOCO — O COLAR MORA NO OMBRO.
 //
-//      1.336 .0883   1.342 .0772   1.348 .0633   1.354 .0727   1.360 .0819
-//      1.338 .0846   1.344 .0733   1.350 .0665   1.356 .0759   1.362 .0845
-//      1.340 .0810   1.346 .0602   1.352 .0696   1.358 .0790
+//    A primeira versao deste arquivo mediu o boneco com UM cranio so e achou
+//    uma ampulheta: gargalo de 6,0 cm de raio em y = 1.346, subindo 4,4 cm por
+//    centimetro pros dois lados. A medida vale pra TRES dos SEIS cranios. Nos
+//    outros tres nao existe gargalo nenhum. Varredura por raycast, 32 setores
+//    por altura, raio da superficie MAIS EXTERNA (pele ou pano), em cm:
 //
-//    O gargalo e 6,0 cm em y = 1.346, e sobe 4,4 cm de raio por centimetro de
-//    altura pros dois lados. Consequencia dura: um aro de MEIA-ESPESSURA h so
-//    passa se o raio dele for maior que 0.060 + 4.4 * h. Um cordao fino (h =
-//    3 mm) passa com 7,2 cm; a corrente de elos gordos (h = 9,7 mm) precisa de
-//    8,8 cm. E por isso que as tres pecas deste arquivo tem raios DIFERENTES:
-//    o raio nao e gosto, e a espessura de cada uma.
+//      y mundo   redonda comprida quadrada  pera  realista mandibula
+//      1.330       9.86    9.86    9.86    9.86    9.86    9.86   <- torax
+//      1.335       9.02    9.02    9.02    9.02    9.02    9.02   <- torax
+//      1.340       8.11    8.11    8.11    8.11    8.11    8.20
+//      1.345       5.83    5.48    7.83    8.95    5.48   10.06   <- QUEIXO
+//      1.350       6.65    5.42    9.03   10.13    6.07   11.40
+//      1.355       7.43    5.35   10.03   11.07    6.76   12.42
 //
-//    R_CORRENTE (RAIO_GOLA_ALTA + SOBRA_ACESSORIO = 5,95 cm) e MENOR que o
-//    gargalo de 6,0 cm depois da reforma da cabeca — um aro desenhado nele
-//    nasce dentro do queixo em qualquer altura. Ele continua sendo o PISO do
-//    slot (nenhuma peca daqui nasce abaixo dele), mas parou de ser alvo.
+//    A cabeca deste boneco e um cone que nasce em y = 1.328 e abre pra cima;
+//    nas tres cabecas largas (quadrada, pera, mandibula) ela ja tem 10 a 12 cm
+//    de raio exatamente na altura em que a versao anterior pendurava a
+//    corrente. Medido: a corrente de elos ficava 46 mm DENTRO do queixo, com
+//    30% dos pontos enterrados — ou seja, sumia. E a queixa original do dono
+//    ("nao esta mostrando"), so que vinda da reforma da cabeca, nao do raio.
+//
+//    A saida nao e um aro maior, e um aro MAIS BAIXO. Em y = 1.337 o queixo de
+//    qualquer um dos seis ainda mede menos de 7 cm e quem manda no raio volta a
+//    ser o TORAX — que e justamente o que o contrato sabe medir. Entao aqui
+//    ninguem escreve raio na mao: raioAro() le o perfil do peito, multiplica
+//    pela peca MAIS LARGA do catalogo (FOLGA_LARGA) e soma SOBRA_ACESSORIO,
+//    igualzinho ao que frentePeito() ja faz pro pingente. Depois da mudanca, o
+//    pior ponto de cada peca (6 cranios x 4 blusas): corrente 5,2 mm (0,5% dos
+//    pontos), crucifixo 0,0 mm, bandana 1,4 mm — e o MESMO nos seis cranios.
+//
+//    O achatamento mudou junto, pelo mesmo motivo. Em cima (y = 1.35) quem esta
+//    ali e o pescoco, que e redondo, e o aro saia quase circular (0.96). Em
+//    baixo (y = 1.337) quem esta ali e o torax, que e a elipse de FLAT_Z (0.76).
+//    Aro circular no torax boia 3,4 cm na frente do esterno e raspa os lados;
+//    com FLAT_Z a folga fica uniforme (7 a 9 mm) na volta inteira.
+//
+//    R_CORRENTE do nucleo (RAIO_GOLA_ALTA + SOBRA_ACESSORIO = 5,95 cm) ficou
+//    pequeno pra QUALQUER altura depois da reforma da cabeca, entao nenhuma
+//    peca daqui o usa. E um numero de nucleo.js que pede revisao; nao mexi.
 //
 // B) ARO E PECA SOLTA SAO OPOSTOS PRO character.js. O acomodarColarSobreARoupa
 //    mede por raycast quanto de pano ha na frente e corrige: aro (centro NO
@@ -49,17 +70,39 @@ import * as N from './nucleo.js'
 //    ele EMPURRA pela posicao. Por isso a corrente de elos e UMA malha fundida
 //    e centrada, e o pingente/no/franja sao malhas separadas la na frente.
 //    Nada aqui le posicao ou escala de outra peca: o desenho e o natural, com
-//    o raio saindo da tabela acima, e quem acomoda e o character.
+//    o raio saindo de raioAro(), e quem acomoda e o character.
 // ---------------------------------------------------------------------------
 
-const FZ_PESCOCO = 0.96   // o pescoco e redondo; 4% de oval so tira o ar de tubo
+/**
+ * Altura do aro no espaco do pescoco (mundo y = 1.337): logo ABAIXO do ponto
+ * onde o queixo de qualquer cranio comeca a abrir, e ainda em cima do torax.
+ * Subir 1 cm daqui enfia a peca no queixo das tres cabecas largas; descer 1 cm
+ * joga ela na rampa do trapezio, que engorda 3,8 cm de raio por centimetro.
+ */
+const Y_COLAR = 0.032
+
+/**
+ * Raio do aro do colar. NAO tem numero escrito na mao: sai do perfil do proprio
+ * corpo, como manda o contrato.
+ *
+ * O `2 * h` (e nao `1 * h`) e o preco da altura da peca: o aro tem espessura, e
+ * a BORDA DE CIMA dele mora h acima do centro, onde o torax ja acabou e o
+ * queixo ja comecou. Com uma folga de so h a borda de cima da corrente raspava
+ * 13 mm no queixo do cranio 'mandibula'; com 2h ela passa em todos os seis.
+ *
+ * @param h meia-espessura da peca (o quanto ela sobe/desce/engrossa do centro)
+ */
+function raioAro(c, h) {
+  const pele = N.raioPerfil(c.perfil.PEITO, Y_COLAR + c.medida.NECK_Y)
+  return pele * N.FOLGA_LARGA + N.SOBRA_ACESSORIO + 2 * h
+}
 
 /**
  * Junta varias geometrias numa so. Aceita indexada e nao-indexada na mesma
  * lista (TorusGeometry vem com indice, ExtrudeGeometry nao).
  *
- * Existe por dois motivos, e o segundo importa mais que o primeiro: 36 elos
- * soltos sao 36 draw calls por boneco (720 com a tela cheia), e — pior — 36
+ * Existe por dois motivos, e o segundo importa mais que o primeiro: 50 elos
+ * soltos sao 50 draw calls por boneco (1000 com a tela cheia), e — pior — 50
  * malhas cada uma com o centro FORA do eixo, que e exatamente o que o
  * character.js empurra pra frente uma por uma em vez de abrir o aro inteiro.
  * Fundido, o colar volta a ser um aro centrado.
@@ -202,35 +245,40 @@ export const COLARES = [
     metodo: 'elos de toro girados 90 graus alternadamente sobre uma curva, fundidos num mesh so',
     build(c) {
       const g = new THREE.Group()
-      // 8,8 cm sai da conta do cabecalho: elo de 7,5 + 2,2 mm tem 9,7 mm de
-      // meia-espessura, e 0.060 + 4.4 * 0.0097 = 0.0827 e o minimo que passa
-      // pela cintura. 8,8 deixa 6 mm de sobra pros dois lados. Nao e "grande":
-      // e a corrente mais FINA que cabe entre o queixo e o ombro deste boneco.
-      const R = 0.0880
-      const Y = 0.0445
-      // 36 elos na volta de ~55 cm dao 15,4 mm de passo, praticamente o vao
-      // interno do elo (2 * R_ELO = 15 mm): o passo bate com o vao e os elos se
-      // ENFIAM um no outro em vez de ficarem enfileirados com folga. Mexer em
-      // um dos dois numeros sem o outro desmonta a corrente. Numero PAR de
-      // proposito: com impar os elos 0 e n-1 caem no mesmo giro e a emenda, que
-      // fica bem na frente do pescoco, mostra dois elos deitados colados.
-      const NE = 36
-      const R_ELO = 0.0075, T_ELO = 0.0022
+      const FZ = c.medida.FLAT_Z
+      // MEIA-ESPESSURA PRIMEIRO, RAIO DEPOIS: o raio sai de raioAro(), que
+      // precisa saber o quanto a peca sobe do centro. Elo de R_ELO + T_ELO.
+      // 50 elos e o maximo que cabe no orcamento (50 x 48 = 2400 de 2500), e
+      // e ele que fixa o tamanho do elo: o passo da volta tem que ser o VAO
+      // INTERNO do elo (2 * R_ELO), senao os elos param de se enfiar um no
+      // outro e viram contas enfileiradas com folga. Dai R_ELO = pi * R / NE.
+      // Numero PAR de proposito: com impar os elos 0 e n-1 caem no mesmo giro
+      // e a emenda, que fica na frente do pescoco, mostra dois elos colados.
+      const NE = 50
+      const T_SOBRE_R = 0.293          // a proporcao da grossura do arame
+      // Ponto fixo de uma linha so: R depende de h, h depende de R_ELO e
+      // R_ELO depende de R. Duas passadas ja convergem em decimo de milimetro.
+      let R = raioAro(c, 0.0097)
+      let R_ELO = Math.PI * R / NE
+      R = raioAro(c, R_ELO * (1 + T_SOBRE_R))
+      R_ELO = Math.PI * R / NE
+      const T_ELO = R_ELO * T_SOBRE_R
+      const Y = Y_COLAR
 
       /**
-       * Curva da corrente. O mergulho e de so 2 mm (q = d^2, concentrado na
-       * frente) e o que abre mesmo e o Z: a corrente afasta 13 mm do gogo. A
-       * cintura da ampulheta nao deixa mergulhar: cada milimetro que a corrente
-       * desce custa 4,4 mm de raio, e corrente que desce ate o esterno ficaria
-       * com 20 cm de diametro. Quem quer peso no peito pendura pingente.
+       * Curva da corrente. O mergulho e de so 3 mm (q = d^2, concentrado na
+       * frente) e o afastamento da frente, 4 mm. Os dois eram 3x maiores quando
+       * a corrente morava no pescoco: la ela precisava contornar o gogo. Aqui
+       * ela deita na elipse do torax e cada milimetro a mais na frente vira
+       * milimetro de corrente BOIANDO na frente do esterno.
        */
       const ponto = (a, v) => {
         const d = (1 + Math.cos(a)) / 2
         const q = d * d
         return v.set(
-          Math.sin(a) * (R + 0.006 * q),
-          Y - 0.002 * q,
-          Math.cos(a) * (R * FZ_PESCOCO + 0.013 * q),
+          Math.sin(a) * (R + 0.002 * q),
+          Y - 0.003 * q,
+          Math.cos(a) * R * FZ + 0.004 * q,
         )
       }
 
@@ -239,7 +287,11 @@ export const COLARES = [
       const xA = new THREE.Vector3(), yA = new THREE.Vector3()
       const esc = new THREE.Vector3()
       const M = new THREE.Matrix4()
-      const molde = new THREE.TorusGeometry(R_ELO, T_ELO, 4, 8)
+      // 4 x 6 e nao 4 x 8: com 50 elos (contra os 36 de antes) o octogono
+      // custaria 3200 triangulos, 700 acima do teto do slot. O hexagono de 48
+      // fecha em 2400 — e um elo de 15 mm com seis lados nao le diferente de um
+      // com oito nem no close do provador.
+      const molde = new THREE.TorusGeometry(R_ELO, T_ELO, 4, 6)
       const pecas = []
       for (let i = 0; i < NE; i++) {
         const a = (i / NE) * Math.PI * 2
@@ -276,11 +328,13 @@ export const COLARES = [
     build(c) {
       const g = new THREE.Group()
       const NECK = c.medida.NECK_Y
-      // Cordao de 3 mm de raio: pela conta da cintura basta 0.060 + 4.4*0.003 =
-      // 7,3 cm. 7,6 e a mesma folga de 3 mm que a corrente tem, num aro 1,2 cm
-      // mais fino — e a peca mais discreta das tres de proposito.
-      const R = 0.0760
-      const Y_ARO = 0.0435, Y_TRAS = 0.0445, Y_FUNDO = 0.010
+      const FZ = c.medida.FLAT_Z
+      // Cordao de 3 mm de raio. Por ser a peca mais FINA das tres, o raio que
+      // raioAro() devolve pra ela e o menor do arquivo (1,3 cm menos que a
+      // corrente): a folga que um aro precisa e a espessura dele, nao gosto.
+      const R_FIO = 0.0030
+      const R = raioAro(c, R_FIO)
+      const Y_ARO = Y_COLAR, Y_TRAS = Y_COLAR + 0.001, Y_FUNDO = 0.010
       // Onde o V da frente desprende do aro: 0.60 rad (34 graus). Mais aberto e
       // a corda desce pelo ombro, que naquela altura ja tem 8 cm de raio.
       const A_LADO = 0.60
@@ -294,7 +348,7 @@ export const COLARES = [
         pts.push(new THREE.Vector3(
           Math.sin(a) * R,
           Y_ARO + (Y_TRAS - Y_ARO) * d,
-          Math.cos(a) * R * FZ_PESCOCO,
+          Math.cos(a) * R * FZ,
         ))
       }
       // metade da frente: a catenaria de verdade. O z acompanha a queda com
@@ -302,7 +356,7 @@ export const COLARES = [
       // milimetro de descida: com interpolacao reta os dois primeiros
       // milimetros da corda ja nasciam dentro da clavicula.
       const w = Math.sin(A_LADO) * R
-      const zLado = Math.cos(A_LADO) * R * FZ_PESCOCO
+      const zLado = Math.cos(A_LADO) * R * FZ
       const zFundo = N.frentePeito(c, Y_FUNDO + NECK)
       const aCat = catenaria(w, Y_ARO - Y_FUNDO)
       const NF = 12
@@ -318,7 +372,7 @@ export const COLARES = [
       const curva = new THREE.CatmullRomCurve3(pts, true, 'centripetal')
       const mFio = N.couro(0x2a2521)
       g.add(N.sh(new THREE.Mesh(
-        new THREE.TubeGeometry(curva, 72, 0.0030, 5, true), mFio,
+        new THREE.TubeGeometry(curva, 72, R_FIO, 5, true), mFio,
       )))
 
       const mPrata = N.metal(0xd7dae0)
@@ -398,33 +452,43 @@ export const COLARES = [
       // volta pela cara de dentro ate o ponto inicial. Uma faixa aberta seria
       // uma casca de 0 mm e pela borda de cima se via o avesso.
       //
-      // A faixa tem 1,5 cm de altura, entao pela conta da cintura (0.060 +
-      // 4.4*h, h = 7,5 mm) ela so passa a partir de 9,3 cm de raio — e por isso
-      // que a bandana e a peca GORDA das tres. Nao e escolha estetica: com o
-      // raio da corrente ela some metade dentro do ombro e metade dentro do
-      // queixo. As bordas de cima e de baixo recolhem 1 cm (0.084 e 0.086)
-      // porque e la que a ampulheta aperta.
+      // O desenho e RELATIVO ao par (R, Y_COLAR): [quanto pra fora do raio do
+      // aro, quanto acima do centro]. Escrever os nove raios na mao era o que
+      // fazia a bandana ser a unica das tres que nao acompanhava o corpo — e
+      // quando a cabeca mudou de forma, a unica que nao dava pra corrigir num
+      // numero so. A faixa tem 1,55 cm de altura, entao a meia-espessura que
+      // raioAro() precisa saber e 7,75 mm.
+      const H_PANO = 0.00775
+      const R = raioAro(c, H_PANO)
       const perfil = [
-        [0.0860, 0.0370],
-        [0.0920, 0.0405],
-        [0.0935, 0.0450],
-        [0.0910, 0.0495],
-        [0.0840, 0.0525],
-        [0.0815, 0.0505],
-        [0.0850, 0.0450],
-        [0.0830, 0.0400],
-        [0.0860, 0.0370],
+        [R - 0.0015, Y_COLAR - 0.0080],
+        [R + 0.0045, Y_COLAR - 0.0045],
+        [R + 0.0060, Y_COLAR + 0.0000],
+        [R + 0.0035, Y_COLAR + 0.0045],
+        [R - 0.0035, Y_COLAR + 0.0075],
+        [R - 0.0060, Y_COLAR + 0.0055],
+        [R - 0.0025, Y_COLAR + 0.0000],
+        [R - 0.0045, Y_COLAR - 0.0050],
+        [R - 0.0015, Y_COLAR - 0.0080],
       ]
-      g.add(N.sh(new THREE.Mesh(N.revolver(perfil, 20, 0.98), mPano)))
+      g.add(N.sh(new THREE.Mesh(N.revolver(perfil, 20, c.medida.FLAT_Z), mPano)))
 
       // --- o no -------------------------------------------------------------
       // Fora do eixo de proposito (0.42 rad = 24 graus pra um lado): no de
       // bandana no meio da garganta le como gravata, e o desalinho e metade da
       // identidade da peca. Malha unica (fundida) porque o character.js empurra
       // peca solta uma por uma e as tres bolas do no descolariam entre si.
+      // O no mora 1,2 cm por fora do rolo (a metade da propria grossura mais o
+      // pano que ele amarra), no MESMO elipsoide do rolo — com o aro achatado
+      // por FLAT_Z, um no colocado num circulo saltaria pra frente do peito.
       const aNo = 0.42
-      const rNo = 0.1005, yNo = 0.0450
-      const cx = Math.sin(aNo) * rNo, cz = Math.cos(aNo) * rNo * 0.98
+      // 2,5 mm ABAIXO do centro do rolo: o no e a peca mais alta do arquivo
+      // (1,5 cm de meia-altura com a volta que o aperta) e era so ele que ainda
+      // raspava 8,6 mm no queixo do cranio 'mandibula'. Descendo o no — e nao o
+      // rolo — a bandana continua deitada na altura certa e o pano do no cai um
+      // pouco, que e o que um no de pano faz mesmo.
+      const rNo = R + 0.0120, yNo = Y_COLAR - 0.0025
+      const cx = Math.sin(aNo) * rNo, cz = Math.cos(aNo) * rNo * c.medida.FLAT_Z
       const partesNo = []
       const bolo = new THREE.SphereGeometry(1, 10, 6)
       bolo.scale(0.0175, 0.0140, 0.0130)
@@ -449,12 +513,15 @@ export const COLARES = [
       // Comprimentos e torcoes diferentes de proposito: iguais, as duas ficam
       // paralelas e a bandana vira um bibe. A curta cai pela clavicula, a longa
       // atravessa pro meio do peito. As duas saem do Z DO NO (ver fita()).
+      // y0 sai do no (yNo - 6 e - 8 mm), nao de um numero fixo: o no desceu 1,3
+      // cm junto com o aro e as fitas tem que descer com ele, senao nascem
+      // penduradas no ar acima do proprio no.
       g.add(fita(c, mFita, {
-        x0: cx + 0.007, x1: cx + 0.026, y0: 0.0390, y1: -0.0175,
+        x0: cx + 0.007, x1: cx + 0.026, y0: yNo - 0.0060, y1: -0.0175,
         w0: 0.027, w1: 0.013, torcao: 0.95, zAlto: cz + 0.004,
       }))
       g.add(fita(c, mFita, {
-        x0: cx - 0.005, x1: cx - 0.018, y0: 0.0370, y1: -0.0265,
+        x0: cx - 0.005, x1: cx - 0.018, y0: yNo - 0.0080, y1: -0.0265,
         w0: 0.025, w1: 0.010, torcao: -1.35, zAlto: cz + 0.002,
       }))
       return g

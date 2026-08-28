@@ -78,8 +78,8 @@ game = {
 | `src/world/barbershop.js` | `buildBarbershop(game)` | interior + cadeira + espelho + quadros + barbeiro |
 | `src/world/grocery.js` | `buildGrocery(game)` | interior + prateleiras + caixa + atendente |
 | `src/player/character.js` | `createCharacter(opts)` | boneco procedural estilo Schedule I |
-| `src/player/appearance.js` | `CATALOGS` | 8 cabeças, 5 olhos/pupilas/narizes/bocas/barbas/cabelos/peles (ver PERSONAGEM.md) |
-| `src/player/roupas.js` | catálogos de roupa | chapéu, **roupa de cima** (blusa+jaqueta fundidas, 19), calça, calçado, colar, anel, relógio, tatuagem — 11 cada |
+| `src/player/appearance.js` | `CATALOGS` | **agregador**: 6 cabeças, 5 olhos, 4 narizes, 3 bocas, 4 barbas, 3 cabelos, 3 sobrancelhas, 10 peles, 11 cores de cabelo, 9 cores de barba. Cada peça mora em `src/player/rosto/`; a matemática do crânio em `rosto/nucleo.js` (ver PERSONAGEM.md) |
+| `src/player/roupas.js` | catálogos de roupa | **agregador**: chapéu 7, **camisas** 4 (blusa+jaqueta na mesma aba), calça 3, calçado 5, colar 4, anel 4, relógio 4, tatuagem 4. Cada catálogo em `src/player/roupa/`; as ferramentas em `roupa/nucleo.js` |
 | `src/player/animation.js` | `createAnimator(character)` | idle/andar/correr/pular procedural |
 | `src/player/controller.js` | `createPlayerController(...)` | movimento + câmera 1ª/3ª pessoa |
 | `src/npc/npc.js` | `createNPC(opts)` | NPC parado com idle, usa `createCharacter` |
@@ -396,22 +396,39 @@ Character = {
 }
 ```
 
-### `player/appearance.js`
+### `player/appearance.js` (agregador) e `player/rosto/`
 ```js
-export const HAIR = [ {id, name, build(ctx) => THREE.Object3D}, x3 ]
-export const EYES = [ {id, name, build(ctx) => THREE.Object3D}, x3 ]  // já cria os DOIS olhos
-export const BROWS = [ {id, name, build(ctx) => THREE.Object3D}, x3 ]
-export const MOUTH = [ {id, name, build(ctx) => THREE.Object3D}, x3 ]
-// ctx = { skin, hairColor, THREE, mats } — o build recebe cores atuais
-export const HAIR_COLORS = [ {name, hex}, ... ]
-export function defaultAppearance() => { hair:0, eyes:0, brows:0, mouth:0, hairColor:0, skin, shirt, pants, shoes }
+// cada catálogo: [ { id, nome, metodo, build(ctx) => THREE.Object3D | null } ]
+export const CABECAS, OLHOS, NARIZES, BOCAS, BARBAS, CABELOS, SOBRANCELHAS
+export const PELES, CORES_CABELO, CORES_BARBA
+export const CATALOGS      // { cabeca, olhos, nariz, boca, barba, cabelo, pele,
+                           //   corCabelo, corBarba, sobrancelha }
+export function defaultAppearance()
 ```
-Os grupos retornados por `build()` já vêm posicionados no espaço da **face**:
-origem no centro da cabeça, `+Z` para frente, `+Y` para cima, escala em metros.
+Os grupos devolvidos por `build()` já vêm no espaço da **face**: origem no centro
+da cabeça, `+Z` para frente, `+Y` para cima, em metros.
+
+**A superfície da cabeça é uma API**, em `src/player/rosto/nucleo.js` — e é dela
+que TODA peça de rosto lê para ficar grudada na pele:
+
+```js
+useHead(ctx)                    // SEMPRE a primeira linha de um build de rosto
+surfaceZ(x, y, pad)             // Z da pele na FRENTE, no ponto (x, y)
+surfaceX(y, z, pad)             // X da pele na LATERAL
+eggSurface(theta, az, s, out)   // ponto da pele em coordenada esférica
+eggNormal(theta, az, out)       // a direção em que um pelo nasce ali
+wrapToHead(geo, pad)            // projeta uma geometria plana sobre a pele
+deformEgg(geo, s, opts)         // deforma uma esfera no formato do crânio ativo
+headShell / scalp               // cascas recortadas (cabelo, barba)
+tecelagem() / fio() / peloMat() // pelo fio a fio, tudo numa BufferGeometry só
+soldarNormais(geo)              // funde as normais dos vértices na MESMA posição
+```
+
 Cabeça: elipsoide de raios base `rx=0.135, ry=0.185, rz=0.13` **multiplicados por
-`HEAD_S`** (exportado por `appearance.js`, hoje 1.33) — raios efetivos
-`rx=0.180, ry=0.246, rz=0.173`, centro em `y=0`. **Toda medida facial nova
-precisa ser multiplicada por `HEAD_S`**, senão desencaixa.
+`HEAD_S`** (hoje 1.33) — raios efetivos `rx=0.180, ry=0.246, rz=0.173`, centro em
+`y=0`. **Toda medida facial nova precisa ser multiplicada por `HEAD_S`**, senão
+desencaixa. O contrato completo está em `src/player/rosto/CONTRATO.md`; o das
+roupas em `src/player/roupa/CONTRATO.md`.
 
 ### `player/controller.js`
 ```js
@@ -457,13 +474,26 @@ export function buildGrocery(game) => BuildResult
 
 ## Referência visual do personagem (fotos do usuário)
 
-- Cabeça: **ovo/pêra vertical**, larga em cima, queixo estreito. Sem pescoço aparente
-  (pescoço curtíssimo). Cabeça ≈ 0.49 m de altura → ~1/3.7 do corpo.
-- Olhos: **bolhas brancas SALIENTES**, esferas achatadas que se projetam da face,
-  com íris/pupila escura pequena. Variante "bloodshot" com veias/rosa.
-- Sobrancelhas: **grossas e retas**, marrom escuro, bem acima dos olhos.
-- Boca: traço curvo simples; uma variante com **bigode + cavanhaque**.
-- Corpo: torso levemente cônico e magro, ombros estreitos, braços e pernas
-  cilíndricos finos, mãos como luvas arredondadas, pés como sapatos-bloco.
-- Roupa: camiseta (manga curta), calça, tênis brancos.
+Referência: *Schedule I* — estilizado, mas com anatomia crível.
+
+- Cabeça: seis crânios de silhuetas diferentes, cada um construído por um método
+  próprio. Altura ≈ 0.47 a 0.58 m → ~1/4 do corpo.
+- Olhos: **a peça mais importante do jogo**. Pálpebra de geometria cortando o
+  globo por cima, íris com anel limbal escuro, um ponto de brilho especular, e o
+  globo **dentro** da órbita. Cinco olhos, cinco métodos de construção.
+- Sobrancelhas e barba: com **pelo visível** (`tecelagem()` + `fio()`).
+- Boca: um dos três é o traço escuro fino e largo da referência.
+- Corpo: torso com cintura e seção de superelipse (não é um tubo oval), ombros
+  estreitos com deltoide, membros **afilados** (não cilindros), mãos com dedos de
+  proporção real.
 - Proporção geral tipo *Rick and Morty* / *Schedule I*.
+
+**As três armadilhas deste personagem**, todas já pagas em bug (detalhe em
+PERSONAGEM.md):
+
+1. **Costura de revolução não soldada** → listra acesa no meio do peito e nos
+   braços. `soldarNormais()` / fechar a volta por índice.
+2. **Winding invertido** → a peça não some, fica cinza e chapada. Regressão em
+   `node tools/teste-normais.mjs`.
+3. **Apelido de campo virando estado** (`eyes` junto de `olhos` no mesmo objeto)
+   → a peça simplesmente não troca, sem erro nenhum.

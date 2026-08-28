@@ -34,6 +34,23 @@ import {
 //     E o desenho. Bevel pequeno (2 mm) porque aresta viva sem chanfro serrilha
 //     assim que a camera se afasta.
 //
+// ---------------------------------------------------------------------------
+// A ORDEM DO CATALOGO (mexida no passe de correcao — leia antes de reordenar de
+// novo). O indice 0 e "sem nariz" e o resto do jogo depende disso; a partir dai
+// a ordem e do MELHOR pro mais estilizado, porque defaultAppearance() entrega
+// `nariz: 1` pro jogador novo e era o LOFT que caia ali. O loft era o pior dos
+// tres na folha de contato de perto, entao quem criava personagem ganhava o
+// nariz mais fraco do catalogo sem nunca abrir o customizador.
+//
+//   0 nenhum   (build devolve null)
+//   1 pele     metodo B — o que menos denuncia que e uma peca colada
+//   2 loft     metodo A
+//   3 bloco    metodo C
+//
+// A QUANTIDADE nao pode mudar (4): src/comum/protocolo.js manda o INDICE em um
+// byte e APARENCIA_OPCOES conta os itens pra validar o pacote.
+//
+// ---------------------------------------------------------------------------
 // O QUE OS TRES COMPARTILHAM (e o que impede o traco de flutuar):
 //   - nenhum Z e fixo. Raiz, cintura e base sao lidas de surfaceZ()/eggSurface()
 //     do cranio ATIVO. Um Z fixo acerta na cabeca redonda e afunda quase 4 cm na
@@ -48,6 +65,11 @@ import {
 //     solda a peca em qualquer cranio sem CSG.
 //   - narina e GEOMETRIA (volume escuro afundado), nunca textura. Textura
 //     serrilha em close e nao recebe a luz da cena.
+//   - a BASE do nariz tem que ter largura de verdade. Medida pedida: 2.6 a
+//     3.2 cm de largura TOTAL na asa. Nem "0", que le como lamina, nem os 6.7 cm
+//     que o loft tinha antes — largura demais somada a asa ENTERRADA na pele da
+//     no mesmo lugar, porque o que o olho ve nao e o x do vertice, e onde a peca
+//     se descola da bochecha.
 // ---------------------------------------------------------------------------
 
 const S = HEAD_S
@@ -172,37 +194,133 @@ function matNarina(skin) { return solid(shade(skin, 0.34), 0.95, 0.0) }
  *   y        altura em unidades de S (a tabela do CONTRATO: glabela +0.06,
  *            base do nariz -0.035; a base aqui desce ate -0.040 porque a asa
  *            fica ABAIXO do ponto subnasal)
- *   w        meia-largura da secao, em unidades de S
+ *   w        MEIA-largura da secao, em unidades de S
  *   cintura  onde a "cintura" da secao (o ponto mais lateral) fica em relacao a
- *            PELE, em metros. Negativo = dentro do cranio. E este numero que
- *            solda o nariz: na raiz a secao inteira mora dentro da cabeca e vai
- *            saindo conforme desce, que e como o nariz humano emerge da testa.
+ *            PELE, em metros. Negativo = dentro do cranio, positivo = fora.
  *   proj     quanto o dorso avanca A PARTIR da cintura, em metros
  *   p        expoente da superelipse da metade da frente
  *
- * Os numeros de proj foram fechados olhando a soma cintura+proj: na ponta da
- * 0.0235 alem da pele, dentro da faixa de 1.5 a 3 cm pedida. Com 0.035 o nariz
- * furava o campo de visao da camera em primeira pessoa.
+ * O QUE ESTAVA ERRADO AQUI (o defeito da folha de contato: "uma lamina vertical
+ * fina, uma barbatana saindo do meio da cara"). A tabela antiga tinha w = 0.0252
+ * na asa — 6.7 cm de largura TOTAL, o dobro do pedido — e mesmo assim o nariz
+ * lia como uma quilha sem base. As duas coisas sao a mesma coisa:
+ *
+ *   1. a cintura era NEGATIVA em quase toda a tabela (-0.0160 na raiz a -0.0030
+ *      na asa). Cintura negativa quer dizer que o ponto mais lateral da secao
+ *      mora DENTRO da bochecha; a peca so aparece onde a projecao do dorso
+ *      vence o enterro. O resultado e uma crista central saindo da pele lisa,
+ *      sem sulco alar, sem lobulo, sem nada que separe nariz de face.
+ *   2. como a largura era gigante, esse encontro sem aresta se espalhava por
+ *      3.3 cm de cada lado — uma rampa suave que o olho le como bochecha, nao
+ *      como asa. Largura no vertice nao e largura no olho.
+ *
+ * O conserto e o inverso dos dois: w cai pra 0.0120 (3.19 cm de largura total,
+ * dentro dos 2.6 a 3.2 pedidos) e a cintura VIRA POSITIVA nas tres ultimas
+ * secoes (+0.0032, +0.0055, +0.0048). Com a cintura fora da pele o lobulo da
+ * asa e um volume de verdade: a secao sobe da bochecha, faz a volta e mergulha
+ * de novo, e a linha onde ela mergulha E o sulco alar.
+ *
+ * A CANA nao acompanhou a queda: ela vai de 1.8 cm na raiz a 3.2 cm na asa,
+ * uma razao de 1.8 (a de um nariz de verdade). A PONTA tambem afinou (0.0094,
+ * 2.5 cm) pra asa poder abrir 28% alem dela: se a ponta for tao larga quanto a
+ * asa, de frente a asa desaparece atras do bulbo e o nariz volta a nao ter base. Numa primeira tentativa a cana
+ * caiu junto pra 1.1 cm e o resultado foi PIOR que o defeito original — uma
+ * agulha. Estreitar a cana nao e o que da base ao nariz; a cintura e.
+ *
+ * O expoente tambem subiu no meio da tabela (era 1.45 a 1.60, agora 1.90 a
+ * 2.05). Abaixo de 2 a secao vira losango e o dorso sai como GUME: com o
+ * material de pele (roughness 0.68) aquilo pegava um risco especular branco de
+ * ponta a ponta. Perto de 2 o dorso continua sendo uma crista, mas com raio.
+ *
+ * A soma cintura+proj e a projecao alem da pele e ela tem que ser MONOTONA ate
+ * a ponta, senao o ponto mais avancado do rosto vira a cana:
+ *   -0.0125, -0.0035, +0.0045, +0.0113, +0.0158, +0.0200, +0.0235 (ponta),
+ *   +0.0223, +0.0184, +0.0135 (a borda da asa).
+ * 2.35 cm na ponta fica dentro da faixa de 1.5 a 3 cm pedida; com 3.5 cm o
+ * nariz furava o campo de visao da camera em primeira pessoa.
+ * Os 1.35 cm do ULTIMO anel nao sao enfeite: e a profundidade da SOLA. Com os
+ * 0.55 cm da primeira tentativa nao sobrava plano virado pra baixo onde as duas
+ * narinas coubessem, e elas mediam 7 mm2 vistas de baixo contra os 140 do
+ * metodo B.
  */
 const SECOES_LOFT = [
   // t      y       w        cintura   proj     p
-  [0.00,  0.062, 0.0070, -0.0160, 0.0050, 2.60],
-  [0.14,  0.047, 0.0076, -0.0130, 0.0110, 1.90],
-  [0.28,  0.032, 0.0086, -0.0110, 0.0170, 1.58],
-  [0.42,  0.016, 0.0097, -0.0100, 0.0222, 1.45],
-  [0.55,  0.000, 0.0110, -0.0092, 0.0250, 1.50],
-  [0.67, -0.014, 0.0132, -0.0080, 0.0282, 1.80],
-  [0.78, -0.024, 0.0163, -0.0060, 0.0295, 2.30],
-  [0.88, -0.031, 0.0215, -0.0030, 0.0245, 2.45],
-  [0.95, -0.036, 0.0252,  0.0012, 0.0150, 2.60],
-  [1.00, -0.040, 0.0240,  0.0016, 0.0065, 2.80],
+  [0.00,  0.062, 0.0068, -0.0170, 0.0045, 2.40],
+  [0.14,  0.047, 0.0071, -0.0140, 0.0105, 2.10],
+  [0.28,  0.032, 0.0076, -0.0120, 0.0165, 1.95],
+  [0.42,  0.016, 0.0082, -0.0105, 0.0218, 1.90],
+  [0.55,  0.000, 0.0089, -0.0090, 0.0248, 1.95],
+  [0.67, -0.014, 0.0088, -0.0060, 0.0260, 2.05],
+  [0.78, -0.024, 0.0094, -0.0010, 0.0245, 2.40],
+  [0.88, -0.031, 0.0114,  0.0032, 0.0195, 2.70],
+  [0.95, -0.036, 0.0120,  0.0055, 0.0138, 2.90],
+  [1.00, -0.040, 0.0108,  0.0048, 0.0095, 3.00],
 ]
 
 /** Profundidade que a metade de TRAS de cada secao enfia no cranio. 3 cm passa folgado do ponto mais raso do catalogo (comprida, base do nariz em z = 0.132). */
 const ENTERRO_LOFT = 0.030
 
 const N_ANEL = 20
-const N_COL = 22
+/**
+ * 26 colunas, e nao as 22 de antes. A asa nova mergulha de volta na bochecha em
+ * uns 9 graus de volta (a cintura sai 4.6 mm da pele e a metade de tras cai
+ * 30 mm por radiano): com 22 colunas cabia UMA aresta nesse mergulho e o sulco
+ * alar saia como um degrau. Com 26 cabem duas.
+ */
+const N_COL = 26
+
+// ---------------------------------------------------------------------------
+// A SOLA — a base do nariz, e onde moram as narinas do metodo A.
+//
+// Antes a base era um cone de um triangulo so (contorno -> um vertice no meio) e
+// as narinas eram dois elipsoides enfiados nele. Os elipsoides mal furavam o
+// cone e o que aparecia era um risco escuro de 2 mm no fundo da base: na folha
+// de contato "nao da pra ver narina" estava literalmente certo.
+//
+// Agora a base e uma GRADE RADIAL parametrizada em (u, v) — u = 0 no meio,
+// u = 1 no ultimo anel do loft; v = a volta, a mesma do anel. Ter uma
+// parametrizacao (e nao so um leque) e o que permite as duas coisas que faltavam:
+//   - cavar as narinas COMO RELEVO da propria sola (duas gaussianas em (u,v)),
+//     em vez de atravessar um corpo estranho por baixo dela;
+//   - desenhar o disco escuro da narina NA MESMA funcao, 0.7 mm por fora, entao
+//     ele acompanha a cavidade em qualquer cranio sem calibragem nova.
+// ---------------------------------------------------------------------------
+
+/** Aneis radiais da sola. 6 e o minimo pra cavidade da narina ter fundo e parede em vez de virar um bico. */
+const NR_SOLA = 6
+/**
+ * Quanto o meio da sola sobe (base concava). E dela que sai a sombra debaixo da
+ * ponta — sombra de forma, nao de decalque.
+ *
+ * 3.5 mm e o TETO util, e o motivo nao e estetico. A sola tem so 6 mm de fundo
+ * em z entre o meio e a borda da asa: com 6 mm de subida a rampa da sola fica a
+ * 45 graus e, olhada de baixo (o angulo em que se ve narina, uns 38 graus acima
+ * da horizontal), ela e uma parede virada PRA LONGE — a base inteira some atras
+ * da propria borda. Foi assim que a primeira tentativa desta correcao mediu
+ * 0 mm2 de narina visivel. Com 3.5 mm a rampa cai pra 30 graus e a sola aparece.
+ */
+const CONC_SOLA = 0.0035
+/** Onde a narina fica no raio da sola (0 = meio, 1 = borda). 0.56 poe o centro dela a 6 mm do eixo, 40% da meia-largura da asa. */
+const U_NARINA = 0.56
+/** E na volta: 0.145 = 52 graus fora do meio. O que sobra entre as duas e a columela. */
+const V_NARINA = 0.145
+/** Raios da CAVIDADE. Largos de proposito: ver PROF_NARINA. */
+const RU_NARINA = 0.44
+const RV_NARINA = 0.125
+/**
+ * Fundo da cavidade da narina, em metros.
+ * Mesma armadilha da CONC_SOLA, so que pior: a narina mede uns 5 mm em z, entao
+ * uma cavidade de 7 mm tem parede a 70 graus e o proprio labio da frente tapa o
+ * fundo dela. 2.6 mm sobre um buraco largo e o que se ve de baixo; e a mesma
+ * proporcao rasa que o metodo B usa (-0.0034 sobre 15 mm de campo) e que na
+ * folha de contato leu como narina de verdade.
+ */
+const PROF_NARINA = 0.0026
+/** Raio do DISCO escuro dentro da cavidade (um pouco menor que a cavidade, pra sobrar borda de pele). */
+const RU_DISCO = 0.34
+const RV_DISCO = 0.095
+/** Folga do disco escuro sobre a sola, na direcao da NORMAL dela (nao em -y: onde a sola inclina, um empurrao em -y nao tira o disco de dentro dela). */
+const FOLGA_NARINA = 0.0007
 
 function narizLoft(ctx) {
   const skin = skinOf(ctx)
@@ -236,8 +354,11 @@ function narizLoft(ctx) {
       // contorno de tras da secao acompanha a curva da bochecha e a asa do
       // nariz encosta na pele com a mesma folga na cabeca redonda e na quadrada.
       const zc = surfaceZ(x, y) + cint
-      // metade de tras com expoente 2 fixo (esta enterrada, ninguem a ve; o que
-      // importa la e nao gastar triangulo em forma que nao aparece)
+      // metade de tras com inclinacao fixa (esta enterrada, ninguem a ve; o que
+      // importa la e nao gastar triangulo em forma que nao aparece). Nas secoes
+      // de cintura POSITIVA e este trecho que desce da asa de volta pra
+      // bochecha: ele cruza a pele uns 9 graus depois do ponto mais lateral, e
+      // essa linha de cruzamento e o sulco alar.
       const z = ca >= 0 ? zc + proj * Math.pow(ca, 2 / p) : zc + ENTERRO_LOFT * ca
       anel.push(put(x, y, z))
     }
@@ -255,6 +376,99 @@ function narizLoft(ctx) {
   const apice = put(0, yPrim + 0.006 * S, zcPrim - 0.004)
   for (let c = 0; c < N_COL; c++) idx.push(apice, aneis[0][c], aneis[0][(c + 1) % N_COL])
 
+  // -------------------------------------------------------------------------
+  // A SOLA, no MESMO buffer do tubo.
+  //
+  // Por que no mesmo buffer e nao numa malha propria: o ultimo anel do loft e
+  // literalmente a borda da sola, e reaproveitar os vertices dele (em vez de
+  // copiar) mantem a malha FECHADA — o smoke do nariz cobra que toda aresta de
+  // borda esteja enterrada no cranio, e uma base solta deixaria 26 arestas
+  // abertas a 9 mm da pele. O preco e que a aresta entre a face da frente e a
+  // sola sai suavizada em vez de viva; duplicar os vertices pra ter a aresta
+  // devolveria a LISTRA de costura (CONTRATO 4), que e pior.
+  // -------------------------------------------------------------------------
+  const ult = aneis[N_ANEL - 1]
+  const rx = [], rz = []
+  for (let c = 0; c < N_COL; c++) { const k = ult[c] * 3; rx.push(pos[k]); rz.push(pos[k + 2]) }
+  const zSolaC = zcUlt - 0.0015
+
+  /** Distancia na volta (v e circular: 0.98 e 0.02 sao vizinhos). */
+  const distV = (v, vn) => { const d = Math.abs(v - vn); return d > 0.5 ? 1 - d : d }
+
+  function alturaSola(u, v) {
+    // concavidade geral: sobe indo pro meio e vale exatamente yUlt na borda,
+    // que e o que faz a sola casar com o anel do loft sem degrau
+    let y = yUlt + CONC_SOLA * (1 - u) * (1 - u)
+    // a cavidade da narina tem que morrer ANTES da borda, senao ela puxaria o
+    // proprio contorno da asa pra dentro e o sulco alar sumia
+    const fade = 1 - smoothstep(0.80, 1.0, u)
+    if (fade > 0) {
+      const du = (u - U_NARINA) / RU_NARINA
+      const a = distV(v, V_NARINA) / RV_NARINA
+      const b = distV(v, 1 - V_NARINA) / RV_NARINA
+      y += PROF_NARINA * fade * Math.exp(-du * du) * (Math.exp(-a * a) + Math.exp(-b * b))
+    }
+    return y
+  }
+
+  const _ps = new THREE.Vector3()
+  /** Ponto da sola em (u, v). v e interpolado ENTRE colunas do anel, entao a narina nao fica presa na grade. */
+  function pontoSola(u, v, out) {
+    const vv = v - Math.floor(v)
+    const f = vv * N_COL
+    const c0 = Math.floor(f) % N_COL
+    const c1 = (c0 + 1) % N_COL
+    const tt = f - Math.floor(f)
+    const X = rx[c0] + (rx[c1] - rx[c0]) * tt
+    const Z = rz[c0] + (rz[c1] - rz[c0]) * tt
+    return out.set(X * u, alturaSola(u, vv), zSolaC + (Z - zSolaC) * u)
+  }
+
+  const _sa = new THREE.Vector3(), _sb = new THREE.Vector3()
+  const _sc = new THREE.Vector3(), _sn = new THREE.Vector3()
+  /**
+   * O mesmo ponto, empurrado `fora` na direcao da NORMAL da sola (pra baixo).
+   * A normal sai de diferenca finita nas duas tangentes; cross(radial, angular)
+   * aponta pra CIMA nesta parametrizacao, dai o sinal negativo.
+   */
+  function pontoSolaFora(u, v, fora, out) {
+    pontoSola(u, v, out)
+    pontoSola(u + 0.02, v, _sa)
+    pontoSola(u - 0.02, v, _sb)
+    _sa.sub(_sb)
+    pontoSola(u, v + 0.01, _sb)
+    pontoSola(u, v - 0.01, _sc)
+    _sb.sub(_sc)
+    _sn.crossVectors(_sa, _sb)
+    if (_sn.lengthSq() > 1e-14) out.addScaledVector(_sn.normalize(), -fora)
+    return out
+  }
+
+  const linhasSola = [[put(0, alturaSola(0, 0), zSolaC)]]
+  for (let r = 1; r < NR_SOLA; r++) {
+    const linha = []
+    for (let c = 0; c < N_COL; c++) {
+      pontoSola(r / NR_SOLA, c / N_COL, _ps)
+      linha.push(put(_ps.x, _ps.y, _ps.z))
+    }
+    linhasSola.push(linha)
+  }
+  linhasSola.push(ult)
+  // (meio, seguinte, atual) e a ordem que poe a normal pra BAIXO: a sola e a
+  // unica parte do nariz que se ve por baixo, e com a volta na ordem oposta ela
+  // some (material de uma face so) e o nariz fica com um buraco na base.
+  for (let r = 0; r < linhasSola.length - 1; r++) {
+    const A = linhasSola[r], B = linhasSola[r + 1]
+    if (A.length === 1) {
+      for (let c = 0; c < N_COL; c++) idx.push(A[0], B[(c + 1) % N_COL], B[c])
+      continue
+    }
+    for (let c = 0; c < N_COL; c++) {
+      const c1 = (c + 1) % N_COL
+      idx.push(A[c], B[c1], B[c], A[c], A[c1], B[c1])
+    }
+  }
+
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   geo.setIndex(idx)
@@ -264,46 +478,48 @@ function narizLoft(ctx) {
   // coluna duplicada e nao ha listra de costura pra soldar.
   g.add(sh(new THREE.Mesh(geo, matPele(skin))))
 
-  // Base do nariz em MESH e MATERIAL proprios. Duas razoes: o vertice do centro
-  // sobe 0.006 * S e deixa a base concava (a sombra sob a ponta nasce da forma,
-  // nao de um decalque), e o tom 0.85 vende o plano subnasal como o unico que
-  // nunca pega luz direta.
+  // Narinas: dois discos da PROPRIA sola, 0.7 mm por fora dela, em material
+  // escuro. Sao a mesma funcao pontoSola() da base — entao nao existe o risco
+  // da versao anterior, em que a narina era um elipsoide separado que ora nao
+  // furava a base (invisivel) ora furava a ponta do nariz. O que faz o disco ler
+  // como buraco e a cavidade que alturaSola() ja cavou debaixo dele: 2.6 mm de
+  // desnivel contra a sola vizinha, medidos pra caber no angulo de quem olha de
+  // baixo (ver PROF_NARINA).
   const pos2 = []
   const idx2 = []
   const put2 = (x, y, z) => { const i = pos2.length / 3; pos2.push(x, y, z); return i }
-  const ult = aneis[N_ANEL - 1]
-  const mapa = []
-  for (let c = 0; c < N_COL; c++) {
-    const k = ult[c] * 3
-    mapa.push(put2(pos[k], pos[k + 1], pos[k + 2]))
+  const NRN = 4, NCN = 12
+  for (const vn of [V_NARINA, 1 - V_NARINA]) {
+    const base = pos2.length / 3
+    pontoSolaFora(U_NARINA, vn, FOLGA_NARINA, _ps)
+    put2(_ps.x, _ps.y, _ps.z)
+    for (let r = 1; r <= NRN; r++) {
+      const q = r / NRN
+      for (let c = 0; c < NCN; c++) {
+        const a = (c / NCN) * Math.PI * 2
+        // elipse esticada no RAIO da sola: a narina real e uma fenda que aponta
+        // pra columela, e um circulo perfeito aqui le como bolinha de tinta
+        pontoSolaFora(U_NARINA + RU_DISCO * q * Math.cos(a), vn + RV_DISCO * q * Math.sin(a), FOLGA_NARINA, _ps)
+        put2(_ps.x, _ps.y, _ps.z)
+      }
+    }
+    for (let c = 0; c < NCN; c++) idx2.push(base, base + 1 + (c + 1) % NCN, base + 1 + c)
+    for (let r = 1; r < NRN; r++) {
+      const A = base + 1 + (r - 1) * NCN, B = base + 1 + r * NCN
+      for (let c = 0; c < NCN; c++) {
+        const c1 = (c + 1) % NCN
+        idx2.push(A + c, B + c1, B + c, A + c, A + c1, B + c1)
+      }
+    }
   }
-  const fundo = put2(0, yUlt + 0.006 * S, zcUlt - 0.002)
-  for (let c = 0; c < N_COL; c++) idx2.push(fundo, mapa[(c + 1) % N_COL], mapa[c])
   const geo2 = new THREE.BufferGeometry()
   geo2.setAttribute('position', new THREE.Float32BufferAttribute(pos2, 3))
   geo2.setIndex(idx2)
   geo2.computeVertexNormals()
   geo2.computeBoundingSphere()
-  g.add(sh(new THREE.Mesh(geo2, solid(shade(skin, 0.85), 0.8, 0.0))))
-
-  // Narinas: dois elipsoides escuros ATRAVESSANDO a base concava por baixo.
-  // Os numeros sao apertados de proposito e todos medidos contra a mesma
-  // referencia (surfaceZ na altura DELES, nao na do ultimo anel — as duas
-  // diferem ate 1 mm na cabeca comprida). O elipsoide tem que atravessar o cone
-  // da base pra aparecer e ao mesmo tempo parar antes do contorno da frente:
-  // na primeira versao ele tinha 3 cm de fundo e saia furando a ponta do nariz.
-  const mn = matNarina(skin)
-  const yNar = yUlt + 0.0035 * S
-  const zNar = surfaceZ(0, yNar)
-  for (const sgn of [1, -1]) {
-    const n = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), mn)
-    n.scale.set(0.0038 * S, 0.0024 * S, 0.0040 * S)
-    n.position.set(sgn * 0.0105 * S * kw, yNar, zNar + 0.0005)
-    n.rotation.y = sgn * 0.30
-    // flatPiece e nao sh: sombra propria de uma bolota metida dentro de uma
-    // concavidade vira acne de sombra que pisca quando o boneco anda.
-    g.add(flatPiece(n))
-  }
+  // flatPiece e nao sh: casca colada na sola com 0.6 mm de folga projetando
+  // sombra em si mesma vira mancha preta que pisca (CONTRATO 7).
+  g.add(flatPiece(new THREE.Mesh(geo2, matNarina(skin))))
   return g
 }
 
@@ -489,46 +705,89 @@ function narizPele(ctx) {
  * E o contorno da frente do bloco, do alto da glabela ate a base. O primeiro
  * ponto e negativo — a testa come o comeco do nariz, que e o que impede o bloco
  * de comecar como um degrau colado na cara.
- * A quebra entre -0.031 (ponta, 2.32 cm) e -0.040 e de proposito: e a aresta da
- * supraponta, o plano que separa dorso de base e o que mais denuncia a forma do
- * nariz num personagem estilizado.
+ *
+ * O QUE ESTAVA ERRADO (folha de contato: "um cone claro e quase translucido com
+ * um BLOCO ESCURO na base saindo pra fora, que nao encosta na pele do labio
+ * superior"). O perfil antigo caia de 2.32 cm de avanco na ponta pra 0.4 cm na
+ * base em 2 cm de altura: a "base" do nariz era uma rampa quase VERTICAL, e nao
+ * existia nenhum plano virado pra baixo onde uma narina pudesse morar. Por isso
+ * as duas caixas escuras tinham que sair PRA FORA do bloco pra aparecer — e uma
+ * caixa que sai do volume nao le como narina, le como peca solta pendurada.
+ *
+ * A correcao e dar SOLA ao nariz: do canto externo da asa (-0.0392) ate o fim
+ * (-0.0424) a base desce 4.3 mm de altura enquanto anda 14.2 mm pra tras, ou
+ * seja um plano quase deitado, amostrado em CINCO pontos — a amostragem existe pra esse plano poder ser
+ * CAVADO depois (as narinas sao um relevo dele, ver a passada de vertices).
+ * O ultimo ponto ja e negativo: a sola termina ATRAS da pele, entao ela encosta
+ * no labio superior em vez de flutuar na frente dele.
  */
 const PERFIL_BLOCO = [
-  [0.062, -0.0110],
-  [0.047, -0.0030],
-  [0.032,  0.0060],
-  [0.016,  0.0125],
-  [0.000,  0.0180],
-  [-0.014, 0.0215],
-  [-0.024, 0.0232],
-  [-0.033, 0.0150],
-  [-0.040, 0.0040],
+  [0.0620, -0.0110],
+  [0.0470, -0.0030],
+  [0.0320,  0.0060],
+  [0.0160,  0.0125],
+  [0.0000,  0.0180],
+  [-0.0140, 0.0215],
+  [-0.0240, 0.0232],
+  [-0.0300, 0.0200],
+  [-0.0350, 0.0140],
+  [-0.0392, 0.0092],
+  [-0.0402, 0.0066],
+  [-0.0410, 0.0040],
+  [-0.0416, 0.0012],
+  [-0.0420, -0.0018],
+  [-0.0424, -0.0050],
 ]
 
 /**
  * Afunilamento: [-y em unidades de S, fator de largura].
  * A chave e -y so pra tabela ficar crescente (porChave exige isso).
- * O salto de 0.62 pra 1.00 entre a ponta e a asa e o afunilamento pedido: e
+ * O salto de 0.85 pra 1.00 entre a ponta e a asa e o afunilamento pedido: e
  * dele que sai a aresta viva onde a asa se descola da lateral do dorso.
+ *
+ * A raiz subiu de 0.26 pra 0.50: com 0.26 o bloco saia da testa com 9 mm de
+ * largura e abria pra 33 — quase 4 vezes, e de frente isso nao le como nariz,
+ * le como CONE, que foi a palavra usada na folha de contato. Com 0.50 a razao
+ * raiz/asa cai pra 2.0 e o dorso vira uma cana de largura quase constante, com
+ * a asa abrindo so nos ultimos 8 mm de altura.
  */
 const LARGURA_BLOCO = [
-  [-0.062, 0.26],
-  [-0.047, 0.29],
-  [-0.032, 0.33],
-  [-0.016, 0.40],
-  [0.000,  0.50],
-  [0.014,  0.62],
-  [0.024,  0.78],
-  [0.033,  1.00],
-  [0.040,  0.90],
+  [-0.0620, 0.50],
+  [-0.0470, 0.52],
+  [-0.0320, 0.56],
+  [-0.0160, 0.62],
+  [0.0000,  0.68],
+  [0.0140,  0.76],
+  [0.0240,  0.85],
+  [0.0350,  1.00],
+  [0.0424,  0.88],
 ]
 
-/** Largura total do bloco na asa. 0.052 * S = 6.9 cm, 19% da largura da cabeca — a mesma razao de um nariz humano contra o cranio. */
-const LARG_BLOCO = 0.052 * S
+/**
+ * Largura TOTAL do bloco na asa. Era 0.052 * S = 6.9 cm, o dobro do que um
+ * nariz ocupa numa cara: com a sola nova aparecendo, 6.9 cm viravam um pedestal.
+ * O numero e a largura do MIOLO: o chanfro poe mais 2 mm de cada lado, entao
+ * 0.0216 * S = 2.87 cm de miolo fecha em 3.4 cm de asa medida na caixa. Fica na
+ * faixa pedida (2.6 a 3.2 pro loft; o bloco sai 4 mm mais largo de proposito,
+ * pra os dois nao lerem como o mesmo nariz de material diferente).
+ */
+const LARG_BLOCO = 0.0216 * S
 /** Quanto a face de tras do bloco enfia no cranio. */
 const ENTERRO_BLOCO = 0.026
 /** Chanfro. 2 mm: abaixo disso a aresta serrilha na distancia de jogo, acima o bloco perde os planos e volta a ser bolota. */
 const CHANFRO = 0.0020 * S
+
+/** Altura de referencia da sola (onde as narinas sao cavadas). */
+const Y_SOLA_BLOCO = -0.0408 * S
+/** Onde a cavidade da narina comeca a valer, em altura. Acima disso a asa fica intacta. */
+const Y_TETO_SOLA = -0.0330 * S
+/** Centro e raios da cavidade da narina no plano da sola, em metros. */
+const X_NARINA_BLOCO = 0.0055 * S
+const RX_NARINA_BLOCO = 0.0042 * S
+const DZ_NARINA_BLOCO = 0.0048
+const RZ_NARINA_BLOCO = 0.0042
+/** Fundo da cavidade. 7.5 mm e o que faz a caixa escura caber DENTRO dela com folga. */
+const PROF_NARINA_BLOCO = 0.0075
 
 function narizBloco(ctx) {
   const skin = skinOf(ctx)
@@ -556,13 +815,15 @@ function narizBloco(ctx) {
   }
   s2.closePath()
 
-  // steps: 6 nao e enfeite, e o que faz o metodo funcionar. Com o extrude
+  // steps: 14 nao e enfeite, e o que faz o metodo funcionar. Com o extrude
   // padrao (1 passo) a peca so tem vertice nas DUAS pontas da largura: o
   // afunilamento de profundidade la embaixo achatava o dorso inteiro no valor
   // da lateral e o nariz saia com 1 cm de projecao no lugar de 2.3, sem crista
-  // nenhuma. Sete camadas poem um vertice em x = 0 — a crista do dorso.
+  // nenhuma. As 15 camadas poem um vertice em x = 0 (a crista do dorso) e dao
+  // resolucao pras duas cavidades de narina serem cavadas na sola — com os 6
+  // passos antigos cada narina tinha 1.5 coluna e virava um entalhe reto.
   const geo = new THREE.ExtrudeGeometry(s2, {
-    depth: LARG_BLOCO, steps: 6, bevelEnabled: true,
+    depth: LARG_BLOCO, steps: 14, bevelEnabled: true,
     bevelThickness: CHANFRO, bevelSize: CHANFRO, bevelSegments: 2, curveSegments: 1,
   })
   // (x,y,z) -> (-z, y, x): a profundidade do Shape vira Z do mundo e o eixo do
@@ -572,6 +833,7 @@ function narizBloco(ctx) {
   geo.translate(LARG_BLOCO / 2, 0, 0)
 
   const meia = LARG_BLOCO / 2
+  const zNar = surfaceZ(0, Y_SOLA_BLOCO) + DZ_NARINA_BLOCO
   const p = geo.attributes.position
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
@@ -583,7 +845,22 @@ function narizBloco(ctx) {
     // As laterais recuam 26% da profundidade: e o que transforma o prisma reto
     // (que so tinha o plano do dorso) em tres planos — dorso no meio e duas
     // faces inclinadas pegando a luz num valor mais baixo.
-    p.setXYZ(i, x * f * kw, y, zb + (z - zb) * (1 - 0.26 * u * u))
+    const nx = x * f * kw
+    let ny = y
+    let nz = zb + (z - zb) * (1 - 0.26 * u * u)
+    // AS NARINAS DESTE METODO SAO RELEVO DA SOLA, nao uma peca por cima dela:
+    // duas gaussianas empurram o plano subnasal pra DENTRO do bloco (+y) e um
+    // pouco pra tras. A mascara em altura garante que a asa e o dorso nao se
+    // mexem — quem sobe e so o plano virado pra baixo.
+    const m = smoothstep(Y_TETO_SOLA, Y_SOLA_BLOCO - 0.0002, ny)
+    if (m > 0) {
+      const dx = (Math.abs(nx) - X_NARINA_BLOCO * kw) / (RX_NARINA_BLOCO * kw)
+      const dz = (nz - zNar) / RZ_NARINA_BLOCO
+      const cav = PROF_NARINA_BLOCO * m * Math.exp(-dx * dx - dz * dz)
+      ny += cav
+      nz -= cav * 0.45
+    }
+    p.setXYZ(i, nx, ny, nz)
   }
   p.needsUpdate = true
   geo.computeVertexNormals()
@@ -592,22 +869,20 @@ function narizBloco(ctx) {
   // colada na pele curva — a unica emenda dele esta 2.6 cm dentro do cranio.
   g.add(sh(new THREE.Mesh(geo, solid(skin, 0.68, 0.0, { flatShading: true }))))
 
-  // Narinas em BLOCO tambem, pra combinar com o metodo: duas caixas escuras
-  // ATRAVESSANDO o plano subnasal (o trecho do perfil entre y -0.040 e -0.048,
-  // que e o unico plano do bloco virado pra baixo).
-  // O +0.0035 em z e o numero critico: naquela altura a face da frente esta em
-  // surfaceZ + 0.010, entao a caixa precisa chegar a surfaceZ + 0.0125 pra
-  // FURAR o plano e virar fenda. Com a caixa toda dentro (foi a primeira
-  // versao) ela ficava invisivel; com 3 mm a mais ela saia pela ponta.
+  // Narinas em CAIXA, pra combinar com o metodo — mas agora DENTRO da cavidade
+  // que a passada acima cavou, e nao penduradas embaixo do nariz.
+  // A regra que a versao anterior quebrava: nenhum vertice da caixa pode ficar
+  // abaixo da sola nem fora da largura do bloco. Aqui a caixa mede 8 x 6.9 x
+  // 9.3 mm, o centro fica 6 mm acima da sola e a metade inferior dela ainda
+  // sobra 2 mm ACIMA do plano de fora — ou seja, o escuro aparece afundado no
+  // buraco, que e o que faz ler como narina em vez de retangulo colado.
   const mn = matNarina(skin)
-  const yN = -0.0355 * S
-  const zN = surfaceZ(0, yN)
   for (const sgn of [1, -1]) {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.0072 * S, 0.0080 * S, 0.0100 * S), mn)
-    b.position.set(sgn * 0.0130 * S * kw, yN, zN + 0.0035)
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.0060 * S, 0.0052 * S, 0.0070 * S), mn)
+    b.position.set(sgn * X_NARINA_BLOCO * kw, Y_SOLA_BLOCO + 0.0040, zNar + 0.0004)
     // girada nos dois eixos: narina alinhada com os eixos do mundo denuncia a
     // caixa; inclinada ela le como fenda que aponta pra dentro e pra tras
-    b.rotation.set(0.24, sgn * 0.30, 0)
+    b.rotation.set(0.20, sgn * 0.32, 0)
     g.add(flatPiece(b))
   }
   return g
@@ -615,6 +890,10 @@ function narizBloco(ctx) {
 
 // ===========================================================================
 // CATALOGO
+//
+// A ordem e o contrato de rede: o indice viaja em um byte e APARENCIA_OPCOES
+// (src/comum/protocolo.js) conta QUANTOS itens existem. Reordenar e permitido,
+// acrescentar ou remover nao — quatro itens, sempre.
 // ===========================================================================
 
 export const NARIZES = [
@@ -624,19 +903,22 @@ export const NARIZES = [
     build() { return null },
   },
   {
-    id: 'loft', nome: 'Perfilado', name: 'Perfilado',
-    metodo: 'loft de secoes superelipticas costuradas num tubo (expoente por secao)',
-    build(ctx) {
-      useHead(ctx)
-      return narizLoft(ctx)
-    },
-  },
-  {
+    // INDICE 1 = o padrao de defaultAppearance(). Fica com o metodo B porque e o
+    // unico que nao tem emenda nenhuma com a pele em nenhum dos seis cranios:
+    // e o nariz certo pra quem nunca vai abrir o customizador.
     id: 'pele', nome: 'Modelado na pele', name: 'Modelado na pele',
     metodo: 'calota do proprio cranio puxada por campo gaussiano (sem emenda)',
     build(ctx) {
       useHead(ctx)
       return narizPele(ctx)
+    },
+  },
+  {
+    id: 'loft', nome: 'Perfilado', name: 'Perfilado',
+    metodo: 'loft de secoes superelipticas costuradas num tubo (expoente por secao)',
+    build(ctx) {
+      useHead(ctx)
+      return narizLoft(ctx)
     },
   },
   {
@@ -648,4 +930,3 @@ export const NARIZES = [
     },
   },
 ]
-

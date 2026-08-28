@@ -38,8 +38,7 @@ import {
 //                  amplitude do ruido e maior que o vao entre elas, a casca de
 //                  fora so aparece em manchas — densidade decrescente sem
 //                  precisar de alpha. Os fios reais (tecelagem+fio) entram so
-//                  na LINHA DO CABELO e nas costeletas, que e onde o olho
-//                  procura a transicao pele/cabelo.
+//                  na BORDA, que e onde o olho procura a transicao pele/cabelo.
 //
 // DUAS REGRAS VALEM PROS TRES E ESTAO IMPLEMENTADAS UMA VEZ SO AQUI EM CIMA:
 //
@@ -53,6 +52,46 @@ import {
 //      (0.133*S na testa, liberando conforme anda pro lado e pra nuca, onde
 //      cabelo comprido TEM que cair). Cada metodo clampa contra ele — e barato
 //      e vale mesmo se alguem mexer nos parametros de fluxo depois.
+//
+// ---------------------------------------------------------------------------
+// PASSE DE CORRECAO — os tres defeitos que a folha de contato (p1..p4) mostrou
+// nos TRES cortes ao mesmo tempo, e o que foi feito com cada um:
+//
+//   1. "V" NO MEIO DA TESTA. As quatro tabelas de linha do cabelo deste arquivo
+//      declaravam o MEIO da testa mais BAIXO que os cantos: esculpido 0.1425*S
+//      em az 0 contra 0.1560*S em az 0.42; raspado 0.1470 contra 0.1600; casca
+//      do repicado 0.1560 contra 0.1620; ponta das mechas 0.1370 contra 0.1400.
+//      Como byAz le |az|, o resultado nao era bico de viuva (que e assimetrico e
+//      estreito): era um ENTALHE simetrico — no cranio redondo o centro caia
+//      1.8 cm abaixo dos cantos — e isso le como erro de recorte, nao como
+//      entrada de cabelo. Agora as quatro tabelas tem PLATO no centro (o ponto
+//      mais ALTO da frente) e caem monotonicamente ate a tempora, que e a forma
+//      de uma linha do cabelo de verdade.
+//
+//   2. CAPACETE. Duas causas somadas. (a) As linhas desciam demais: a casca do
+//      esculpido terminava em -0.070*S (abaixo da boca) dos lados e na nuca, e a
+//      ponta das mechas ia a -0.140*S, que e a ALTURA DO QUEIXO — a peca fechava
+//      em volta da cabeca com um buraco pro rosto. Todas as linhas laterais e de
+//      nuca subiram, com um vale na frente da orelha (a patilha) e uma subida
+//      POR CIMA dela: e esse degrau que quebra o anel. (b) A linha de corte era
+//      uma curva limpa. Agora toda linha e modulada por DUAS senoides de periodo
+//      inteiro diferente (periodo inteiro = sem degrau na nuca) e cada metodo usa
+//      um par proprio, entao os tres nao ondulam iguais. Por cima disso os
+//      metodos A e C ganharam uma FAIXA DE FIOS soltos na borda; o metodo B nao
+//      leva fio porque a borda dele ja E feita de mechas soltas — por a fio ali
+//      seria repetir o proprio metodo.
+//
+//   3. "CHIFRE" NA TESTA (cortes 1 e 2). No A o termo de topete valia +0.065 de
+//      s numa gaussiana estreita centrada em az 0 — 2.4 cm de casca saindo num
+//      ponto so no alto da testa, contra 1.1 cm na coroa ao lado: um caroco, nao
+//      um topete. Virou +0.030 numa gaussiana bem mais larga e deslocada pro
+//      lado (az 0.22), o que espalha o volume e da lado ao penteado. No B a
+//      franja varrida nascia em `Math.max(0.12, raiz(az) - 0.34 + ...)`: como
+//      raiz(az) na testa vale ~0.33 rad, a subtracao de 0.34 mandava TODAS as 24
+//      mechas pro clamp de 0.12 — ou seja, brotando a 1,7 cm do alto da cabeca —
+//      e com `alt` de ate 16 mm elas saiam pra frente de la. Agora nascem junto
+//      da linha do cabelo (raiz - 0.10) e com `alt` de 4 a 9 mm: franja varrida
+//      rente, no lugar onde franja mora.
 // ---------------------------------------------------------------------------
 
 const S = HEAD_S
@@ -86,19 +125,12 @@ function linhaPorAltura(pares, s = 1) {
  *
  * A RAMPA importa tanto quanto o plato. A versao anterior ia direto de
  * [0.62, 0.133*S] pra [1.05, 0.010*S], e como byAz interpola por smoothstep a
- * curva ficava colada no plato ate ~0.85 — ACIMA das quatro linhas de corte
- * deste arquivo (linha do esculpido, LINHA_RASPADO, linhaCasca e pontaY) por
- * ate 29.5 mm entre az 0.57 e 1.33. O piso, e nao o desenho, e que decidia a
- * tempora: a entrada do "M" saia 2.5 cm mais rasa em todos os 6 cranios.
+ * curva ficava colada no plato ate ~0.85 — ACIMA das linhas de corte deste
+ * arquivo por ate 29.5 mm entre az 0.57 e 1.33. O piso, e nao o desenho, e que
+ * decidia a tempora.
  *
- * E pior no metodo B, onde o clamp pega a PONTA da mecha (pontoDaMecha) mas
- * nao pega a casca base (que passa por scalp): as pontas subiam pro piso e a
- * casca escura ficava 10 a 19 mm ABAIXO delas na tempora, o oposto exato do
- * que o corte declara ("a casca base termina 2 cm ACIMA das pontas").
- *
- * Os nos abaixo passam de 2.5 a 39 mm por BAIXO da mais baixa das quatro
- * linhas em todo o intervalo — o piso voltou a ser backstop e nenhuma das
- * quatro e mais recortada por ele.
+ * Os nos abaixo passam por BAIXO da mais baixa das linhas em todo o intervalo —
+ * o piso e backstop e nenhuma delas e recortada por ele no caso normal.
  */
 const PISO_Y = byAz([
   [0.55, 0.133 * S],
@@ -120,17 +152,46 @@ const _g = new THREE.Vector3()
  * recebe o azimute parametrico, e os dois so coincidem quando fx == fz. Na
  * cabeca comprida (kx 0.88, kz 0.99) o parametrico 0.65 pousa em atan2 0.607:
  * o codigo achava que ja tinha saido do setor do olho e liberava o piso, e a
- * borda descia 2.9 mm ABAIXO do proprio limite ainda dentro do setor. Medido:
- * 0.1740 contra os 0.17689 declarados, nos metodos A e B.
+ * borda descia 2.9 mm ABAIXO do proprio limite ainda dentro do setor.
  *
  * A conversao sai do ponto que a propria superficie devolve — nao ha segunda
  * copia da conta do cranio aqui, so uma leitura a mais de eggSurface.
- * rugarCasca() ja fazia certo (le atan2 do vertice pronto); estes eram os tres
- * lugares que consultavam o piso pelo angulo errado.
  */
 function azGeo(theta, az) {
   eggSurface(theta, az, 1, _g)
   return Math.atan2(_g.x, _g.z)
+}
+
+/**
+ * ONDULACAO DA LINHA DE CORTE — a peca que faltava pra matar o capacete.
+ *
+ * Uma linha de corte que e uma curva suave em az sai da renderizacao como aro
+ * de plastico: a silhueta do cabelo passa a ser um circulo deslocado, e o olho
+ * le "casco". Duas senoides de PERIODO INTEIRO DIFERENTE somadas dao uma borda
+ * que nunca repete o mesmo desenho em dois lugares e mesmo assim fecha a volta
+ * sem degrau na nuca (periodo inteiro => periodica em 2*PI).
+ *
+ * Periodo inteiro tambem e o motivo de NAO usar |az| aqui: com o angulo com
+ * sinal os dois lados da cabeca ondulam diferente, o que sozinho ja tira a cara
+ * de boneco de vitrine. Cada corte usa um par proprio (2/3, 3/5, 4/7) — a onda
+ * e do metodo, nao do arquivo.
+ */
+function ondaDeCorte(a1, p1, f1, a2, p2, f2) {
+  return (az) => a1 * Math.sin(az * p1 + f1) + a2 * Math.sin(az * p2 + f2)
+}
+
+/**
+ * Linha declarada em ALTURA + onda + teto do piso, em theta do cranio ativo.
+ * O teto vem DEPOIS da onda de proposito: assim nenhum vale da senoide escapa
+ * pro lado de baixo da sobrancelha.
+ */
+function bordaOndulada(pares, s, onda) {
+  const alt = byAz(pares)
+  return (az) => {
+    const th = thetaNaAltura(alt(az), s) + onda(az)
+    const teto = thetaNaAltura(PISO_Y(azGeo(th, az)), s)
+    return th > teto ? teto : th
+  }
 }
 
 /**
@@ -159,6 +220,31 @@ function grao(x, y, z) {
 // ---------------------------------------------------------------------------
 
 /**
+ * A LINHA DO CABELO do corte social, em altura.
+ *
+ * O que quebrou: o no de az 0 estava em 0.1425*S e o de az 0.42 em 0.1560*S, ou
+ * seja o cabelo descia 1.8 cm A MAIS no meio da testa do que nos cantos. Isso
+ * nao e entrada de cabelo, e um entalhe — e como byAz e simetrico em |az| ele
+ * saia igualzinho dos dois lados, que e a assinatura de erro de recorte.
+ *
+ * Agora: PLATO no centro ate 0.34 rad (o trecho reto que toda testa tem), queda
+ * ate a tempora, VALE na frente da orelha (a patilha, o ponto mais baixo da
+ * frente) e uma SUBIDA por cima da orelha antes de descer pra nuca. Esse degrau
+ * em 1.28/1.62 e o que impede a casca de fechar como um aro em volta da cabeca:
+ * a orelha fica de fora e a silhueta lateral tem dois cantos em vez de um arco.
+ */
+const LINHA_ESCULPIDO = linhaPorAltura([
+  [0.00, 0.1520 * S],  // meio da testa: PLATO, o ponto mais alto da frente
+  [0.34, 0.1500 * S],
+  [0.66, 0.1290 * S],  // canto da testa comecando a cair
+  [0.95, 0.0820 * S],  // tempora
+  [1.28, 0.0180 * S],  // patilha, na frente da orelha: o ponto mais baixo
+  [1.62, 0.0300 * S],  // sobe POR CIMA da orelha — o degrau que quebra o aro
+  [2.20, -0.0180 * S],
+  [Math.PI, -0.0460 * S],
+])
+
+/**
  * O campo de volume. u = theta/linha (0 no polo, 1 na borda) em vez de theta
  * cru: assim o topete cai no mesmo ponto do penteado nos 6 cranios, mesmo que
  * a borda deles esteja em thetas bem diferentes.
@@ -167,7 +253,13 @@ function volumeEsculpido(u, th, az) {
   const a = az < 0 ? -az : az
   let s = 1.028
   s += 0.034 * gauss(th, 0.20, 0.62)                                // coroa: massa no alto
-  s += 0.065 * gauss(u, 0.58, 0.26) * gauss(az, 0, 0.72)            // topete sobre a testa
+  // TOPETE. Valia 0.065 numa gaussiana de largura 0.26 em u e 0.72 em az, tudo
+  // centrado em az 0: dava 24 mm de casca num ponto so no alto da testa contra
+  // 11 mm na coroa ao lado — o "chifre" da folha de contato. Amplitude pela
+  // metade, gaussianas bem mais largas e o centro deslocado pra 0.22 rad: o
+  // volume vira uma onda varrida pra um lado (o mesmo lado da risca abaixo) em
+  // vez de um caroco simetrico no meio.
+  s += 0.030 * gauss(u, 0.46, 0.36) * gauss(az, 0.22, 0.95)
   s += 0.020 * gauss(u, 0.70, 0.30) * smoothstep(1.5, 2.6, a)       // volume na nuca
   // Risca lateral DE VERDADE: gauss no az COM SINAL, so no lado direito. Com
   // |az| o penteado sai espelhado e vira franja simetrica — o defeito que o
@@ -184,28 +276,39 @@ function volumeEsculpido(u, th, az) {
 }
 
 /**
- * Ruido da borda, em radianos de theta. Tres frequencias inteiras (periodicas
- * em az, entao nao ha degrau na nuca) e amplitude MENOR na frente: no setor da
- * testa sobra 1 cm ate o piso, e um dente de 6 mm ali ja passaria por franja
- * caida na sobrancelha.
+ * Ruido da borda, em radianos de theta.
+ *
+ * O que quebrou: as tres frequencias eram 7, 11 e 17 — ondinha fina. Fina
+ * demais pra silhueta: de longe ela some no antialias e o que sobra e o
+ * contorno da curva base, ou seja o aro. A energia foi redistribuida (o total
+ * continua ~0.07 rad, nao ha borda mais agressiva do que antes) botando a maior
+ * parte em PERIODO 2 e 3, que e a escala em que o olho le "mecha" — e as tres
+ * finas ficaram como grao por cima.
+ *
+ * As fases quebradas (0.9, -2.1) fazem os dois lados da cabeca receberem ondas
+ * diferentes: o angulo aqui e COM SINAL, ao contrario do teto de piso.
+ * Amplitude MENOR na frente (k): no setor da testa sobra 1 cm ate o piso, e um
+ * dente de 6 mm ali ja passaria por franja caida na sobrancelha.
  */
 function recorteDaBorda(az) {
   const a = az < 0 ? -az : az
   const k = 0.35 + 0.65 * smoothstep(0.5, 1.3, a)
-  return k * (0.030 * Math.sin(az * 7 + 1.1) + 0.020 * Math.sin(az * 11 + 2.6) + 0.014 * Math.sin(az * 17 + 0.4))
+  const largo = 0.026 * Math.sin(az * 2 + 0.9) + 0.017 * Math.sin(az * 3 - 2.1)
+  const fino = 0.014 * Math.sin(az * 7 + 1.1)
+    + 0.010 * Math.sin(az * 11 + 2.6)
+    + 0.007 * Math.sin(az * 17 + 0.4)
+  return k * (largo + fino)
+}
+
+/** Onde a casca do metodo A termina, ja com o teto do piso aplicado. */
+function bordaEsculpida(az) {
+  const lim = LINHA_ESCULPIDO(az) + recorteDaBorda(az)
+  const teto = thetaNaAltura(PISO_Y(azGeo(lim, az)))
+  return lim > teto ? teto : lim
 }
 
 function cascaEsculpida(cor) {
   const COLS = 72, LINHAS = 16
-  const linha = linhaPorAltura([
-    [0.00, 0.1425 * S],  // bico de viuva: o ponto mais baixo e o meio da testa
-    [0.42, 0.1560 * S],  // entrada da tempora — o "M" que todo rosto tem
-    [0.78, 0.0950 * S],
-    [1.20, 0.0050 * S],
-    [1.60, -0.0450 * S],
-    [2.30, -0.0700 * S],
-    [Math.PI, -0.0600 * S],
-  ])
   const pos = []
   const idx = []
   const p = new THREE.Vector3()
@@ -217,10 +320,7 @@ function cascaEsculpida(cor) {
 
   for (let i = 0; i < COLS; i++) {
     const az = -Math.PI + ((i + 0.5) / COLS) * Math.PI * 2
-    // teto duro primeiro, recorte depois: assim nenhum dente do ruido escapa
-    let lim = linha(az) + recorteDaBorda(az)
-    const teto = thetaNaAltura(PISO_Y(azGeo(lim, az)))
-    if (lim > teto) lim = teto
+    const lim = bordaEsculpida(az)
     for (let j = 1; j <= LINHAS; j++) {
       const t = j / LINHAS
       const th = lim * (1 - Math.pow(1 - t, 1.35))
@@ -247,6 +347,51 @@ function cascaEsculpida(cor) {
   return sh(new THREE.Mesh(geo, hairMat(cor)))
 }
 
+/**
+ * FAIXA DE FIOS NA BORDA do corte social.
+ *
+ * Sem ela a casca acaba num corte de navalha: uma aresta de 0.7 mm que separa
+ * cabelo de pele numa linha continua, que e metade da leitura de capacete (a
+ * outra metade era a linha descer demais). Os fios nascem NA SUPERFICIE DA
+ * PROPRIA CASCA — mesmo campo volumeEsculpido, entao acompanham o topete e as
+ * laterais rentes sem calculo paralelo — e correm pra fora e pra BAIXO,
+ * cruzando a linha de corte. Quem olha de perto ve fio; de longe ve uma borda
+ * macia em vez de uma aresta.
+ *
+ * O clamp usa a mesma reserva do metodo C: o fio ANDA depois de nascer, entao
+ * clampar so a raiz nao basta — planta-se com `comp` de folga acima do piso.
+ */
+function fiosEsculpido(cor) {
+  const ma = tecelagem()
+  const p = new THREE.Vector3()
+  const n = new THREE.Vector3()
+  const eixo = new THREE.Vector3()
+  const r = rng(51703)
+  const N = 150
+  for (let i = 0; i < N; i++) {
+    const az = -Math.PI + ((i + r() * 0.85) / N) * Math.PI * 2
+    const lim = bordaEsculpida(az)
+    const comp = (0.007 + r() * 0.008) * S
+    // nasce no ultimo quinto da casca, pra cobrir a emenda por cima
+    let th = lim * (0.80 + 0.16 * r())
+    const thTeto = thetaNaAltura(PISO_Y(azGeo(th, az)) + comp)
+    if (th > thTeto) th = thTeto
+    eggSurface(th, az, volumeEsculpido(th / lim, th, az), p)
+    eggNormal(th, az, n)
+    // Puxa a direcao pra baixo: fio saindo na normal pura vira ourico, e o que
+    // interessa aqui e o fio DEITADO por cima da borda.
+    n.y -= 0.85 + 0.55 * r()
+    n.x += (r() - 0.5) * 0.35
+    n.z += (r() - 0.5) * 0.35
+    n.normalize()
+    // Eixo tangente ao azimute: curvar em volta dele verga o fio no plano do
+    // meridiano, ou seja pra baixo dos dois lados da cabeca.
+    eixo.set(Math.cos(az), 0, -Math.sin(az))
+    fio(ma, p, n, comp, 0.0013 * S, eixo, 0.35, 4, 3)
+  }
+  return sh(new THREE.Mesh(ma.geo(), peloMat(cor)))
+}
+
 // ---------------------------------------------------------------------------
 // METODO B — MECHAS COMO TIRAS DE QUADS
 //
@@ -256,6 +401,10 @@ function cascaEsculpida(cor) {
 // acerta num cranio e enfia a raiz da mecha dentro da testa nos outros cinco.
 // O afastamento vem pela NORMAL (eggNormal), nao por s: escalar s levanta a
 // ponta em Y junto, e a franja subia em vez de cair.
+//
+// Este e o unico dos tres que NAO leva faixa de fio na borda, e de proposito: a
+// borda dele ja e feita de mecha solta. Por fio ali seria o metodo repetindo a
+// si mesmo com outra geometria e custando o dobro.
 // ---------------------------------------------------------------------------
 
 const _p = new THREE.Vector3()
@@ -311,18 +460,30 @@ function tiraDeMecha(ma, o) {
 // (um buzz de verdade tem dezenas de milhares). A saida e a tecnica de shell de
 // pelagem: cascas concentricas onde o ruido de deslocamento e MAIOR que o vao
 // entre elas, entao a de fora so emerge em manchas e a densidade cai sozinha
-// camada a camada. Os fios de verdade ficam guardados pro unico lugar onde o
-// olho consegue contar pelo: a linha do cabelo e a costeleta.
+// camada a camada. Os fios de verdade ficam guardados pra BORDA INTEIRA, que e
+// onde o olho consegue contar pelo.
 // ---------------------------------------------------------------------------
 
+/**
+ * Linha do raspado, em altura. Tinha o mesmo entalhe central dos outros
+ * (0.1470*S no meio contra 0.1600*S em az 0.45) e descia a -0.075*S na nuca,
+ * o que num corte raspado le como touca puxada ate o pescoco. Plato no centro,
+ * vale na patilha, degrau por cima da orelha e nuca 2.5 cm mais alta.
+ */
 const LINHA_RASPADO = [
-  [0.00, 0.1470 * S],
-  [0.45, 0.1600 * S],
-  [0.85, 0.0900 * S],
-  [1.25, 0.0150 * S],
-  [1.75, -0.0400 * S],
-  [Math.PI, -0.0750 * S],
+  [0.00, 0.1560 * S],  // meio da testa: PLATO
+  [0.36, 0.1545 * S],
+  [0.68, 0.1370 * S],
+  [1.00, 0.0850 * S],  // tempora
+  [1.34, 0.0230 * S],  // patilha
+  [1.66, 0.0330 * S],  // por cima da orelha
+  [2.40, -0.0250 * S],
+  [Math.PI, -0.0500 * S],
 ]
+
+/** A onda do raspado: periodo 4 e 7, amplitude curta — a borda de um fade e
+ *  irregular em escala pequena, nao em mecha. */
+const ONDA_RASPADO = ondaDeCorte(0.020, 4, 0.6, 0.013, 7, -1.4)
 
 /**
  * `sobe` levanta a linha SO depois da tempora (smoothstep em 0.62..1.15). E o
@@ -332,7 +493,12 @@ const LINHA_RASPADO = [
  */
 function linhaRaspado(sobe, s) {
   const base = byAz(LINHA_RASPADO)
-  return (az) => thetaNaAltura(base(az) + sobe * smoothstep(0.62, 1.15, az < 0 ? -az : az), s)
+  return (az) => {
+    const y = base(az) + sobe * smoothstep(0.62, 1.15, az < 0 ? -az : az)
+    const th = thetaNaAltura(y, s) + ONDA_RASPADO(az)
+    const teto = thetaNaAltura(PISO_Y(azGeo(th, az)), s)
+    return th > teto ? teto : th
+  }
 }
 
 /** Desloca cada vertice ao longo da PROPRIA normal por ruido de posicao. */
@@ -360,12 +526,13 @@ export const CABELOS = [
     id: 'esculpido',
     nome: 'Social esculpido',
     name: 'Social esculpido',
-    metodo: 'casca propria loftada ate a linha do corte, com campo de volume s(theta,az) e borda recortada por ruido',
+    metodo: 'casca propria loftada ate a linha do corte, com campo de volume s(theta,az), borda ondulada por senoides e faixa de fios soltos',
     build(ctx) {
       useHead(ctx)
       const c = hairColorFrom(ctx)
       const g = new THREE.Group()
       g.add(cascaEsculpida(c))
+      g.add(fiosEsculpido(c))
       return g
     },
   },
@@ -374,40 +541,54 @@ export const CABELOS = [
     id: 'mechas',
     nome: 'Repicado',
     name: 'Repicado',
-    metodo: '180 mechas em tiras de quads que caminham no cranio e se soltam pela normal, sobre casca base escura',
+    metodo: '180 mechas em tiras de quads que caminham no cranio e se soltam pela normal, sobre casca base escura de borda ondulada',
     build(ctx) {
       useHead(ctx)
       const c = hairColorFrom(ctx)
       const g = new THREE.Group()
 
-      // A casca base termina 2 cm ACIMA de onde as mechas terminam. E de
+      // A casca base termina ~2 cm ACIMA de onde as mechas terminam. E de
       // proposito: a silhueta do corte passa a ser a das pontas, e o buraco
       // entre uma mecha e outra mostra sombra e nao couro cabeludo. Escurecida
       // porque o que se ve por entre o cabelo e a raiz na sombra.
-      const linhaCasca = linhaPorAltura([
-        [0.00, 0.1560 * S],
-        [0.50, 0.1620 * S],
-        [0.95, 0.0450 * S],
-        [1.35, -0.0250 * S],
-        [2.10, -0.0850 * S],
-        [Math.PI, -0.0950 * S],
-      ], 1.018)
+      //
+      // A tabela tinha o entalhe central (0.1560*S no meio contra 0.1620*S em
+      // az 0.50) e ia a -0.095*S na nuca. Plato no centro, patilha, degrau por
+      // cima da orelha, nuca mais alta — e a onda de periodo 3/5 (par proprio
+      // deste corte) por cima, que e o que impede a casca escura de aparecer
+      // como um aro nitido por entre as mechas.
+      const linhaCasca = bordaOndulada([
+        [0.00, 0.1585 * S],  // meio da testa: PLATO
+        [0.34, 0.1570 * S],
+        [0.66, 0.1390 * S],
+        [0.95, 0.1000 * S],  // tempora
+        [1.30, 0.0350 * S],  // patilha
+        [1.66, 0.0430 * S],  // por cima da orelha
+        [2.40, -0.0300 * S],
+        [Math.PI, -0.0500 * S],
+      ], 1.018, ondaDeCorte(0.024, 3, 1.9, 0.015, 5, -0.7))
       g.add(scalp(shade(c, 0.60), linhaCasca, { s: 1.018, thetaMax: 2.35, wSeg: 40, hSeg: 24 }))
 
-      // Ate onde a PONTA pode ir. Na testa sobra so 1 cm abaixo da casca (a
-      // franja e curta de proposito, e o piso corta o resto); dos lados e atras
-      // a cortina desce ate a altura do maxilar.
+      // Ate onde a PONTA pode ir. Tinha o entalhe (0.1370*S no meio contra
+      // 0.1400*S em 0.55) e, pior, ia a -0.140*S na nuca e -0.125*S nos lados:
+      // -0.140*S e a ALTURA DO QUEIXO. Uma cortina que desce ate o queixo em
+      // toda a volta e literalmente um capacete com um buraco pro rosto — era o
+      // defeito 2 da folha de contato, e vinha daqui e nao da casca. As pontas
+      // agora param acima da linha do maxilar; a orelha fica exposta.
       const pontaY = byAz([
-        [0.00, 0.1370 * S],
-        [0.55, 0.1400 * S],
-        [1.00, 0.0100 * S],
-        [1.40, -0.0600 * S],
-        [2.10, -0.1250 * S],
-        [Math.PI, -0.1400 * S],
+        [0.00, 0.1420 * S],  // meio da testa: PLATO
+        [0.38, 0.1400 * S],
+        [0.72, 0.1180 * S],
+        [1.05, 0.0480 * S],  // tempora
+        [1.45, -0.0250 * S],
+        [2.10, -0.0620 * S],
+        [Math.PI, -0.0750 * S],
       ])
       const teto = (az) => thetaNaAltura(Math.max(PISO_Y(az), pontaY(az)))
+      // Ate onde as RAIZES descem. Acompanha a casca base (uns 2 mm acima
+      // dela), senao a raiz da mecha nasce fora da casca e aparece flutuando.
       const raiz = (az) => thetaNaAltura(byAz([
-        [0.50, 0.1600 * S], [0.95, 0.0500 * S], [1.35, -0.0200 * S], [Math.PI, -0.0800 * S],
+        [0.40, 0.1600 * S], [0.95, 0.1030 * S], [1.35, 0.0330 * S], [Math.PI, -0.0450 * S],
       ])(az))
 
       const ma = tecelagem()
@@ -429,6 +610,9 @@ export const CABELOS = [
       // Camada de fora: mais longa, mais solta e com queda nos lados e na nuca
       // (smoothstep em |az|), que e o unico lugar onde cabelo pode cair sem
       // passar na frente do olho.
+      // `alt` reduzido no setor da frente pelo mesmo motivo do topete do metodo
+      // A: afastamento grande no alto da testa sai da silhueta como caroco. Nos
+      // lados e atras a mecha pode se soltar a vontade, que la e volume.
       for (let i = 0; i < 96; i++) {
         const az = -Math.PI + ((i + 0.10 + r() * 0.8) / 96) * Math.PI * 2
         const a = az < 0 ? -az : az
@@ -436,7 +620,9 @@ export const CABELOS = [
         tiraDeMecha(ma, {
           az, th: 0.18 + lim * Math.pow(r(), 0.75),
           dAz: (r() - 0.5) * 0.30, dTheta: 0.26 + 0.46 * r(),
-          s: 1.022, alt: 0.006 + 0.010 * r(), larg: 0.007 + 0.005 * r(),
+          s: 1.022,
+          alt: (0.005 + 0.009 * r()) * (0.55 + 0.45 * smoothstep(0.5, 1.2, a)),
+          larg: 0.007 + 0.005 * r(),
           queda: (0.010 + 0.022 * r()) * smoothstep(0.8, 1.5, a), seg: 7, teto,
         })
       }
@@ -444,12 +630,21 @@ export const CABELOS = [
       // Franja varrida: dAz sempre POSITIVO, entao as mechas da testa correm
       // todas pro mesmo lado. E o detalhe que faz o corte ter lado — franja
       // simetrica e o que dava cara de boneco de vitrine.
+      //
+      // AQUI ESTAVA O "CHIFRE". O theta de nascimento era
+      // `Math.max(0.12, raiz(az) - 0.34 + 0.10*r())`; raiz(az) na testa vale
+      // ~0.33 rad, entao `raiz - 0.34` da NEGATIVO e as 24 mechas caiam todas no
+      // clamp de 0.12 — brotando a 1,7 cm do alto do cranio, nao na testa. Com
+      // `alt` de 8 a 16 mm elas saiam de la pra frente: um tufo no lugar errado.
+      // Agora nascem 0.10 rad acima da propria linha do cabelo e com `alt` de 4
+      // a 9 mm, que e o mesmo afastamento da camada de fora — a franja passa a
+      // ser franja, e nao um apendice.
       for (let i = 0; i < 24; i++) {
         const az = -0.85 + ((i + r() * 0.6) / 24) * 1.70
         tiraDeMecha(ma, {
-          az, th: Math.max(0.12, raiz(az) - 0.34 + 0.10 * r()),
-          dAz: 0.34 + 0.30 * r(), dTheta: 0.16 + 0.16 * r(),
-          s: 1.024, alt: 0.008 + 0.008 * r(), larg: 0.006 + 0.004 * r(),
+          az, th: Math.max(0.16, raiz(az) - 0.10 - 0.10 * r()),
+          dAz: 0.30 + 0.26 * r(), dTheta: 0.20 + 0.16 * r(),
+          s: 1.020, alt: 0.004 + 0.005 * r(), larg: 0.006 + 0.004 * r(),
           queda: 0, seg: 6, teto,
         })
       }
@@ -463,7 +658,7 @@ export const CABELOS = [
     id: 'raspado',
     nome: 'Raspado',
     name: 'Raspado',
-    metodo: '3 cascas concentricas deslocadas por ruido na normal (densidade decrescente) + fios reais na linha do cabelo e costeletas',
+    metodo: '3 cascas concentricas deslocadas por ruido na normal (densidade decrescente) + fios reais cobrindo a borda inteira',
     build(ctx) {
       useHead(ctx)
       const c = hairColorFrom(ctx)
@@ -554,13 +749,29 @@ export const CABELOS = [
           })
         }
       }
-      // 3. Nuca: a mesma transicao, no unico angulo em que ela e vista de tras.
+      // 3. ACIMA E ATRAS DA ORELHA (az 1.52..2.50). Era o unico trecho da borda
+      //    sem fio nenhum — a costeleta parava em 1.50 e a nuca so comecava em
+      //    2.45 — e e justamente o setor que a folha de contato mostra de perfil:
+      //    la a linha das tres cascas aparecia como um corte de navalha em volta
+      //    do cranio, que e a leitura de capacete. Os fios seguem a propria
+      //    linha, com espalhamento pra baixo, e desmancham a aresta.
+      for (let lado = -1; lado <= 1; lado += 2) {
+        for (let i = 0; i < 22; i++) {
+          const az = lado * (1.52 + ((i + r() * 0.8) / 22) * 0.98)
+          const y = alturaLinha(az) + (0.006 - r() * 0.018) * S
+          planta(az, thetaNaAltura(y), {
+            comp: (0.007 + r() * 0.007) * S, raio: 0.0013 * S,
+            curva: 0.24, aneis: 4, tom: i & 1, desce: 0.30, fora: 0.0014,
+          })
+        }
+      }
+      // 4. Nuca: a mesma transicao, no unico angulo em que ela e vista de tras.
       // `desce` menor que na testa e curva menor pelo mesmo motivo do `fora`:
       // abaixo do occipital a cabeca volta a engordar e o fio muito deitado
       // mergulha nela em vez de acompanhar.
       for (let i = 0; i < 30; i++) {
         const az = (i & 1 ? 1 : -1) * (2.45 + r() * 0.69)
-        const y = (-0.050 - r() * 0.045) * S
+        const y = (-0.040 - r() * 0.035) * S
         planta(az, thetaNaAltura(y), {
           comp: (0.008 + r() * 0.008) * S, raio: 0.0013 * S,
           curva: 0.20, aneis: 4, tom: i & 1, desce: 0.24, fora: 0.0018,

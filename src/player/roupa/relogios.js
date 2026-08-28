@@ -39,11 +39,12 @@ import * as N from './nucleo.js'
 //      noite, de longe, sem ver a forma.
 //
 // COMO ELE ESCAPA DA MANGA: nao escapa, a manga e que morre antes. Toda manga
-// comprida termina em MANGA_FIM_Y (4,5 cm acima do pulso) com raio
-// MANGA_R_PUNHO; o relogio mora 2,8 cm acima do pulso e nenhuma peca daqui
-// passa de y = -FORE_ARM + 0.0175, entao sobra 1 mm de folga do punho. Os raios
-// tambem passam de MANGA_R_PUNHO + SOBRA_ACESSORIO na parte que incha, entao
-// mesmo quando a manga balanca por cima o relogio continua por fora.
+// comprida termina em MANGA_FIM_Y (4,5 cm acima do pulso); o relogio mora
+// 2,8 cm acima do pulso e nenhuma peca daqui passa de y = -FORE_ARM + 0.0175,
+// entao sobra 1 mm de folga do punho e as duas nunca se encontram.
+// NAO se usa MANGA_R_PUNHO como raio: aquele numero (0.0465) e o raio do PANO,
+// e o pano nao chega aqui embaixo. Quem manda no raio e a PELE do pulso, que
+// tem 0.0242 — ver rPulso() logo abaixo.
 // ---------------------------------------------------------------------------
 
 // 2,8 cm acima do pulso. E a MESMA altura que pulseira() e mostrador() do
@@ -53,16 +54,55 @@ import * as N from './nucleo.js'
 const SUBIDA_PULSO = 0.028
 const yPulso = (c) => -c.medida.FORE_ARM + SUBIDA_PULSO
 
-// Raio da capsula do antebraco (character.js, foreArmGeo). Toda banda daqui tem
-// a face de DENTRO enterrada nele: e o mesmo truque que calibrou pulseira() no
-// nucleo, e e o que faz a peca ler colada no pulso em vez de pendurada. Banda
-// que comeca em 0.041 exato brigava com a pele e piscava a cada passo.
-const R_BRACO = 0.041
+// RAIO DA PELE NO PULSO — e ele que manda em tudo aqui.
+//
+// NAO EXISTE MAIS capsula de antebraco de raio 0.041. O comentario de
+// pulseira() no nucleo ainda cita esse numero, mas ele e do corpo ANTIGO:
+// character.js troca a CapsuleGeometry por um LOFT (membroGeo + RAIO_ANTEBRACO)
+// que engorda no bojo do braquiorradial e AFINA ate o pulso. Medido no boneco
+// nu, o antebraco tem 0.0414 logo abaixo do cotovelo e 0.0242 na altura em que
+// o relogio mora. Uma banda escrita em 0.041 nasce 1,7 cm mais larga que o
+// pulso: o braco atravessa um aro solto, que e exatamente o "aro de basquete"
+// que o nucleo manda evitar — e aparece de qualquer angulo, nao so de perto.
+//
+// Entao o raio nao e escrito: sai da MESMA curva que gera a pele. Os pares e o
+// comprimento sao os de character.js (RAIO_ANTEBRACO e FORE_ARM - 0.018); se o
+// antebraco mudar la, e esta tabela que vai junto. E o mais perto que da pra
+// chegar de raioPerfil() num membro — ctx.perfil so entrega PELVIS/PEITO/MANGA,
+// porque braco e antebraco sao loft e nao lathe.
+const CURVA_ANTEBRACO = [
+  [0.00, 0.0385],
+  [0.16, 0.0415],  // bojo do braquiorradial, logo abaixo do cotovelo
+  [0.55, 0.0330],
+  [0.86, 0.0248],  // pulso
+  [1.00, 0.0240],
+]
+const FOLGA_LOFT = 0.018   // FORE_ARM - 0.018 e o comprimento do loft
 
-// Teto de raio da CAIXA no plano (y, z). O punho da manga comprida morre em
-// y = -FORE_ARM + MANGA_FIM_Y com raio ~0.047: com 0.017 a quina de cima do
-// bisel encosta nele e a caixa aparece serrilhada por dentro do pano. 0.016
-// deixa 1 mm de ar e ninguem ve a diferenca de meio milimetro no bisel.
+/** A mesma interpolacao suave de curvaR() em character.js. */
+function curvaR(pares, t) {
+  if (t <= pares[0][0]) return pares[0][1]
+  for (let i = 1; i < pares.length; i++) {
+    if (t <= pares[i][0]) {
+      const a = pares[i - 1], b = pares[i]
+      const k = (t - a[0]) / (b[0] - a[0])
+      return a[1] + (b[1] - a[1]) * k * k * (3 - 2 * k)
+    }
+  }
+  return pares[pares.length - 1][1]
+}
+
+/** Raio da pele do antebraco na altura do relogio (~0.0242 no boneco padrao). */
+function rPulso(c) {
+  const len = c.medida.FORE_ARM - FOLGA_LOFT
+  return curvaR(CURVA_ANTEBRACO, Math.min(1, (c.medida.FORE_ARM - SUBIDA_PULSO) / len))
+}
+
+// Teto de raio da CAIXA no plano (y, z). 3,2 cm de caixa num pulso de 4,8 cm de
+// diametro: e a proporcao de um relogio de verdade. A caixa e um disco CHATO
+// num pulso CURVO, entao o fundo dela mora meio milimetro DENTRO da pele e a
+// borda sobe sozinha (a distancia ao eixo do braco e hypot(dist, raio), nao
+// dist), que e como um relogio assenta mesmo.
 const R_CAIXA_MAX = 0.016
 
 /**
@@ -179,7 +219,7 @@ function pulseiraElos(c, mat, o) {
   // abrem um V nas duas bordas e por ele se via a SOMBRA do braco, entao a
   // fileira lia como uma corrente de pinos espetados no pulso em vez de uma
   // pulseira. Custa 40 triangulos e fecha todos os vaos de uma vez.
-  const esp = N.malha(new THREE.CylinderGeometry(R_BRACO + 0.001, R_BRACO + 0.001,
+  const esp = N.malha(new THREE.CylinderGeometry(o.rPele + 0.001, o.rPele + 0.001,
     o.larg * 0.86, 20, 1, true, o.fiCaixa + o.vao / 2, arcoTotal), mat)
   esp.position.y = y
   g.add(esp)
@@ -338,13 +378,15 @@ export const RELOGIOS = [
       const g = new THREE.Group()
       const aco = N.metal(0xc3cad1)
       const acoEsc = N.metal(N.esc(0xc3cad1, 0.72))
-      // 4,5 mm por fora da pele e 1,5 mm enterrados nela. A primeira versao
-      // tinha 3,4 mm de meia-espessura e os elos ficavam de pe no braco como
-      // pinos; o elo tem que ser mais CHATO que largo, senao vira contas.
-      const R_ELO = 0.0425
+      // Tudo sai do raio da PELE, nao de um numero escrito: 4,5 mm por fora
+      // dela e 1,5 mm enterrados. A primeira versao tinha 3,4 mm de
+      // meia-espessura e os elos ficavam de pe no braco como pinos; o elo tem
+      // que ser mais CHATO que largo, senao vira contas.
+      const R = rPulso(c)
+      const R_ELO = R + 0.0015
 
       g.add(pulseiraElos(c, aco, {
-        n: 30, r: R_ELO, meiaEsp: 0.0030, larg: 0.019,
+        n: 30, r: R_ELO, rPele: R, meiaEsp: 0.0030, larg: 0.019,
         // o vao de 0,60 rad e onde a caixa senta: os elos das pontas entram por
         // baixo do bisel e a pulseira nao "nasce do nada" ao lado da caixa
         fiCaixa: FI_TELA, vao: 0.60,
@@ -353,7 +395,9 @@ export const RELOGIOS = [
       // Caixa: perfil que sobe pelo bisel, vira no lip e DESCE de volta pra
       // dentro. E essa volta pra dentro que faz o mostrador ser afundado — com
       // o disco no topo do cilindro o relogio vira uma ficha de cassino.
-      const dist = 0.0405
+      // O fundo dela senta 2 mm abaixo do topo dos elos (meio milimetro dentro
+      // da pele), que e o que faz a caixa nascer NA pulseira e nao boiando.
+      const dist = R_ELO - 0.0020
       const caixa = [
         [0.0000, 0.0000],
         [0.0148, 0.0000],
@@ -395,7 +439,10 @@ export const RELOGIOS = [
       const fio = solid(0xd8c49a, 0.95, 0.0)
       const latao = N.metal(0xb99a52)
 
-      const R_IN = 0.0375, R_OUT = 0.0455, MEIA_L = 0.0100
+      // 3,5 mm de couro enterrado na pele e 4,5 mm por fora dela — medidos a
+      // partir do raio do PULSO, nunca escritos a mao (ver rPulso()).
+      const R = rPulso(c)
+      const R_IN = R - 0.0035, R_OUT = R + 0.0045, MEIA_L = 0.0100
       const FI_FIVELA = 1.05   // lado de dentro do pulso, virado 30 graus pra
       //                          frente: e onde a fivela fica no braco de
       //                          verdade e ainda assim aparece de tres quartos
@@ -445,7 +492,9 @@ export const RELOGIOS = [
       // O aro e ESTREITO (1,8 mm entre 0.0140 e 0.0158) porque na foto de perto
       // um aro de 3 mm engolia o mostrador: sobrava um disco dourado com um
       // furo claro no meio, e nao um relogio.
-      const dist = 0.0400
+      // O fundo fica 1 mm abaixo da pele; o topo do aro (dist + 0.0094) sobe
+      // 3,9 mm ACIMA do couro, que e o degrau que poe a caixa em cima da tira.
+      const dist = R - 0.0010
       const caixa = [
         [0.0000, 0.0000], [0.0150, 0.0006], [0.0158, 0.0040], [0.0154, 0.0082],
         [0.0140, 0.0094], [0.0136, 0.0074], [0.0000, 0.0070],
@@ -511,11 +560,12 @@ export const RELOGIOS = [
     build(c) {
       const g = new THREE.Group()
       g.position.y = yPulso(c)
+      // Raio do EIXO da secao = pele + 1,5 mm. Com a meia-espessura de 3,5 mm a
+      // casca vai de (pele - 2 mm) a (pele + 5 mm) na banda e a (pele + 9 mm) no
+      // dorso: a face de dentro fica enterrada e a peca nao mostra vao nenhum.
+      const R = rPulso(c)
       const forma = {
-        // 0.0425 + 0.0035 de meia-espessura = 4,6 cm de raio na banda (5 mm por
-        // fora da pele) e 5,0 cm no dorso. O de dentro fica em 0.039, enterrado
-        // nos 0.041 do antebraco, entao a casca nao mostra vao nenhum.
-        raio: 0.0425, raioTela: 0.0020,
+        raio: R + 0.0015, raioTela: 0.0020,
         esp: 0.0035, espTela: 0.0020,
         larg: 0.0085, largTela: 0.0060,
       }

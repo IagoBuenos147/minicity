@@ -3,7 +3,7 @@ import { solid, stdMat, tex } from '../../world/materials.js'
 import {
   HEAD_S, EYE_ANCHOR, useHead, surfaceZ, faceSpread, skinOf, hairColorFrom,
   shade, mixHex, mix, clamp, smoothstep, sh, flatPiece, wrapToHead, extrudeOpts,
-  tecelagem, fio, rng,
+  tecelagem, fio, rng, soldarNormais,
 } from './nucleo.js'
 
 // ---------------------------------------------------------------------------
@@ -17,33 +17,43 @@ import {
 //   como a abertura e desenhada, como a palpebra vira geometria, como a iris e
 //   pintada e como o brilho especular e produzido.
 //
-//   0 calotas   GLOBO + CALOTAS EMPILHADAS. Esfera cor de pele, calota de
-//               esclera na frente, calotas concentricas de limbo/iris/pupila e
-//               palpebras que sao calotas de pele tombadas. E o metodo
-//               classico, aqui com as folgas radiais medidas.
-//   1 polar     UMA CALOTA SO, com esclera + fibras + anel limbal + pupila +
+//   0 polar     UMA CALOTA SO, com esclera + fibras + anel limbal + pupila +
 //               brilho + transicao pra pele PINTADOS numa textura POLAR. O mapa
 //               UV de uma calota ja e um sistema polar (coluna = angulo, linha
 //               = raio), entao fibra de iris — impossivel em geometria — sai de
 //               graca. As palpebras sao FAIXAS VARRIDAS ao longo da curva da
 //               margem, nao calotas: e isso que da canto interno e externo com
 //               forma propria.
+//   1 casca     UMA SUPERFICIE SO: sai da pele, sobe formando a dobra da
+//               palpebra e volta pro fundo da orbita. Nao ha globo — a orbita e
+//               a propria pele deformada e o olho e um disco levemente convexo
+//               no fundo dela. As fibras da iris sao feitas com a MALHA (cunhas
+//               alternadas em tres tons), sem textura nenhuma. E de longe o
+//               mais barato dos cinco: 804 triangulos por olho, contra 3056 do
+//               'calotas' e 3196 do 'recorte'.
 //   2 recorte   A ABERTURA E UM SHAPE 2D com furo, extrudado e projetado na
 //               pele (wrapToHead): a palpebra vira uma MOLDURA com espessura de
 //               verdade e o olho aparece so por dentro dela. Iris e pupila
 //               seguem o mesmo metodo (Shape com furo), entao a pupila e um
 //               POCO real, nao um circulo preto pintado.
-//   3 casca     UMA SUPERFICIE SO: sai da pele, sobe formando a dobra da
-//               palpebra e volta pro fundo da orbita. Nao ha globo — a orbita e
-//               a propria pele deformada e o olho e um disco levemente convexo
-//               no fundo dela. As fibras da iris sao feitas com a MALHA (cunhas
-//               alternadas em tres tons), sem textura nenhuma. E de longe o
-//               mais barato dos cinco: 844 triangulos por olho.
-//   4 lente     Estilizado da referencia: globo pequeno bem enterrado, esclera
+//   3 lente     Estilizado da referencia: globo pequeno bem enterrado, esclera
 //               reduzida e pintada so com sombra, IRIS TORNEADA (LatheGeometry:
 //               o perfil e revolucionado, entao o anel limbal e um DEGRAU de
-//               verdade e a pupila e um poco), palpebra que e um ROLO grosso
+//               verdade e a pupila e um poco), palpebra que e um ROLO fino
 //               (TubeGeometry ao longo da margem) e cilios que sao FIOS.
+//   4 calotas   GLOBO + CALOTAS EMPILHADAS. Esfera cor de pele, calota de
+//               esclera na frente, calotas concentricas de limbo/iris/pupila e
+//               palpebras que sao calotas de pele tombadas. E o metodo
+//               classico, aqui com as folgas radiais medidas.
+//
+// A ORDEM DO CATALOGO E JULGAMENTO, NAO HISTORIA. O indice 0 e o olho que um
+// jogador novo GANHA (protocolo.js, APARENCIA_DEFAULT usa olhos: 0), entao o
+// melhor dos cinco tem que estar nele. Na folha de contato de perto o 'polar'
+// foi o unico que leu como olho de verdade em todos os cranios, e o 'calotas'
+// foi o pior — por isso a lista comeca no polar e termina no calotas. Os cinco
+// METODOS continuam existindo: o pedido e poder comparar, nao escolher um so.
+// (Reordenar nao mexe no protocolo: APARENCIA_OPCOES conta CINCO olhos e
+// continuam sendo cinco. O que muda e qual byte desenha qual olho.)
 //
 // REGRAS QUE VALEM PARA OS CINCO (cada uma custou um bug):
 //
@@ -52,9 +62,22 @@ import {
 //   dele (caruncula em bolota, pintura na textura, cunha extrudada, cunha do
 //   proprio leque) — de proposito, pra dar pra comparar.
 // * Sempre um ponto de BRILHO claro. E o unico detalhe que faz o olho parecer
-//   molhado; sem ele o boneco fica com cara de manequim. E o brilho fica no
-//   MESMO lado nos dois olhos: a luz da cena e uma so. Espelhar o brilho junto
-//   com o olho e o erro classico que da cara de bonequinho de vitrine.
+//   molhado; sem ele o boneco fica com cara de manequim. Duas regras duras, as
+//   duas escritas depois de a folha de contato de perto reprovar o contrario:
+//     - o brilho mora DENTRO da iris e ABAIXO da camada da palpebra. Quando ele
+//       era uma bolinha solta na frente do globo (esfera de raio 0.105 numa
+//       casca de 1.042, com a palpebra em 1.064) ele ATRAVESSAVA a palpebra e
+//       virava um pontinho branco flutuando fora do olho.
+//     - o brilho e ESPELHADO entre os dois olhos. A regra antiga era "mesmo
+//       lado nos dois, a luz da cena e uma so"; ela e defensavel em teoria e na
+//       pratica produziu dois olhos VISIVELMENTE diferentes — no 'calotas' o
+//       brilho escapava por cima da palpebra num olho e ficava enterrado no
+//       outro. Um olho tem que ser o espelho do outro; a diferenca de um
+//       milimetro de reflexo nao paga o preco de um rosto torto.
+//     Excecao unica: o 'polar' pinta o brilho na TEXTURA, e a textura e a mesma
+//     nos dois olhos (cachear duas por tom de pele dobraria a memoria de mapa a
+//     toa). Como ela e identica, os dois olhos saem identicos — que e o que a
+//     regra quer.
 // * Anel limbal ESCURO na borda da iris. Um circulo de cor chapada le como
 //   botao a 3 m; o anel escuro e o que faz a iris ter borda.
 // * O globo fica DENTRO da orbita, e ele recua pela NORMAL DA PELE e nao em Z
@@ -100,11 +123,21 @@ const BRILHO = 0xf7fbff
 // as texturas deste arquivo tambem ficam num cache proprio, entao NENHUM
 // material daqui leva userData.owned (marcar owned mandaria character.js
 // destruir uma textura que os outros 19 bonecos ainda estao usando).
-const matEsclera = () => stdMat('olho:esclera', { color: ESCLERA, roughness: 0.16, metalness: 0.0 })
-const matCanto = () => solid(ESCLERA_CANTO, 0.42, 0.0)
-const matIris = (m = 1) => solid(shade(IRIS, m), 0.22, 0.04)
-const matLimbo = () => solid(LIMBO, 0.34, 0.0)
-const matPupila = () => solid(PUPILA, 0.30, 0.0)
+//
+// RUGOSIDADE: iris, esclera e sobretudo a PUPILA sao superficies quase planas
+// viradas pra frente, e com rugosidade baixa uma superficie assim vira ESPELHO
+// do ambiente. Era o defeito "um olho castanho, o outro azul" do metodo 'casca':
+// a pupila (rugosidade 0.30, quase preta) refletia o ceu, e como os dois olhos
+// nascem em pontos diferentes da cara o reflexo caia diferente nos dois — prata
+// num, azul no outro. O jogo tem UM ponto especular de proposito (matBrilho); a
+// pupila e um BURACO e nao pode competir com ele.
+const matEsclera = () => stdMat('olho:esclera', { color: ESCLERA, roughness: 0.34, metalness: 0.0 })
+const matCanto = () => solid(ESCLERA_CANTO, 0.46, 0.0)
+// metalness 0 e nao 0.04: em material metalico o reflexo do ambiente e TINGIDO
+// pela cor base, o que dobrava a aposta do reflexo de ceu na iris escura.
+const matIris = (m = 1) => solid(shade(IRIS, m), 0.36, 0.0)
+const matLimbo = () => solid(LIMBO, 0.40, 0.0)
+const matPupila = () => solid(PUPILA, 0.62, 0.0)
 // O brilho e emissivo de proposito: um branco so difuso apaga junto com o resto
 // do rosto quando o boneco anda pra sombra, e e justamente na sombra que o
 // olho morre. Emissivo baixo (0.6) segura o ponto vivo sem virar lampada.
@@ -157,6 +190,42 @@ function calotaZ(arco, w = 22, h = 10) {
 /** Calota de raio 1 com o polo em +Y (palpebra: e tombada por rotation.x). */
 function calotaY(arco, w = 22, h = 10) {
   return new THREE.SphereGeometry(1, w, h, 0, Math.PI * 2, 0, arco)
+}
+
+/**
+ * ZONA de raio 1 com o polo em +Y: uma FAIXA entre dois thetas, nao uma calota.
+ *
+ * Existe por causa do vinco da palpebra do metodo 'calotas'. Um vinco feito com
+ * calotaY cobre TUDO acima da propria margem — e como ele mora numa camada mais
+ * alta que a palpebra, ele ganhava o teste de profundidade do olho inteiro pra
+ * cima e pintava metade do globo de pele escura. Na folha de contato isso leu
+ * como uma VISEIRA DE CAPACETE em cima de uma bola. Vinco de verdade e uma
+ * faixa: pele clara embaixo dele, sombra na faixa, pele clara de novo acima.
+ */
+function zonaY(t0, t1, w = 20, h = 3) {
+  return new THREE.SphereGeometry(1, w, h, 0, Math.PI * 2, t0, t1 - t0)
+}
+
+/**
+ * BRILHO COLADO NO GLOBO: uma calota minuscula na mesma esfera das outras
+ * camadas, deslocada por dois angulos (a = horizontal, b = vertical).
+ *
+ * Por que uma calota e nao uma bolinha: uma esfera de raio r pousada na camada
+ * `camada` alcanca `camada + r`, e nos metodos com globo a palpebra fica poucos
+ * centesimos acima — a bolinha do brilho ATRAVESSAVA a palpebra e aparecia como
+ * um pontinho branco solto no meio da pele. Uma calota nunca passa da propria
+ * camada, entao ela e, por construcao, impossivel de vazar.
+ *
+ * `a` ja chega multiplicado pelo lado por quem chama: o brilho e espelhado (ver
+ * a regra no cabecalho).
+ */
+function brilhoCalota(a, b, arco, camada, seg = 12) {
+  const g = calotaZ(arco, seg, 3)
+  g.rotateX(-b)     // leva o polo (+Z) pra cima em b
+  g.rotateY(a)      // e depois pro lado em a
+  const m = flatPiece(new THREE.Mesh(g, matBrilho()))
+  m.scale.setScalar(camada)
+  return m
 }
 
 /**
@@ -254,25 +323,44 @@ const lerpC = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 
 const mulC = (a, m) => [a[0] * m, a[1] * m, a[2] * m]
 
 // ===========================================================================
-// 0. CALOTAS — globo + calotas empilhadas
+// CALOTAS — globo + calotas empilhadas          (indice 4 do catalogo)
 // ===========================================================================
 //
 // As camadas sao calotas de raio 1 dentro da mesma casca, entao "escala" aqui e
-// literalmente ALTURA SOBRE A ESCLERA: com raio ~4 cm, 1% = 0.4 mm. Longe o
+// literalmente ALTURA SOBRE A ESCLERA: com raio ~3 cm, 1% = 0.3 mm. Longe o
 // bastante do vizinho pra nunca haver z-fighting, perto o bastante pra a
 // palpebra COLAR no globo em vez de pairar sobre ele como uma casca solta.
 // Foi assim que o olho antigo ficou com "palpebra flutuante": o passo era de 2%
 // e a palpebra sobrava quase 2 mm acima do branco.
-const A_ESCLERA = 1.005
-const A_LIMBO = 1.013
-const A_IRIS = 1.021
-const A_PUPILA = 1.030
-const A_BRILHO = 1.042
-const A_CILIO = 1.052
-const A_PALPEBRA = 1.064
-const A_VINCO = 1.076
+//
+// Os passos foram ABERTOS junto com a reducao do globo (abaixo): a camada e uma
+// FRACAO do raio, entao encolher o globo 22% encolheria a folga entre camadas na
+// mesma proporcao e devolveria o z-fighting que estes numeros existem pra
+// evitar. O que tem que ficar constante e a folga em MILIMETROS.
+const A_ESCLERA = 1.006
+const A_LIMBO = 1.017
+const A_IRIS = 1.028
+const A_PUPILA = 1.040
+const A_BRILHO = 1.049
+const A_CILIO = 1.060
+const A_PALPEBRA = 1.074
+const A_VINCO = 1.088
 
-const A_GLOBO = { rx: 0.0400 * S, ry: 0.0385 * S, rz: 0.0340 * S, sink: 0.78 }
+// GLOBO. Era 0.0400*S = 5.3 cm de meia-largura, ou seja 10.6 cm de bola numa
+// cabeca de 36 cm — razao 0.30, quando num rosto humano da 0.16. Na folha de
+// contato de perto isso nao lia como "olho grande": lia como BOLA SALIENTE, uma
+// esfera pousada na cara em vez de um globo encaixado na orbita. 0.0312*S poe a
+// razao em 0.23 (o jogo e estilizado, o alvo nao e 0.16).
+//
+// O `sink` NAO subiu junto, e isso e contra-intuitivo o bastante pra merecer a
+// nota. Enterrar mais parecia o caminho pra "sobrar branco dos dois lados da
+// iris", e faz o contrario: do lado do NARIZ a pele sobe rapido (a ponte do
+// nariz esta a 1 cm dali), entao quanto menos o globo se projeta, mais cedo a
+// pele CORTA o branco desse lado. Medido nos seis cranios, o cruzamento
+// pele x globo do lado nasal fica em 0.40 rad com sink 0.79 e cai pra 0.28 rad
+// com 0.88 — com 0.88 a propria pele comia um terco da iris. Quem tira a
+// leitura de bola aqui e o tamanho, nao a profundidade.
+const A_GLOBO = { rx: 0.0312 * S, ry: 0.0300 * S, rz: 0.0266 * S, sink: 0.79 }
 
 // arco + tomba de uma palpebra: a borda dela cruza o meio do olho na altura
 // cos(tomba + arco) do globo. 0.86 + 0.46 => cos(1.32) = +0.25, que e o
@@ -320,7 +408,12 @@ function olhoCalotas(ctx) {
     // graus, entao sempre sobraria esclera exposta na lateral do globo.
     casca.add(sh(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), matPele(skin, 0.96))))
 
-    const esc = flatPiece(new THREE.Mesh(calotaZ(0.95, 22, 10), matEsclera()))
+    // A esclera ia ate 0.95 rad de arco (sin = 0.81 do raio): branco quase ate a
+    // silhueta do globo, que e o que fazia a bola de pingue-pongue. Em 0.74 o
+    // branco para bem antes da curva e o que fecha o canto e a pele do proprio
+    // globo — mas continua sobrando branco DOS DOIS LADOS da iris, que e o que o
+    // olho procura pra ler "olho" (limbo em 0.485, esclera ate 0.674).
+    const esc = flatPiece(new THREE.Mesh(calotaZ(0.74, 22, 8), matEsclera()))
     esc.scale.setScalar(A_ESCLERA)
     esc.receiveShadow = true
     casca.add(esc)
@@ -342,50 +435,79 @@ function olhoCalotas(ctx) {
       casca.add(m)
     }
     anel(0.440, 1.00, A_IRIS, 4)
-    anel(0.330, 1.42, A_IRIS + 0.004, 3)   // colarete claro
-    anel(0.235, 0.52, A_IRIS + 0.008, 3)   // sombra junto da pupila
+    anel(0.330, 1.42, A_IRIS + 0.005, 3)   // colarete claro
+    anel(0.235, 0.52, A_IRIS + 0.010, 3)   // sombra junto da pupila
 
     const pup = flatPiece(new THREE.Mesh(calotaZ(0.185, 18, 3), matPupila()))
     pup.scale.setScalar(A_PUPILA)
     casca.add(pup)
 
-    // Brilho: o grande em cima e o pequeno embaixo do outro lado (o "reflexo de
-    // rebote", que e o que da a sensacao de umidade). NAO espelhado: a luz e
-    // uma so pros dois olhos.
-    const brilho = (dx, dy, r, seg) => {
-      const b = flatPiece(new THREE.Mesh(new THREE.SphereGeometry(r, seg, seg), matBrilho()))
-      const d = new THREE.Vector3(dx, dy, 1).normalize().multiplyScalar(A_BRILHO)
-      b.position.copy(d)
-      casca.add(b)
-    }
-    brilho(-0.26, 0.30, 0.105, 8)
-    brilho(0.20, -0.24, 0.055, 6)
+    // BRILHO. Era um par de ESFERAS pousadas na frente do globo, de raio 0.105 e
+    // 0.055 na camada 1.042 — ou seja alcancando 1.147, bem acima da palpebra
+    // (1.064). Resultado medido na folha de contato: a bolinha atravessava a
+    // palpebra num olho e ficava enterrada no outro (o `eixo` gira +inc num lado
+    // e -inc no outro, entao a MESMA posicao local cai a 2,6 cm de distancia
+    // diferente da pele nos dois), e o dono viu "pontinhos brancos soltos
+    // flutuando fora do olho" e "os dois olhos diferentes".
+    //
+    // Agora sao calotas coladas na esfera (nunca passam da propria camada) e
+    // ESPELHADAS pelo lado. Os angulos ficam dentro da iris com folga: a iris vai
+    // ate 0.440 rad e o brilho grande alcanca 0.227 + 0.085 = 0.312.
+    casca.add(brilhoCalota(-sgn * 0.170, 0.150, 0.085, A_BRILHO))
+    casca.add(brilhoCalota(sgn * 0.140, -0.160, 0.045, A_BRILHO, 8))
 
     palpebraCalota(casca, sgn, A_CIMA, skin, cCilio, false)
     palpebraCalota(casca, sgn, A_BAIXO, skin, cCilio, true)
 
-    // vinco da palpebra superior: uma calota mais escura e mais alta que a
-    // palpebra, deixando so uma faixa de sombra acima dela. E o que separa
-    // "palpebra" de "testa" quando o boneco e visto de longe.
-    const vinco = flatPiece(new THREE.Mesh(calotaY(A_CIMA.arco - 0.16, 20, 6), matPele(skin, 0.76)))
+    // VINCO da palpebra superior: uma FAIXA (zonaY) e nao uma calota.
+    //
+    // Com calotaY ele cobria tudo acima da propria margem, e como mora na camada
+    // mais alta do olho ele pintava de pele escura o globo inteiro dali pra cima
+    // — a "viseira de capacete" da folha de contato. Uma faixa entre dois thetas
+    // deixa pele clara embaixo E acima, que e como um vinco de palpebra se le. O
+    // tom tambem subiu (0.76 -> 0.87): 24% mais escuro que a pele nao e sombra,
+    // e mancha.
+    const vinco = flatPiece(new THREE.Mesh(zonaY(A_CIMA.arco - 0.30, A_CIMA.arco - 0.06, 20, 2), matPele(skin, 0.87)))
     vinco.scale.setScalar(A_VINCO)
-    vinco.rotation.set(A_CIMA.tomba - 0.10, 0, -sgn * 0.20)
+    vinco.rotation.set(A_CIMA.tomba, 0, -sgn * 0.20)
     casca.add(vinco)
 
     // caruncula: a bolota rosa do canto interno. E o unico jeito honesto de
     // tirar a leitura de "bola branca" sem sujar a esclera inteira de rosa.
-    const car = flatPiece(new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), matCanto()))
-    car.position.copy(pontoEsfera(-sgn * 0.36, -0.07).multiplyScalar(1.01))
-    car.scale.set(1, 1.5, 0.7)
+    //
+    // O CANTO INTERNO DESTE METODO NAO E ESCOLHA: e onde a pele do nariz corta o
+    // globo, medido em 0.40 rad nos seis cranios (ver a nota do A_GLOBO). Por
+    // isso a caruncula vai em 0.38 — um passo antes do corte — e nao em 0.80,
+    // que seria o canto de um olho desenhado no papel e aqui cai 10 mm DENTRO da
+    // cabeca (a peca sumia inteira, e o smoke reprovou com -9 mm).
+    //
+    // O raio caiu de 0.11 pra 0.070: 0.11 pousado em 1.01 alcancava 1.12 e
+    // FURAVA a palpebra (1.074) — era a "bola clara e rosada" que aparecia por
+    // cima do olho num lado e nao no outro. Achatada em z ela vira um canto de
+    // carne em vez de uma bolota.
+    const car = flatPiece(new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 6), matCanto()))
+    car.position.copy(pontoEsfera(-sgn * 0.38, -0.02).multiplyScalar(1.014))
+    car.scale.set(0.78, 1.25, 0.42)
     casca.add(car)
   })
 }
 
 // ===========================================================================
-// 1. POLAR — uma calota so, com a iris inteira pintada em coordenada polar
+// POLAR — uma calota so, iris pintada em coordenada polar   (indice 0)
 // ===========================================================================
 
-const B_GLOBO = { rx: 0.0410 * S, ry: 0.0390 * S, rz: 0.0345 * S, sink: 0.78 }
+// Este e o olho que o dono aprovou na folha de contato — o unico que leu como
+// olho de verdade nos seis cranios — e por isso ele agora e o indice 0. Mexer
+// aqui e mexer no rosto que todo jogador novo ganha: so entrou o que estava
+// medido como defeito.
+//
+// GLOBO: mesma conta do 'calotas'. 0.0410*S dava 10.9 cm de bola numa cabeca de
+// 36 cm (razao 0.30). 0.0330*S poe em 0.244. Como as palpebras deste metodo sao
+// varridas em ANGULO sobre o globo, encolher o globo encolheria a fenda junto —
+// por isso B_ABERTURA e as amplitudes da margem sobem na mesma proporcao, e a
+// ABERTURA na tela fica praticamente do mesmo tamanho: o que some e so o
+// calombo de globo escondido debaixo da palpebra.
+const B_GLOBO = { rx: 0.0330 * S, ry: 0.0318 * S, rz: 0.0286 * S, sink: 0.79 }
 const B_ARCO = 1.05          // arco da calota pintada
 const B_IRIS = 0.455         // raio da iris em fracao do raio PROJETADO da calota
 const B_PUPILA = 0.185
@@ -446,7 +568,17 @@ function pintarPolar(px, s, pele) {
       // a borda da calota vira PELE: assim a emenda entre a calota pintada e o
       // globo cor de pele nao existe visualmente, e nao preciso de material
       // transparente (que traria ordem de desenho e briga com a palpebra).
-      c = lerpC(c, cPele, smoothstep(0.86, 0.995, rp))
+      //
+      // `pele` chega aqui JA ESCURECIDA no mesmo fator do globo (ver matPolar).
+      // Passando a cor crua a borda pintada ficava 4% mais clara que a esfera
+      // debaixo dela, e essa diferenca desenhava um ANEL claro em volta do olho —
+      // uma das "bordas de prato" que apareceram na folha de contato.
+      //
+      // A faixa comecava em rp 0.86; com a abertura de hoje o canto do olho ve
+      // ate rp 0.917, ou seja a transicao pra pele entrava DENTRO da fenda e
+      // comia a esclera pelas beiradas. Empurrada pra 0.93 ela volta a fazer so
+      // o que tem que fazer: esconder a emenda da calota, fora do que se ve.
+      c = lerpC(c, cPele, smoothstep(0.93, 0.999, rp))
 
       const i = (y * s + x) * 4
       px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255
@@ -454,6 +586,8 @@ function pintarPolar(px, s, pele) {
   }
 }
 
+/** `pele` tem que ser a cor JA ESCURECIDA do globo, nao o tom cru — ver a nota
+ *  sobre o anel claro em pintarPolar(). */
 function matPolar(pele) {
   const chave = 'olho-polar:' + pele
   return stdMat(chave, {
@@ -507,7 +641,39 @@ function faixaVarrida(margem, filas, nU, inverter) {
   return geo
 }
 
-const B_ABERTURA = 0.86   // meio-angulo horizontal da fenda
+// Meio-angulo horizontal da fenda. Subiu de 0.86 junto com a reducao do globo:
+// sin(1.02) * 0.0330 recupera quase toda a largura de abertura que sin(0.86) *
+// 0.0410 dava, entao o que encolheu na tela foi o CALOMBO, nao o olho.
+const B_ABERTURA = 0.92
+
+// Amplitudes verticais da margem (cima positivo, baixo negativo). Mesma logica:
+// sao angulos sobre um globo que ficou 20% menor, entao subiram na mesma conta.
+const B_ALTO = 0.321
+const B_FUNDO = 0.257
+
+/**
+ * FILAS da palpebra — o remedio pra "placa chapada".
+ *
+ * Cada par e [deslocamento em b a partir da margem, raio]. A leitura de PLACA
+ * vinha da distribuicao antiga ([-0.05, 0.985], [0.06, 1.040], [0.34, 1.070],
+ * [0.72, 1.080]): o raio dava um salto de 0.055 na primeira fila e depois a
+ * superficie ficava praticamente constante em 1.07-1.08 por 0.66 rad. Uma casca
+ * de raio constante tem normal quase igual em toda a area — nao tem nada pra
+ * sombrear, e le como um poligono claro colado por cima do olho.
+ *
+ * Aqui as filas se ADENSAM na margem e o raio sobe em curva: 0.98 -> 1.012 ->
+ * 1.043 -> 1.062 -> 1.074 -> 1.081 -> 1.083. A inclinacao cai de 0.71 pra 0.006
+ * ao longo de 0.3 rad, entao a normal VIRA continuamente perto da borda — que e
+ * exatamente o que faz uma aresta parecer arredondada em vez de cortada.
+ */
+const B_PALP_CIMA = [
+  [-0.055, 0.980], [-0.010, 1.012], [0.045, 1.043], [0.115, 1.062],
+  [0.235, 1.074], [0.430, 1.081], [0.740, 1.083],
+]
+const B_PALP_BAIXO = [
+  [0.045, 0.980], [0.005, 1.010], [-0.050, 1.040], [-0.115, 1.058],
+  [-0.235, 1.070], [-0.430, 1.078], [-0.700, 1.081],
+]
 
 function olhoPolar(ctx) {
   useHead(ctx)
@@ -519,7 +685,9 @@ function olhoPolar(ctx) {
     const casca = eixoOlho(grp, sgn, g)
     casca.add(sh(new THREE.Mesh(new THREE.SphereGeometry(1, 18, 14), matPele(skin, 0.96))))
 
-    const frente = flatPiece(new THREE.Mesh(calotaZ(B_ARCO, 30, 14), matPolar(skin)))
+    // a textura recebe a pele NO MESMO TOM do globo (0.96) pra que a borda
+    // pintada e a esfera sejam a mesma cor e a emenda nao vire um anel claro.
+    const frente = flatPiece(new THREE.Mesh(calotaZ(B_ARCO, 30, 14), matPolar(shade(skin, 0.96))))
     frente.scale.setScalar(1.006)
     frente.receiveShadow = true
     casca.add(frente)
@@ -530,31 +698,31 @@ function olhoPolar(ctx) {
     // volta a ser redondo.
     const cima = (u) => {
       const w = u * 2 - 1
-      return [B_ABERTURA * w * sgn, 0.30 * Math.pow(Math.max(0, 1 - w * w), 0.55) + 0.075 * w - 0.10 * w * w]
+      return [B_ABERTURA * w * sgn, B_ALTO * Math.pow(Math.max(0, 1 - w * w), 0.55) + 0.080 * w - 0.107 * w * w]
     }
     const baixo = (u) => {
       const w = u * 2 - 1
-      return [B_ABERTURA * 0.94 * w * sgn, -0.24 * Math.pow(Math.max(0, 1 - w * w), 0.60) + 0.045 * w - 0.02 * w * w]
+      return [B_ABERTURA * 0.94 * w * sgn, -B_FUNDO * Math.pow(Math.max(0, 1 - w * w), 0.60) + 0.048 * w - 0.021 * w * w]
     }
     const inverter = sgn < 0
 
     // cilio primeiro (raio menor): so a faixa que sobra abaixo da palpebra
     // aparece, e ela tem espessura constante porque as duas seguem a MESMA
     // curva de margem.
-    const cilioCima = flatPiece(new THREE.Mesh(faixaVarrida(cima, [[-0.085, 0.985], [0.02, 1.022], [0.24, 1.022]], 20, inverter), cCilio))
+    const cilioCima = flatPiece(new THREE.Mesh(faixaVarrida(cima, [[-0.095, 0.982], [0.015, 1.018], [0.220, 1.018]], 20, inverter), cCilio))
     casca.add(cilioCima)
-    const palpCima = flatPiece(new THREE.Mesh(faixaVarrida(cima, [[-0.05, 0.985], [0.06, 1.040], [0.34, 1.070], [0.72, 1.080]], 22, inverter), cPele))
+    const palpCima = flatPiece(new THREE.Mesh(faixaVarrida(cima, B_PALP_CIMA, 20, inverter), cPele))
     casca.add(palpCima)
 
-    const cilioBaixo = flatPiece(new THREE.Mesh(faixaVarrida(baixo, [[0.065, 0.985], [-0.02, 1.020], [-0.16, 1.020]], 18, !inverter), cCilio))
+    const cilioBaixo = flatPiece(new THREE.Mesh(faixaVarrida(baixo, [[0.075, 0.982], [-0.012, 1.016], [-0.150, 1.016]], 18, !inverter), cCilio))
     casca.add(cilioBaixo)
-    const palpBaixo = flatPiece(new THREE.Mesh(faixaVarrida(baixo, [[0.04, 0.985], [-0.05, 1.038], [-0.28, 1.068], [-0.60, 1.078]], 20, !inverter), matPele(skin, 0.99)))
+    const palpBaixo = flatPiece(new THREE.Mesh(faixaVarrida(baixo, B_PALP_BAIXO, 18, !inverter), matPele(skin, 0.99)))
     casca.add(palpBaixo)
   })
 }
 
 // ===========================================================================
-// 2. RECORTE — a abertura e um Shape 2D com furo, extrudado e colado na pele
+// RECORTE — abertura em Shape 2D com furo, colada na pele   (indice 2)
 // ===========================================================================
 //
 // Aqui a palpebra nao e uma casca por cima do globo: e uma MOLDURA. Desenho a
@@ -587,6 +755,32 @@ const C_EXT_Y = 1.70         // no cranio 'pera' a borda ja chega na tempora, e
 const C_BASE = 0.0012        // o fundo do olho na borda, ACIMA da pele
 const C_CONV = 0.0048        // bojo do olho no meio (a cornea vista pelo furo)
 const C_LABIO = 0.0080       // quanto a moldura sobe acima da pele na abertura
+
+/**
+ * FATOR DE CANTO: 1 no meio da fenda, 0 nos dois cantos. E a peca que faltava.
+ *
+ * O defeito que a folha de contato mostrou — "abas triangulares chapadas saindo
+ * pros lados, fora da pele" — nao vinha de um numero errado, vinha da MALHA. A
+ * moldura e um ExtrudeGeometry de um Shape com furo: a triangulacao (earcut) so
+ * conhece dois aneis de vertices, o contorno externo e a borda da abertura, e
+ * NAO cria nenhum vertice entre eles. Entao qualquer curva de afundamento que se
+ * escreva por vertice e amostrada em dois pontos so: a face da frente sai da
+ * borda do furo (labio inteiro, +8 mm) e cai direto no contorno externo (-7 mm)
+ * num triangulo so. Em cima e embaixo isso e a rampa da palpebra e esta certo;
+ * nos dois CANTOS, onde os dois aneis quase se encostam, vira um triangulo
+ * grande e chapado inclinado 40 graus — a aba.
+ *
+ * A saida nao e afundar mais rapido (nao ha onde amostrar): e nao deixar o
+ * LABIO chegar ate a ponta da amendoa. Numa palpebra de verdade a espessura da
+ * margem tambem morre nos dois cantos — o canto e uma dobra de pele, nao um
+ * bordo. Com o labio ja enterrado na ponta, os dois aneis chegam la na MESMA
+ * altura e o triangulo que os liga fica inteiro debaixo da pele.
+ *
+ * O fundo do olho usa o MESMO fator, senao a esclera continuaria +1,2 mm acima
+ * da pele num canto onde a moldura ja nao existe pra cobrir — o branco vazaria
+ * pra fora do olho exatamente onde a aba estava.
+ */
+const cantoRecorte = (xrel) => 1 - smoothstep(0.76, 0.95, Math.abs(xrel) / C_AW)
 
 /**
  * Contorno de amendoa. `pont` > 1 afina as pontas: com 1 sai uma elipse e o
@@ -624,6 +818,11 @@ function shapeDe(pts) {
  * furo a moldura tem o labio inteiro, e no contorno externo tanto a face da
  * frente quanto a de tras ficam ABAIXO da pele, entao a borda da moldura nao
  * existe: ela simplesmente sai de dentro da pele.
+ *
+ * AS ABAS TRIANGULARES DOS CANTOS: o porque esta na nota de `cantoRecorte`, e o
+ * remedio e o fator dela — o labio morre antes das duas pontas da amendoa.
+ * Verticalmente `cantoRecorte` vale 1 e a rampa generosa da palpebra continua
+ * exatamente como estava.
  */
 function afundarMoldura(geo, cx, cy, aw, hc, hb, torcao, sgn) {
   geo.computeBoundingBox()
@@ -639,9 +838,13 @@ function afundarMoldura(geo, cx, cy, aw, hc, hb, torcao, sgn) {
     const y = pos.getY(i) - cy - torcao * (x / aw) * sgn
     const h = y >= 0 ? hc : hb
     const rho = Math.hypot(x / aw, y / h)
-    const f = 1 - smoothstep(1.02, 1.45, rho)
+    const f = Math.min(1 - smoothstep(1.02, 1.45, rho), cantoRecorte(x))
     const u = (pos.getZ(i) - z0) / dz          // 0 = fundo da moldura, 1 = frente
-    pos.setZ(i, mix(-0.006, mix(-0.004, C_LABIO, f), u))
+    // -7 mm / -9 mm e nao -4/-6: a pele que esconde a moldura e uma MALHA, e
+    // entre dois vertices dela a corda passa por dentro da superficie analitica
+    // que surfaceZ devolve. 4 mm de folga sobrevivia no cranio liso e raspava
+    // nos amostrados por anel; 7 mm sobra em todos os seis.
+    pos.setZ(i, mix(-0.009, mix(-0.007, C_LABIO, f), u))
   }
   pos.needsUpdate = true
   // A caixa foi calculada ACIMA, com o Z antigo, e ninguem a invalida sozinho:
@@ -678,7 +881,13 @@ function fundoDoOlho(cx, cy, contorno, folga, nA, nR, fz) {
     }
   }
   const anel = (j, i) => 1 + (j - 1) * nA + (i % nA)
-  for (let i = 0; i < nA; i++) idx.push(0, anel(1, i + 1), anel(1, i))
+  // O MIOLO segue a MESMA regra dos aneis: andar no sentido do angulo com o
+  // centro fixo (0, i, i+1). Estava (0, i+1, i) — a volta contraria da dos
+  // aneis, o que deixava as 24 fatias do centro da esclera com a frente virada
+  // pra dentro da cabeca. Hoje elas nascem escondidas atras da iris, mas o
+  // furo aparece assim que a iris encolhe, e o resto do arquivo confia nesta
+  // funcao pra devolver uma superficie de face UNICA e consistente.
+  for (let i = 0; i < nA; i++) idx.push(0, anel(1, i), anel(1, i + 1))
   for (let j = 1; j < nR; j++) {
     for (let i = 0; i < nA; i++) {
       const a = anel(j, i), b = anel(j, i + 1), c = anel(j + 1, i + 1), d = anel(j + 1, i)
@@ -742,8 +951,17 @@ function olhoRecorte(ctx) {
     }
     // O fundo do olho: a pele, um pouco ACIMA dela, com o bojo da cornea no
     // meio. E a superficie de referencia de TODAS as pecas deste metodo.
-    const fz = (x, y) => surfaceZ(x, y) + C_BASE
-      + C_CONV * Math.max(0, 1 - Math.pow(rho(x, y) / 0.85, 2))
+    //
+    // `cantoRecorte` faz o fundo MERGULHAR nos dois cantos junto com a moldura.
+    // Sem isso o branco continuaria 1,2 mm acima da pele num canto onde a
+    // moldura ja nao esta la pra cobrir, e vazaria pra cima do rosto. As pecas
+    // do miolo (iris, pupila, limbo, brilho) vivem em rho < 0.4, onde o fator
+    // vale 1: nada muda pra elas.
+    const fz = (x, y) => {
+      const k = cantoRecorte(x - a.x)
+      return surfaceZ(x, y) + mix(-0.0035, C_BASE, k)
+        + C_CONV * k * Math.max(0, 1 - Math.pow(rho(x, y) / 0.85, 2))
+    }
 
     // --- moldura: contorno externo com a abertura como FURO ------------------
     const abertura = amendoa(34, C_AW, C_HC, C_HB, 1.32, torcao, sgn)
@@ -785,14 +1003,19 @@ function olhoRecorte(ctx) {
     // cantos rosados: duas cunhas extrudadas nos dois extremos da abertura,
     // pousadas em cima do fundo. Sao o mesmo metodo da moldura (Shape) e nao
     // uma bolota, de proposito — assim o canto tem a forma do canto.
+    //
+    // A ponta ia ate 0.80 + 0.24 = 1.04 da meia-largura, ou seja 2 mm PARA FORA
+    // da abertura: as duas cunhas apareciam como triangulinhos rosa em cima da
+    // pele, fora da moldura, um em cada canto. Agora a ponta para em 0.92 e a
+    // cunha inteira mora dentro do furo.
     for (const lado of [-1, 1]) {
-      const cx = a.x + lado * C_AW * 0.80
+      const cx = a.x + lado * C_AW * 0.62
       const cy = a.y + torcao * lado * sgn * 0.8
       const cunha = shapeDe([
-        new THREE.Vector2(cx + lado * C_AW * 0.24, cy),
-        new THREE.Vector2(cx - lado * C_AW * 0.06, cy + C_HC * 0.42),
+        new THREE.Vector2(cx + lado * C_AW * 0.18, cy),
+        new THREE.Vector2(cx - lado * C_AW * 0.06, cy + C_HC * 0.34),
         new THREE.Vector2(cx - lado * C_AW * 0.10, cy),
-        new THREE.Vector2(cx - lado * C_AW * 0.06, cy - C_HB * 0.42),
+        new THREE.Vector2(cx - lado * C_AW * 0.06, cy - C_HB * 0.34),
       ])
       grp.add(pecaPlana(cunha, matCanto(), fz, 0.0006, 0.0012, 0.0004))
     }
@@ -829,7 +1052,11 @@ function olhoRecorte(ctx) {
     // brilho: uma meia-lua, nao um circulo. O reflexo de uma janela num olho e
     // sempre um arco (a cornea e curva), e a meia-lua le como umidade enquanto
     // o circulo le como adesivo.
-    const bx = a.x - 0.0062 * S, by = a.y + 0.0072 * S
+    //
+    // O deslocamento leva `sgn`: sem ele o mesmo `-0.0062` empurrava a lua pro
+    // NARIZ num olho e pra ORELHA no outro, e os dois olhos saiam diferentes.
+    // Ver a regra do brilho no cabecalho.
+    const bx = a.x - sgn * 0.0062 * S, by = a.y + 0.0072 * S
     const rb = 0.0050 * S
     const lua = new THREE.Shape()
     const nb = 14
@@ -864,7 +1091,7 @@ function olhoRecorte(ctx) {
 }
 
 // ===========================================================================
-// 3. CASCA — uma superficie so: a orbita e a pele deformada
+// CASCA — uma superficie so: a orbita e a pele deformada    (indice 1)
 // ===========================================================================
 //
 // Nao existe globo aqui. Uma casca sai da pele, sobe formando a dobra da
@@ -974,6 +1201,15 @@ function leque(cx, cy, z0, aneis, nA, filtro) {
     return v
   }
   for (let j = 0; j < aneis.length - 1; j++) {
+    // Anel de LARGURA ZERO (dois raios iguais na lista) nao vira banda: vira um
+    // par de triangulos de area nula por fatia. Eles nao desenham nada, mas
+    // computeVertexNormals soma normal ZERO neles, e o vertice que so participa
+    // dessa banda sai com normal (0,0,0) — normalize() de vetor nulo e NaN no
+    // shader. Era o caso de rPup*1.05 e rIris*0.42, que dao exatamente o mesmo
+    // numero: 104 triangulos mortos e 104 normais nulas por par de olhos.
+    // (o mesmo teste pega uma lista fora de ordem: banda que "anda pra tras"
+    // sai com a volta invertida, ou seja invisivel em material de uma face.)
+    if (aneis[j + 1] - aneis[j] < 1e-6 && aneis[j] > 1e-6) continue
     for (let i = 0; i < nA; i++) {
       if (filtro && !filtro(i, j)) continue
       const a = put(j, i), b = put(j, i + 1), c = put(j + 1, i + 1), d = put(j + 1, i)
@@ -986,6 +1222,10 @@ function leque(cx, cy, z0, aneis, nA, filtro) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   geo.setIndex(idx)
   geo.computeVertexNormals()
+  // O miolo do leque tem nA vertices na MESMA posicao (um por fatia, todos em
+  // r = 0) e cada um recebe a normal de UMA fatia so: e a costura de revolucao
+  // do CONTRATO §4, aqui no centro da pupila. soldarNormais funde as nA.
+  soldarNormais(geo)
   geo.computeBoundingSphere()
   return geo
 }
@@ -1013,15 +1253,35 @@ function olhoCasca(ctx) {
 
     // duas cascas: a de fora e pele, a do fundo e pele escurecida. A emenda cai
     // em k = 0.74, longe da borda visivel dos dois lados.
-    const fora = new THREE.Mesh(cascaOrbita(a.x, a.y, 0.74, 1.0, nA), matPele(skin, 0.99))
+    //
+    // As duas terminam no MESMO k, e nao sobrepostas (a de dentro ia ate 0.755).
+    // Sobrepor parece seguro contra fenda, mas `alturaOrbita` so depende de k:
+    // no trecho comum as duas cascas caem no mesmo Z, e duas superficies
+    // coplanares de tom diferente e z-fighting — um anel de 0,8 mm piscando
+    // entre os dois tons de pele. Com o k identico os vertices da emenda saem
+    // bit a bit iguais (mesmo nA, mesmo contorno, mesma altura), entao nao ha
+    // nem fenda nem sobreposicao.
+    const EMENDA = 0.74
+    const fora = new THREE.Mesh(cascaOrbita(a.x, a.y, EMENDA, 1.0, nA), matPele(skin, 0.99))
     fora.castShadow = false; fora.receiveShadow = true
     grp.add(fora)
-    const dentro = new THREE.Mesh(cascaOrbita(a.x, a.y, D_INT, 0.755, nA), matPele(skin, 0.66))
+    const dentro = new THREE.Mesh(cascaOrbita(a.x, a.y, D_INT, EMENDA, nA), matPele(skin, 0.66))
     dentro.castShadow = false; dentro.receiveShadow = true
     grp.add(dentro)
 
     // --- o disco do olho, tudo tirado do mesmo leque -------------------------
-    const aneis = [0, rPup * 0.6, rPup, rPup * 1.05, rIris * 0.42, rIris * 0.72, rIris * 0.93, rIris, rIris * 1.07, rD * 0.68, rD]
+    // A lista TEM que ser crescente: `leque` monta cada banda do anel j pro j+1
+    // e a volta dos triangulos sai do sentido "pra fora". O anel intermediario
+    // da esclera vem de mix() e nao de uma fracao de rD justamente por isso —
+    // escrito como rD * 0.68 ele dava 0.0199, MENOR que rIris * 1.07 (0.0206):
+    // a primeira banda da esclera andava pra tras, saia com a frente virada pra
+    // dentro (metade do branco do olho e dos cantos rosados INVISIVEL, 52
+    // triangulos por par) e ainda deitava 0,8 mm em cima do anel limbal, que e
+    // z-fighting entre o preto do limbo e o branco da esclera.
+    const aneis = [
+      0, rPup * 0.6, rPup, rPup * 1.05, rIris * 0.42, rIris * 0.72, rIris * 0.93,
+      rIris, rIris * 1.07, mix(rIris * 1.07, rD, 0.45), rD,
+    ]
     const IPUP = 2          // aneis[0..2] = pupila
     const IIRIS0 = 3, IIRIS1 = 7
     const ILIMBO = 8
@@ -1031,7 +1291,12 @@ function olhoCasca(ctx) {
     // As tres familias de cunha: i%3. Sao o MESMO anel, em tres tons — de longe
     // viram uma cor so, de perto viram fibra. Nao da pra fazer isso com uma
     // calota lisa e nao precisou de uma textura.
-    const tons = [1.0, 1.34, 0.72]
+    // Os tres tons eram [1.0, 1.34, 0.72] — 62% de amplitude entre a cunha mais
+    // clara e a mais escura. Com a iris menos especular (ver a nota de
+    // rugosidade na paleta) nao ha mais brilho lavando por cima, e essa
+    // amplitude passou a ler como CATAVENTO em vez de fibra. 34% ja da a textura
+    // de perto e continua virando uma cor so a tres metros, que era o pedido.
+    const tons = [1.0, 1.18, 0.84]
     for (let f = 0; f < 3; f++) {
       const g2 = leque(a.x, a.y, perfil, aneis.slice(IIRIS0, IIRIS1 + 1), nA, (i) => i % 3 === f)
       if (g2) grp.add(flatPiece(new THREE.Mesh(g2, matIris(tons[f]))))
@@ -1044,28 +1309,47 @@ function olhoCasca(ctx) {
     // esclera: as cunhas do meio; os extremos horizontais viram os cantos
     // rosados. A conta e so "esta cunha aponta pro lado?" — o rosa nasce da
     // propria malha, sem textura e sem uma segunda geometria.
+    // 0.88 e nao 0.80: com 0.80 as cunhas rosadas tomavam 41% da volta e o
+    // branco do olho virava um anel rosa. 0.88 deixa 31%, que le como canto.
     const horizontal = (i) => {
       const c = Math.abs(Math.cos((i / nA) * Math.PI * 2))
-      return c > 0.80
+      return c > 0.88
     }
     const brancos = leque(a.x, a.y, perfil, aneis.slice(ILIMBO), nA, (i) => !horizontal(i))
     if (brancos) grp.add(flatPiece(new THREE.Mesh(brancos, matEsclera())))
     const rosas = leque(a.x, a.y, perfil, aneis.slice(ILIMBO), nA, (i) => horizontal(i))
     if (rosas) grp.add(flatPiece(new THREE.Mesh(rosas, matCanto())))
 
-    // brilho: dois triangulos. E o ponto especular mais barato que existe e o
-    // que mais rende — sem ele esta casca fica com cara de mascara de gesso.
-    const bx = a.x - 0.0060 * S, by = a.y + 0.0060 * S
-    const r = 0.0042 * S
-    const quad = new THREE.BufferGeometry()
+    // BRILHO. Era um QUAD de dois triangulos: um retangulo alinhado aos eixos,
+    // de 11 x 8 mm, ao lado de uma pupila de 15 mm. Na folha de contato de perto
+    // ele nao lia como reflexo, lia como um QUADRADO BRANCO colado no olho —
+    // "o ponto especular mais barato que existe" saiu caro na leitura.
+    //
+    // Agora e um leque eliptico: 14 fatias em volta de um centro, mais alto que
+    // largo, com um terco do diametro da pupila. E o deslocamento leva `sgn`,
+    // senao o realce cai no lado do nariz num olho e no da orelha no outro.
+    const bx = a.x - sgn * 0.0052 * S, by = a.y + 0.0058 * S
+    const brx = 0.0021 * S, bry = 0.0029 * S
     const zb = (px, py) => perfil(px, py, Math.hypot(px - a.x, py - a.y)) + 0.0012
-    quad.setAttribute('position', new THREE.Float32BufferAttribute([
-      bx - r, by - r * 0.7, zb(bx - r, by - r * 0.7), bx + r, by - r * 0.7, zb(bx + r, by - r * 0.7),
-      bx + r, by + r * 0.7, zb(bx + r, by + r * 0.7), bx - r, by + r * 0.7, zb(bx - r, by + r * 0.7),
-    ], 3))
-    quad.setIndex([0, 1, 2, 0, 2, 3])
-    quad.computeVertexNormals()
-    grp.add(flatPiece(new THREE.Mesh(quad, matBrilho())))
+    const bp = [bx, by, zb(bx, by)]
+    const bi = []
+    const nBri = 14
+    for (let i = 0; i < nBri; i++) {
+      const t = (i / nBri) * Math.PI * 2
+      const px = bx + Math.cos(t) * brx, py = by + Math.sin(t) * bry
+      bp.push(px, py, zb(px, py))
+      // (0, i, i+1) e a mesma volta do resto do arquivo: no sentido do angulo
+      // com o centro fixo, que e a que deixa a frente virada pra FORA da cabeca.
+      bi.push(0, 1 + i, 1 + ((i + 1) % nBri))
+    }
+    const gBri = new THREE.BufferGeometry()
+    gBri.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3))
+    gBri.setIndex(bi)
+    // (aqui o centro e UM vertice so, compartilhado pelas 14 fatias, entao nao
+    // ha a costura de revolucao que `leque` precisa soldar)
+    gBri.computeVertexNormals()
+    gBri.computeBoundingSphere()
+    grp.add(flatPiece(new THREE.Mesh(gBri, matBrilho())))
 
     // linha de cilio: uma tira estreita na borda de cima do furo da casca.
     const cil = []
@@ -1091,12 +1375,12 @@ function olhoCasca(ctx) {
 }
 
 // ===========================================================================
-// 4. LENTE — globo enterrado, iris TORNEADA e palpebra em rolo
+// LENTE — globo enterrado, iris TORNEADA e palpebra em rolo  (indice 3)
 // ===========================================================================
 //
 // O mais proximo da referencia: globo pequeno e fundo, esclera reduzida, iris
-// enorme e uma palpebra GROSSA que e um rolo de verdade (TubeGeometry varrido
-// ao longo da margem), com cilios que sao fios de tecelagem().
+// grande e uma palpebra que e um rolo de verdade (TubeGeometry varrido ao longo
+// da margem), com cilios que sao fios de tecelagem().
 //
 // A iris sai de LatheGeometry: um perfil 2D revolucionado. Isso da o que nem
 // calota nem textura dao — RELEVO: o anel limbal e um degrau inclinado (fica
@@ -1106,17 +1390,53 @@ function olhoCasca(ctx) {
 // Armadilha do Lathe: a normal sai de (dy, -dx) do proprio perfil, entao os
 // pontos tem que ir do raio MAIOR pro MENOR pra normal apontar pra frente.
 // Na ordem contraria a iris renderiza preta e parece um bug de material.
+//
+// ---------------------------------------------------------------------------
+// A "PILHA DE PRATOS CONCENTRICOS"
+//
+// Foi o veredito da folha de contato, e era literal: cada peca deste metodo
+// pousava numa ALTURA PROPRIA sobre o globo, e cada degrau entre elas desenhava
+// um circulo. Contando de fora pra dentro davam cinco aneis visiveis:
+//
+//   1. o rolo da palpebra, de raio 0.165 num globo de raio 1 — ele sozinho
+//      subia 26 mm acima da pele (e os cilios, 30 mm);
+//   2. a borda da calota de esclera, que ficava ACIMA do rolo (sin(0.66) = 0.61
+//      contra uma margem em 0.33) e portanto exposta, com a pintura da borda
+//      num tom de pele diferente do globo — um anel claro;
+//   3. o anel limbal, comecando 1.5% fora da esfera;
+//   4. a iris, uma cupula 3.6% acima da esfera;
+//   5. a pupila, outro disco 1.8% acima.
+//
+// E no meio de tudo isso o olho em si era pequeno: E_ARCO 0.66 e E_ABERTURA
+// 0.64 num globo largo demais.
+//
+// O conserto tem tres partes e todas as tres estao nos numeros abaixo:
+//   - o globo encolhe (razao 0.30 -> 0.23) e afunda mais na orbita;
+//   - o rolo emagrece pra pouco mais da metade e a linha da margem desce pra
+//     cima da propria esfera, entao metade dele fica DENTRO do globo como o
+//     metodo sempre prometeu;
+//   - os perfis do torno passam a SEGUIR a esfera em vez de flutuar sobre ela,
+//     e cada perfil comeca EXATAMENTE onde o anterior termina. Sem degrau nao
+//     ha aro; o anel limbal continua escuro porque a superficie vira de lado
+//     ali, que era a ideia do metodo desde o comeco.
+// E a abertura cresce: E_ARCO 0.86 e E_ABERTURA 0.80 num globo menor deixam o
+// olho MAIOR na tela do que ele era antes de tudo isso.
+// ---------------------------------------------------------------------------
 
-const E_GLOBO = { rx: 0.0355 * S, ry: 0.0345 * S, rz: 0.0330 * S, sink: 0.76 }
-const E_ARCO = 0.66
-const E_ABERTURA = 0.64
+const E_GLOBO = { rx: 0.0310 * S, ry: 0.0301 * S, rz: 0.0288 * S, sink: 0.86 }
+const E_ARCO = 0.86
+const E_ABERTURA = 0.80
 
+// Perfis do torno, em [raio, altura] sobre a esfera de raio 1. A altura de cada
+// ponto e sqrt(1 - r^2) vezes um fator de 1.002 a 1.016: e o que faz a peca
+// ACOMPANHAR o globo com uma cupula corneana de meio milimetro em vez de pousar
+// como um prato. O ultimo ponto de um perfil e o primeiro do seguinte.
+const E_LIMBO = [[0.545, 0.8385], [0.512, 0.8598], [0.480, 0.8809]]
 const E_IRIS = [
-  [0.400, 0.9305], [0.380, 0.9550], [0.330, 0.9820],
-  [0.260, 1.0086], [0.195, 1.0258], [0.165, 1.0283], [0.152, 1.0244],
+  [0.480, 0.8809], [0.400, 0.9238], [0.310, 0.9612],
+  [0.230, 0.9858], [0.170, 1.0002], [0.152, 1.0032], [0.150, 0.9990],
 ]
-const E_LIMBO = [[0.428, 0.8997], [0.412, 0.9151], [0.400, 0.9305]]
-const E_PUPILA = [[0.156, 1.0218], [0.120, 1.0188], [0.060, 1.0182], [0.000, 1.0180]]
+const E_PUPILA = [[0.150, 0.9990], [0.115, 0.9982], [0.058, 0.9976], [0.000, 0.9974]]
 
 function torneada(perfil, seg) {
   const pts = perfil.map(([r, y]) => new THREE.Vector2(r, y))
@@ -1138,9 +1458,15 @@ function pintarEsclera(px, s, pele) {
       // a sombra do rolo da palpebra: forte em cima, sumindo pra baixo. Sem
       // ela a faixa de branco entre o rolo e a iris fica acesa demais e o
       // boneco parece assustado.
-      let c = mulC(esc, 1 - (0.34 * Math.max(0, ly) + 0.06) * smoothstep(0.05, 0.75, rp))
-      c = lerpC(c, canto, smoothstep(0.35, 0.98, rp) * Math.pow(Math.abs(lx), 2.4) * 0.85)
-      c = lerpC(c, cPele, smoothstep(0.78, 0.99, rp))
+      //
+      // As tres faixas foram EMPURRADAS PRA FORA junto com o aumento de E_ARCO.
+      // Elas sao escritas em rp, que e fracao do raio da calota: com a calota
+      // maior os mesmos numeros passaram a cair muito mais perto da iris, e o
+      // resultado era um olho onde a esclera nao existia — sombra, depois rosa,
+      // depois pele, sem branco nenhum no meio.
+      let c = mulC(esc, 1 - (0.30 * Math.max(0, ly) + 0.05) * smoothstep(0.20, 0.85, rp))
+      c = lerpC(c, canto, smoothstep(0.62, 0.99, rp) * Math.pow(Math.abs(lx), 2.4) * 0.85)
+      c = lerpC(c, cPele, smoothstep(0.90, 0.995, rp))
       const i = (y * s + x) * 4
       px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255
     }
@@ -1155,12 +1481,19 @@ function matEscleraPintada(pele) {
   })
 }
 
-/** Margem da palpebra deste metodo, em (a, b) e raio. */
+/**
+ * Margem da palpebra deste metodo, em (a, b) e raio.
+ *
+ * O raio caiu de 1.06 pra 1.00 no meio da margem: com 1.06 o EIXO do rolo ja
+ * nascia 6% fora do globo e o tubo inteiro ficava por cima dele, virando um
+ * bracelete em vez de uma palpebra. Em 1.00 o eixo corre EM CIMA da esfera e
+ * metade da cana fica enterrada, que e o que o metodo sempre disse fazer.
+ */
 function margemLente(w, sgn, alto, queda) {
   const ww = clamp(w, -1.2, 1.2)
   const a = E_ABERTURA * ww * sgn
   const b = alto * Math.sqrt(Math.max(0, 1 - ww * ww)) - queda * ww * ww
-  const r = ww * ww > 1 ? 0.72 : mix(1.06, 0.86, smoothstep(0.80, 1.0, Math.abs(ww)))
+  const r = ww * ww > 1 ? 0.70 : mix(1.00, 0.84, smoothstep(0.80, 1.0, Math.abs(ww)))
   return [a, b, r]
 }
 
@@ -1187,8 +1520,13 @@ function olhoLente(ctx) {
     const casca = eixoOlho(grp, sgn, g)
     casca.add(sh(new THREE.Mesh(new THREE.SphereGeometry(1, 18, 14), matPele(skin, 0.95))))
 
-    const esc = flatPiece(new THREE.Mesh(calotaZ(E_ARCO, 24, 10), matEscleraPintada(skin)))
-    esc.scale.setScalar(1.006)
+    // 1.0025 e nao 1.006: a calota da esclera e a esfera do globo tem a MESMA
+    // forma, entao o degrau entre elas so serve pra evitar z-fighting, e quanto
+    // menor menos ele desenha um aro na borda. A pintura tambem recebe a pele ja
+    // escurecida no tom do globo (0.95) — com o tom cru a borda saia 5% mais
+    // clara e virava, ela sozinha, um dos "pratos".
+    const esc = flatPiece(new THREE.Mesh(calotaZ(E_ARCO, 24, 10), matEscleraPintada(shade(skin, 0.95))))
+    esc.scale.setScalar(1.0025)
     esc.receiveShadow = true
     casca.add(esc)
 
@@ -1196,41 +1534,47 @@ function olhoLente(ctx) {
     casca.add(flatPiece(new THREE.Mesh(torneada(E_IRIS, 26), matIris(1.06))))
     casca.add(flatPiece(new THREE.Mesh(torneada(E_PUPILA, 22), matPupila())))
 
-    // dois brilhos esfericos: o grande em cima, o pequeno oposto. Esferas e nao
-    // discos porque aqui eles pousam num relevo (a iris torneada e curva) e um
-    // disco chapado mostraria a borda reta em qualquer angulo fora do frontal.
-    const bri = (x, y, r) => {
-      const b = flatPiece(new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), matBrilho()))
-      b.position.set(x, y, 1.030)
-      casca.add(b)
-    }
-    bri(-0.135, 0.170, 0.052)
-    bri(0.105, -0.125, 0.026)
+    // BRILHO. Eram duas esferas pousadas em z = 1.030 — bolas soltas na frente
+    // da iris, que num globo maior ainda apareciam do lado de fora do rolo. Aqui
+    // sao calotas na propria esfera (ver brilhoCalota) e espelhadas pelo lado.
+    // A iris vai ate 0.480 de raio = 0.50 rad de arco; o realce grande alcanca
+    // 0.205 + 0.058 = 0.26. Fica dentro, com folga.
+    casca.add(brilhoCalota(-sgn * 0.150, 0.140, 0.058, 1.040))
+    casca.add(brilhoCalota(sgn * 0.120, -0.135, 0.030, 1.040, 8))
 
     // rolo da palpebra: metade dele fica DENTRO do globo, entao o que se ve e
-    // meia cana grossa e a linha da margem e a intersecao das duas superficies
-    // — limpa, sem serrilhado e sem precisar cortar geometria.
+    // meia cana e a linha da margem e a intersecao das duas superficies — limpa,
+    // sem serrilhado e sem precisar cortar geometria.
     // as duas margens usam a MESMA queda (0.14): e o que faz o rolo de cima e o
     // de baixo se encontrarem exatamente no canto em vez de se cruzarem.
-    casca.add(flatPiece(new THREE.Mesh(rolo(sgn, 0.34, 0.14, 0.165, 9), matPele(skin, 0.92))))
-    casca.add(flatPiece(new THREE.Mesh(rolo(sgn, -0.28, 0.14, 0.105, 9), matPele(skin, 1.02))))
+    //
+    // Os raios cairam de 0.165/0.105 pra 0.092/0.066. 0.165 num globo de raio 1
+    // e uma cana de 1/3 do olho: era o "prato" mais grosso da pilha, e ele
+    // sozinho punha 26 mm de calombo na frente da cara.
+    casca.add(flatPiece(new THREE.Mesh(rolo(sgn, 0.34, 0.14, 0.092, 9), matPele(skin, 0.92))))
+    casca.add(flatPiece(new THREE.Mesh(rolo(sgn, -0.28, 0.14, 0.066, 9), matPele(skin, 1.02))))
 
     // cilios de verdade: fios de tecelagem() plantados ao longo da margem de
     // cima. Sao 11 e nao 30 porque a esta distancia o que o olho ve e a
     // SILHUETA da franja, nao os fios; 11 ja quebram a linha reta do rolo.
+    //
+    // Nasciam em 1.10 do raio e mediam ate 0.30 dele: 30 mm de espeto saindo da
+    // cara, medidos contra a pele. Com o rolo fino a margem esta em ~1.09, entao
+    // 1.10 continua sendo o lugar certo pra nascer — o que encolheu foi o
+    // COMPRIMENTO (0.30 -> 0.16 no pior fio) e a espessura.
     const ma = tecelagem()
     const r = rng(7)
     for (let i = 0; i < 11; i++) {
       const w = -0.82 + (i / 10) * 1.64
       const [a, b] = margemLente(w, sgn, 0.34, 0.14)
-      pontoEsfera(a, b - 0.10, p).multiplyScalar(1.10)
+      pontoEsfera(a, b - 0.06, p).multiplyScalar(1.10)
       n.copy(p).normalize()
       // o fio sai da margem pra fora e pra cima; a mistura 0.62/0.55 e o que
       // deixa a franja visivel de frente sem ela virar um leque de espinhos
       n.set(n.x * 0.62, n.y * 0.55 + 0.55, n.z * 0.62).normalize()
       eixo.set(Math.cos(a), 0, -Math.sin(a))
-      const comp = 0.20 + r() * 0.10
-      fio(ma, p, n, comp, 0.020, eixo, -0.5 - r() * 0.4, 4, 3)
+      const comp = 0.11 + r() * 0.05
+      fio(ma, p, n, comp, 0.013, eixo, -0.5 - r() * 0.4, 4, 3)
     }
     casca.add(flatPiece(new THREE.Mesh(ma.geo(), cCilio)))
   })
@@ -1240,21 +1584,15 @@ function olhoLente(ctx) {
 // CATALOGO
 // ===========================================================================
 
+// CINCO itens, e cinco e o numero que o protocolo conta (comum/protocolo.js,
+// APARENCIA_OPCOES). Acrescentar ou remover um muda o significado de um byte da
+// rede pros dois lados; REORDENAR nao, e foi o que se fez aqui — o melhor olho
+// da folha de contato subiu pro indice 0, que e o que o jogador novo ganha.
 export const OLHOS = [
-  {
-    id: 'calotas', nome: 'Empilhado', name: 'Empilhado',
-    metodo: 'globo + calotas concentricas (esclera, limbo, 3 aneis de iris, pupila, brilho) e palpebras de calota tombada',
-    build: olhoCalotas,
-  },
   {
     id: 'polar', nome: 'Pintado', name: 'Pintado',
     metodo: 'uma calota so com iris/fibra/limbo/pupila/brilho pintados em textura POLAR; palpebras varridas ao longo da curva da margem',
     build: olhoPolar,
-  },
-  {
-    id: 'recorte', nome: 'Recortado', name: 'Recortado',
-    metodo: 'abertura em amendoa como FURO de um Shape 2D extrudado e projetado na pele; iris e pupila pelo mesmo metodo (anel com furo = poco real)',
-    build: olhoRecorte,
   },
   {
     id: 'casca', nome: 'Fundo', name: 'Fundo',
@@ -1262,9 +1600,19 @@ export const OLHOS = [
     build: olhoCasca,
   },
   {
+    id: 'recorte', nome: 'Recortado', name: 'Recortado',
+    metodo: 'abertura em amendoa como FURO de um Shape 2D extrudado e projetado na pele; iris e pupila pelo mesmo metodo (anel com furo = poco real)',
+    build: olhoRecorte,
+  },
+  {
     id: 'lente', nome: 'Lente', name: 'Lente',
     metodo: 'globo enterrado com iris TORNEADA (LatheGeometry: limbo em degrau, pupila em poco), palpebra em rolo (TubeGeometry) e cilios de fio',
     build: olhoLente,
+  },
+  {
+    id: 'calotas', nome: 'Empilhado', name: 'Empilhado',
+    metodo: 'globo + calotas concentricas (esclera, limbo, 3 aneis de iris, pupila, brilho) e palpebras de calota tombada',
+    build: olhoCalotas,
   },
 ]
 
@@ -1274,13 +1622,19 @@ export const OLHOS = [
  * quer distancia do olho, olheira, oculos).
  * 'recorte' e 'casca' nao tem globo de verdade: os numeros ali sao a caixa da
  * abertura, que e o que qualquer consumidor realmente quer saber.
+ *
+ * ESTA LISTA E LIDA POR INDICE, entao ela tem que andar junto com OLHOS. Uma
+ * reordenacao que esquecesse daqui devolveria o globo do olho errado pra quem
+ * pergunta — e o consumidor tipico (sobrancelha, olheira, oculos) posicionaria
+ * a peca dele em cima de um olho que nao esta na cara. Os ids estao escritos em
+ * comentario justamente pra a proxima reordenacao nao passar batido.
  */
 export const OLHO_GLOBO = [
-  { rx: A_GLOBO.rx, ry: A_GLOBO.ry, rz: A_GLOBO.rz, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: A_GLOBO.sink },
-  { rx: B_GLOBO.rx, ry: B_GLOBO.ry, rz: B_GLOBO.rz, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: B_GLOBO.sink },
-  { rx: C_AW, ry: C_HC, rz: C_LABIO, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: 1 },
-  { rx: D_RW * D_INT, ry: D_HC * D_INT, rz: D_DOBRA, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y - 0.0015, sink: 1 },
-  { rx: E_GLOBO.rx, ry: E_GLOBO.ry, rz: E_GLOBO.rz, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: E_GLOBO.sink },
+  /* 0 polar   */ { rx: B_GLOBO.rx, ry: B_GLOBO.ry, rz: B_GLOBO.rz, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: B_GLOBO.sink },
+  /* 1 casca   */ { rx: D_RW * D_INT, ry: D_HC * D_INT, rz: D_DOBRA, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y - 0.0015, sink: 1 },
+  /* 2 recorte */ { rx: C_AW, ry: C_HC, rz: C_LABIO, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: 1 },
+  /* 3 lente   */ { rx: E_GLOBO.rx, ry: E_GLOBO.ry, rz: E_GLOBO.rz, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: E_GLOBO.sink },
+  /* 4 calotas */ { rx: A_GLOBO.rx, ry: A_GLOBO.ry, rz: A_GLOBO.rz, x: EYE_ANCHOR.x, y: EYE_ANCHOR.y, sink: A_GLOBO.sink },
 ]
 
 export default OLHOS

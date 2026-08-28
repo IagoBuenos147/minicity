@@ -187,6 +187,30 @@ function altoDaCopa(K, yBase, folgaTopo, alturaMin) {
 // ---------------------------------------------------------------------------
 
 /**
+ * O QUAD DE UMA CELULA, SEM OS TRIANGULOS DE AREA ZERO.
+ *
+ * Toda copa deste arquivo fecha no eixo: na linha de cima do gomo (v = 0) o
+ * raio e zero e os pontos da linha inteira caem NO MESMO LUGAR. O primeiro
+ * triangulo de cada celula dessa linha fica (apice, ponto, apice) — area zero.
+ * Ele nao pinta um pixel, mas nao e de graca:
+ *   - sao 30 triangulos no bone, 28 no cowboy e 26 na touca de indice morto
+ *     dentro de um orcamento de 4 000;
+ *   - e, pior, o vertice i = 0 de cada gomo do bone NAO participa de nenhum
+ *     outro triangulo. computeVertexNormals so tem area zero pra ele e devolve
+ *     normal (0,0,0) — normal indefinida numa malha FrontSide. No bone, que de
+ *     proposito NAO solda as normais, nao ha vizinho pra corrigir.
+ * Emitir so o triangulo com area resolve os dois de uma vez e nao muda um
+ * milimetro da silhueta.
+ */
+function quad(idx, pos, a, b, c, d) {
+  const igual = (p, q) => Math.abs(pos[p * 3] - pos[q * 3]) < 1e-7
+    && Math.abs(pos[p * 3 + 1] - pos[q * 3 + 1]) < 1e-7
+    && Math.abs(pos[p * 3 + 2] - pos[q * 3 + 2]) < 1e-7
+  if (!igual(a, c)) idx.push(a, b, c)
+  if (!igual(b, d)) idx.push(c, b, d)
+}
+
+/**
  * Grade parametrica: fn(u, v, out) preenche um Vector3.
  *
  * A ordem dos indices e (a, a+linha, a+1): com u andando no sentido do azimute
@@ -207,7 +231,14 @@ function grade(nu, nv, fn) {
       fn(i / nu, j / nv, v3)
       pos[k * 3] = v3.x; pos[k * 3 + 1] = v3.y; pos[k * 3 + 2] = v3.z
       uvs[k * 2] = i / nu; uvs[k * 2 + 1] = j / nv
-      if (i < nu && j < nv) idx.push(k, k + cu, k + 1, k + 1, k + cu, k + cu + 1)
+    }
+  }
+  // Os indices saem numa SEGUNDA passada porque quad() compara posicoes: no
+  // laco de cima o vizinho de direita (k + 1) ainda nao foi escrito.
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      const k = j * cu + i
+      quad(idx, pos, k, k + cu, k + 1, k + cu + 1)
     }
   }
   const g = new THREE.BufferGeometry()
@@ -243,7 +274,12 @@ function paineis(n, nu, nv, fn) {
         fn(g, i / nu, j / nv, v3)
         pos[k * 3] = v3.x; pos[k * 3 + 1] = v3.y; pos[k * 3 + 2] = v3.z
         uvs[k * 2] = i / nu; uvs[k * 2 + 1] = j / nv
-        if (i < nu && j < nv) idx.push(k, k + cu, k + 1, k + 1, k + cu, k + cu + 1)
+      }
+    }
+    for (let j = 0; j < nv; j++) {
+      for (let i = 0; i < nu; i++) {
+        const k = base + j * cu + i
+        quad(idx, pos, k, k + cu, k + 1, k + cu + 1)
       }
     }
   }

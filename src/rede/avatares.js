@@ -58,19 +58,16 @@ function corDaPele(i) {
   return (t && typeof t === 'object') ? (t.hex | 0) : (t | 0)
 }
 
-/* Como cada campo do contrato se chamava quando a aparencia tinha 6 bytes.
-   character.js e appearance.js podem estar em qualquer um dos dois nomes
-   enquanto a reforma acontece em varios arquivos ao mesmo tempo, entao mando os
-   DOIS. Chave desconhecida em setAppearance e inofensiva (Object.assign a
-   ignora na hora de reconstruir os slots); chave FALTANDO deixaria o boneco
-   remoto com o cabelo do vizinho. */
-const APELIDOS_ANTIGOS = {
-  cabelo: 'hair',
-  olhos: 'eyes',
-  sobrancelha: 'brows',
-  boca: 'mouth',
-  corCabelo: 'hairColor',
-}
+/* NAO MANDAMOS MAIS OS APELIDOS EM INGLES (hair/eyes/brows/mouth/hairColor).
+   Mandava-se os DOIS nomes "por seguranca", enquanto a reforma acontecia em
+   varios arquivos ao mesmo tempo. So que os dois nomes dentro do MESMO objeto
+   de aparencia sao um bug esperando acontecer, e ele aconteceu: quem aplica
+   percorre as chaves na ordem de insercao, e o apelido chegava DEPOIS do nome
+   do contrato, escrevendo o valor velho por cima. O sintoma era a peca nao
+   trocar, sem erro nenhum no console.
+   character.js resolve apelido na ENTRADA (aplicar() em player/character.js), e
+   os NPCs da cidade ainda usam essa porta; mas o que sai daqui e so o nome do
+   contrato. */
 
 /**
  * Aparencia da rede (20 indices) -> aparencia que createCharacter entende.
@@ -84,12 +81,7 @@ const APELIDOS_ANTIGOS = {
 function paraAparencia(ap) {
   const base = defaultAppearance()
   if (!ap) return base
-  for (const k of CAMPOS_APARENCIA) {
-    const v = ap[k] | 0
-    base[k] = v
-    const velho = APELIDOS_ANTIGOS[k]
-    if (velho !== undefined) base[velho] = v
-  }
+  for (const k of CAMPOS_APARENCIA) base[k] = ap[k] | 0
   // 'skin' e o unico campo que o personagem quer como COR e nao como indice:
   // e ela que pinta cabeca, pescoco e maos. 'pele' (o indice) continua no
   // objeto pra quem preferir resolver a tabela sozinho.

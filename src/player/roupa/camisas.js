@@ -217,8 +217,13 @@ function canelar(geo, n, amp, flat = 1) {
 
 /**
  * TEAR: acumulador de malha indexada COM uv. E o tecelagem() do rosto mais o
- * canal de textura — os paineis do metodo B levam trama, e geometria sem uv
- * renderiza a peca inteira com a cor de um texel so.
+ * canal de textura.
+ *
+ * O uv nao esta em uso hoje (ver o bloco de materiais: estampa esta fora do
+ * catalogo enquanto tex() precisar de <canvas>), mas ele custa dois floats por
+ * vertice e sem ele um material com `map` pinta a peca INTEIRA com a cor de um
+ * texel so — e a proxima pessoa que quiser xadrez neste painel nao vai
+ * descobrir isso, vai so achar que a textura nao funciona.
  */
 function tear() {
   const pos = [], uvs = [], idx = []
@@ -249,15 +254,28 @@ function tear() {
  *
  * `fora(u, v, y)` e o relevo local: e por ele que o ombro ganha estrutura sem
  * engordar a peca inteira.
+ *
+ * `vPot` ADENSA AS LINHAS EMBAIXO, e nao e enfeite — e a mesma correcao que
+ * fatia() faz no nucleo. As linhas do painel eram distribuidas por igual entre
+ * a borda de baixo e a de cima, e um painel que vai do fraldao (-0,034) ate o
+ * peito (0,300) com 7 linhas anda 4,8 cm por linha. So que o perfil do quadril
+ * ANDA 4 cm DE RAIO em 3,2 cm de altura (0,086 em -0,040 e 0,126 em -0,008): a
+ * corda entre duas linhas passava POR DENTRO do vinco e o pano do fraldao
+ * mergulhava 1 mm dentro da pele do quadril — pele por fora da camisa, medido.
+ * Com v elevado a 2,2 as linhas se acumulam justamente na dobra do quadril e a
+ * corda passa a 7 mm por fora da pele, sem custar linha nenhuma no peito, onde
+ * o perfil e manso.
  */
 function painel(c, perfil, o) {
   const nu = o.nu || 12, nv = o.nv || 8
+  const vPot = o.vPot || 1
   const flat = c.medida.FLAT_Z
   const t = tear()
   const cols = []
-  // uv proporcional ao TAMANHO REAL do painel: sem isso a trama sai grossa no
-  // painel pequeno e fina no grande, e as duas metades da mesma camisa nao
-  // parecem o mesmo tecido.
+  // uv proporcional ao TAMANHO REAL do painel (0.045 m por volta da textura):
+  // com u e v indo sempre de 0 a 1, a mesma estampa sairia grossa no painel
+  // pequeno e fina no grande, e as duas metades da mesma camisa nao pareceriam
+  // o mesmo tecido.
   const rMed = N.raioPerfil(perfil, (o.y0(0.5) + o.y1(0.5)) / 2)
   const su = Math.abs(o.phi1 - o.phi0) * rMed / 0.045
   for (let i = 0; i <= nu; i++) {
@@ -268,9 +286,18 @@ function painel(c, perfil, o) {
     const sv = Math.abs(yb - ya) / 0.045
     const col = []
     for (let j = 0; j <= nv; j++) {
-      const v = j / nv
+      const v = vPot === 1 ? j / nv : Math.pow(j / nv, vPot)
       const y = ya + (yb - ya) * v
-      const r = N.raioPerfil(perfil, y) * o.folga + (o.fora ? o.fora(u, v, y, phi) : 0.001)
+      const rel = o.fora ? o.fora(u, v, y, phi) : 0.0010
+      // O TETO DO RELEVO E APLICADO AQUI, e so na METADE DA FRENTE. E na frente
+      // que a corrente e o pingente do colar descem (frentePeito(), no nucleo,
+      // so e avaliado perto de x = 0), entao e so ali que engordar a peca
+      // enterra o colar. Nas costas o relevo PRECISA passar do teto: e la que a
+      // compensacao do dz do torax devolve os 5 mm que a elipse centrada da
+      // casca nao tem. Clampar dos dois lados devolvia a pele por cima da
+      // camisa na inspiracao.
+      const r = N.raioPerfil(perfil, y) * o.folga
+        + (Math.abs(phi) < 1.0 ? Math.min(rel, RELEVO_MAX) : rel)
       col.push(t.v(r * s, y, r * co * flat, u * su, v * sv))
     }
     cols.push(col)
@@ -295,21 +322,29 @@ function nervura(c, perfil, o) {
 }
 
 /**
- * BOTAO. Nao usa N.botoes de proposito: aquele helper crava `fora = 0.010` na
- * frenteZ, e 10 mm por cima de FOLGA_JUSTA passa 7 mm ALEM do raio de onde o
- * pingente do colar desce — o botao nascia POR FORA da corrente e a
- * corrente atravessava a camisa. Aqui o disco fica dentro de RELEVO_MAX
- * contando a propria espessura (o disco poe metade dos 2,6 mm dele em z, e em
- * raio isso vale 1,3/FLAT_Z = 1,7 mm), e o colar continua na frente dele.
+ * BOTAO — e a peca mais apertada do arquivo, espremida entre dois limites.
+ *
+ * POR BAIXO, a CARCELA: o botao tem que sobrar dela, senao a fileira vira uma
+ * fileira de MEIAS-LUAS afundadas no pano (foi o que a foto de perto mostrou).
+ * POR CIMA, o COLAR: N.botoes crava `fora = 0.010` na frenteZ, e 10 mm sobre
+ * FOLGA_JUSTA passa 7 mm ALEM do raio de onde o pingente desce — com ele o
+ * botao nascia por fora da corrente e a corrente entrava na camisa.
+ *
+ * A conta que sobra: o disco esta deitado, entao metade da espessura dele conta
+ * em Z, e em RAIO isso vale (esp/2)/FLAT_Z = 1,6 mm. 3,8 + 1,6 = 5,4 mm, logo
+ * abaixo de RELEVO_MAX, e 2,6 mm acima do topo da carcela (2,8 mm).
  */
-function botoes(c, mat, perfil, folga, n, y0, y1, r = 0.0072) {
+const BOTAO_FORA = 0.0038
+const BOTAO_ESP = 0.0024
+
+function botoes(c, mat, perfil, folga, n, y0, y1, r = 0.0055) {
   const g = new THREE.Group()
   for (let i = 0; i < n; i++) {
     const y = n === 1 ? y0 : y0 + (y1 - y0) * (i / (n - 1))
-    // cone rasissimo (r embaixo, 0.88 r em cima) em vez de cilindro: o disco
-    // reto pegava a luz de chapa e lia como moeda colada
-    const b = N.malha(new THREE.CylinderGeometry(r * 0.88, r, 0.0026, 10), mat,
-      0, y, N.frenteZ(c, perfil, y, folga, RELEVO_MAX - 0.0030))
+    // cone rasissimo (r embaixo, 0.86 r em cima) em vez de cilindro: o disco
+    // reto pega a luz de chapa e le como moeda colada no peito
+    const b = N.malha(new THREE.CylinderGeometry(r * 0.86, r, BOTAO_ESP, 10), mat,
+      0, y, N.frenteZ(c, perfil, y, folga, BOTAO_FORA))
     b.rotation.x = Math.PI / 2
     g.add(b)
   }
@@ -342,7 +377,7 @@ function loft(aneis, cols = 16, apice) {
     }
     if (ant) for (let i = 0; i < cols; i++) t.quad(ant[i], ant[(i + 1) % cols], linha[(i + 1) % cols], linha[i])
     ant = linha
-    }
+  }
   if (apice) {
     const p = t.v(apice.x || 0, apice.y, apice.z || 0)
     for (let i = 0; i < cols; i++) t.tri(ant[i], ant[(i + 1) % cols], p)
@@ -434,18 +469,21 @@ export const CAMISAS = [
       noPeito.add(N.sh(new THREE.Mesh(vincar(c, cima, c.medida.CHEST_Y, dobras), m)))
 
       // BARRA com espessura. Desce por dentro (y caindo = face pro corpo),
-      // vira num semicirculo de 3,2 mm e sobe por fora. A casca continua
-      // abaixo dela ate o fundo fechado do perfil: e esse fundo que tapa a
-      // peca por baixo, e ele fica escondido dentro da propria dobra.
+      // vira num semicirculo de 2,4 mm de raio — a espessura do pano, que e o
+      // que separa "camiseta" de "adesivo colado no boneco" — e sobe por fora.
+      // A casca continua ABAIXO dela ate o fundo fechado do perfil do corpo: e
+      // esse fundo que tapa a peca por baixo, e ele fica escondido dentro da
+      // propria dobra.
       const rp = (y, e) => N.raioPerfil(c.perfil.PELVIS, y) * f + e
       g.add(lathe(c, comEspessura(
         [[rp(0.034, 0.0006), 0.034], [rp(-0.012, 0.0008), -0.012]],
         [[rp(-0.012, 0.0056), -0.012], [rp(0.008, 0.0058), 0.008], [rp(0.036, 0.0054), 0.036]],
       ), mDobra))
 
-      // GOLA com espessura, mesma ideia virada pra cima. O topo para em
-      // y = 0,204 (mais o bojo de 2,6 mm): a corrente do colar passa em
-      // y = 0,217 do peito, entao a gola nunca chega perto dela.
+      // GOLA com espessura, mesma ideia virada pra cima (a perpendicular da
+      // comEspessura ja joga a dobra pro lado certo sozinha). O topo para em
+      // y = 0,204 mais 2,1 mm de bojo: a corrente do colar da a volta em
+      // y = 0,217 do espaco do peito, entao gola e colar nunca se cruzam.
       const rc = (y, e) => N.raioPerfil(c.perfil.PEITO, y) * f + e
       noPeito.add(lathe(c, comEspessura(
         [[rc(0.158, 0.0052), 0.158], [rc(0.186, 0.0055), 0.186], [rc(0.204, 0.0048), 0.204]],
@@ -464,21 +502,38 @@ export const CAMISAS = [
         { y: -0.093, r: 0.0602, cz: 0.002, kz: 1.02 },
         { y: -0.062, r: 0.0572, cz: 0.003, kz: 1.04, dy: -0.002 },
         { y: -0.028, r: 0.0552, cz: 0.003, kz: 1.06, dy: -0.004 },
-        // OS TRES ANEIS DE CIMA NAO SAO GOSTO: eles copiam SLEEVE_PROFILE (a
-        // manga curta do nucleo) nas MESMAS alturas, 1 a 4 mm mais gordos. O
-        // deltoide do corpo novo foi dimensionado pra caber exatamente debaixo
-        // daquele perfil — character.js diz isso com todas as letras —, entao
-        // qualquer anel meu abaixo dele poe pele nua por fora da camiseta. A
-        // primeira versao interpolava reto de 0.051 (y = 0) a 0.036 (y = 0.016)
-        // e cortava 1,2 mm do ombro no meio do caminho.
-        // dy tambem cai pra 2 mm aqui: a inclinacao do anel desce a boca da
-        // manga na frente, e la em cima 5 mm de descida ja e um anel inteiro.
+        // OS TRES ANEIS DE CIMA NAO SAO GOSTO. Eles copiam as ALTURAS de
+        // SLEEVE_PROFILE (a manga curta do nucleo), que e o perfil sob o qual o
+        // deltoide do corpo novo foi dimensionado, e sao mais gordos que ele em
+        // Z de proposito.
+        //
+        // O deltoide e um elipsoide de 5,2 x 5,8 x 5,0 cm empurrado 8 mm pra
+        // DENTRO do corpo: na cabeca do ombro ele e mais fundo (5,0 cm em z) do
+        // que largo pra fora (5,2 - 0,8 = 4,4 cm em x). Uma manga de secao
+        // redonda que cobre o deltoide em x nao cobre em z, e o que aparecia era
+        // um TRIANGULO DE PELE na quina do ombro, na foto de tres quartos —
+        // exatamente o defeito que esta reforma foi feita pra tirar. Por isso o
+        // kz sobe pra 1,14 la em cima: e a elipse do anel que tapa o ombro, e e
+        // ela que uma lathe nao consegue fazer.
+        //
+        // dy fica em zero nos dois ultimos aneis: 1 mm de inclinacao ali desce a
+        // boca da manga pra uma altura onde o deltoide ja e 4 mm mais gordo.
+        //
+        // E O ANEL DE y = 0.030 NAO E ENFEITE. A cupula da manga nao pode
+        // fechar em bico no primeiro anel que couber: o deltoide so volta pra
+        // DENTRO da casca do torso em y = 0.029, e entre 0.021 e 0.029 ele
+        // ainda sai 3,6 mm da casca. Fechando o leque de 0.021 direto pro
+        // apice, o leque afinava mais rapido que o ombro e nascia uma MANCHA DE
+        // PELE na quina — fotografada, era um respingo bege de meio centimetro
+        // em cima da manga. Com o anel intermediario o leque so comeca onde o
+        // deltoide ja esta coberto pelo torso.
         { y: -0.008, r: 0.0532, cz: 0.002, kz: 1.06, dy: -0.004 },
-        { y: 0.008, r: 0.0458, cz: 0.002, kz: 1.05, dy: -0.002 },
-        { y: 0.021, r: 0.0300, cz: 0.001, kz: 1.03, dy: -0.001 },
+        { y: 0.008, r: 0.0458, cz: 0.002, kz: 1.08, dy: -0.002 },
+        { y: 0.021, r: 0.0345, cz: 0.001, kz: 1.14 },
+        { y: 0.030, r: 0.0250, cz: 0.001, kz: 1.22 },
       ]
       for (const lado of ['armRUpper', 'armLUpper']) {
-        c.montar(N.sh(new THREE.Mesh(loft(aneis, 16, { y: 0.029 }), m)), lado)
+        c.montar(N.sh(new THREE.Mesh(loft(aneis, 16, { y: 0.040 }), m)), lado)
       }
       return g
     },
@@ -501,8 +556,10 @@ export const CAMISAS = [
       const f = N.FOLGA_JUSTA
       const cor = N.esc(c.cor.blusa, 1.16)
       const pano = camisariaMat(cor)
-      const linha = N.tecido2(N.esc(cor, 0.74), 0.82)
-      const madre = N.tecido(0xece6d8, 0.36)
+      // A nervura e 12% mais escura que o pano, nao 26%: fotografado, o tom
+      // antigo lia como fita adesiva preta colada no ombro, e nao como costura.
+      const linha = N.tecido2(N.esc(cor, 0.88), 0.72)
+      const madre = N.tecido(0xdcd4c2, 0.40)
       const g = new THREE.Group()
       const noPeito = new THREE.Group()
 
@@ -538,12 +595,16 @@ export const CAMISAS = [
       // Fraldao: 3,4 cm abaixo no meio da frente/costas, 1,0 cm no lado.
       const fraldao = (u) => -0.034 + 0.024 * (1 + Math.cos(TAU * u)) / 2
 
+      // nv/vPot: ver painel(). Estes dois sao os paineis que cruzam o vinco do
+      // quadril, e sao os unicos do arquivo que PRECISAM das linhas adensadas
+      // embaixo — com espacamento uniforme a corda cortava o vinco e o fraldao
+      // afundava na pele.
       g.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PELVIS, {
-        folga: f, phi0: -AF, phi1: AF, nu: 14, nv: 7,
+        folga: f, phi0: -AF, phi1: AF, nu: 14, nv: 9, vPot: 2.2,
         y0: fraldao, y1: () => 0.300, fora: () => 0.0014,
       }), pano)))
       g.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PELVIS, {
-        folga: f, phi0: AC, phi1: TAU - AC, nu: 14, nv: 7,
+        folga: f, phi0: AC, phi1: TAU - AC, nu: 14, nv: 9, vPot: 2.2,
         y0: (u) => fraldao(u + 0.5), y1: () => 0.300, fora: () => 0.0014,
       }), pano)))
 
@@ -551,7 +612,7 @@ export const CAMISAS = [
       // no meio) e reto nas costas.
       noPeito.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PEITO, {
         folga: f, phi0: -AF, phi1: AF, nu: 14, nv: 8,
-        y0: () => 0, y1: (u) => 0.196 - 0.022 * (1 - Math.cos(TAU * u)) / 2,
+        y0: () => 0, y1: (u) => 0.196 - 0.012 * (1 - Math.cos(TAU * u)) / 2,
         fora: relevo,
       }), pano)))
       noPeito.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PEITO, {
@@ -581,30 +642,40 @@ export const CAMISAS = [
           folga: f, phi: sgn * Math.PI / 2, larg: 0.16, nv: 5,
           y0: () => 0, y1: () => 0.150, base: 0.0016, alt: 0.0022,
         }), linha)))
+        // A costura do ombro e ABAULADA na largura (o seno em v), igual a
+        // nervura da lateral. Chapada, ela virava um retangulo escuro flutuando
+        // no ombro — dava pra ver na foto de perto.
         noPeito.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PEITO, {
-          folga: f, phi0: sgn * 1.02, phi1: sgn * 1.62, nu: 6, nv: 2,
-          y0: (u) => 0.150 + 0.012 * u, y1: (u) => 0.162 + 0.012 * u,
-          fora: (u, v, y, phi) => relevo(u, v, y, phi) + 0.0020,
+          folga: f, phi0: sgn * 1.00, phi1: sgn * 1.60, nu: 8, nv: 3,
+          y0: (u) => 0.152 + 0.012 * u, y1: (u) => 0.162 + 0.012 * u,
+          fora: (u, v, y, phi) => relevo(u, v, y, phi) + 0.0006 + 0.0016 * Math.sin(v * Math.PI),
         }), linha)))
       }
 
       // CARCELA: a tira dobrada onde moram os botoes. Duas metades porque a
       // peca vive em duas juntas.
+      // A CARCELA TEM TETO DE 2,8 mm, e quem manda nisso e o botao. O botao e um
+      // disco chapado a 3,8 mm com 1,2 mm de espessura, o que da 5,4 mm de raio
+      // contando o achatamento em Z; carcela mais alta que isso enterra o botao
+      // pela metade, e era exatamente assim que a foto de perto mostrava a
+      // camisa: uma fileira de meias-luas.
       g.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PELVIS, {
-        folga: f, phi0: -0.155, phi1: 0.155, nu: 5, nv: 6,
+        folga: f, phi0: -0.155, phi1: 0.155, nu: 5, nv: 8, vPot: 2.2,
         y0: () => -0.030, y1: () => 0.300,
-        fora: (u) => 0.0026 + 0.0016 * Math.sin(u * Math.PI),
+        fora: (u) => 0.0016 + 0.0012 * Math.sin(u * Math.PI),
       }), pano)))
       noPeito.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PEITO, {
         folga: f, phi0: -0.155, phi1: 0.155, nu: 5, nv: 5,
-        y0: () => 0, y1: () => 0.176,
-        fora: (u) => 0.0026 + 0.0016 * Math.sin(u * Math.PI),
+        y0: () => 0, y1: () => 0.186,
+        fora: (u) => 0.0016 + 0.0012 * Math.sin(u * Math.PI),
       }), pano)))
       g.add(botoes(c, madre, c.perfil.PELVIS, f, 3, 0.060, 0.260))
-      // O botao de cima para em 0.138 e nao em 0.150: acima disso o torax ja
-      // esta afinando pro pescoco, e o disco (que e chapado, na altura do
-      // CENTRO dele) passava 0,6 mm do raio de onde o pingente do colar desce.
-      noPeito.add(botoes(c, madre, c.perfil.PEITO, f, 3, 0.030, 0.138))
+      // O botao de cima para em 0.130 e nao la em cima na gola: acima disso o
+      // torax afina rapido, e o disco e CHAPADO (o z dele sai da altura do
+      // centro). A BORDA dele, 5,5 mm acima, cai numa altura onde o corpo ja e
+      // 2 mm mais fino — e era a borda, nao o centro, que passava do raio de
+      // onde o pingente do colar desce.
+      noPeito.add(botoes(c, madre, c.perfil.PEITO, f, 3, 0.026, 0.130))
 
       // BOLSO chapado com pala, no peito esquerdo (o +X do boneco). Painel
       // tambem: bolso feito de caixa boiava, porque a secao do torso e elipse e
@@ -613,22 +684,29 @@ export const CAMISAS = [
         folga: f, phi0: 0.40, phi1: 0.80, nu: 5, nv: 4,
         y0: () => 0.058, y1: () => 0.112, fora: () => 0.0038,
       }), pano)))
+      // A PALA DO BOLSO E DO MESMO PANO. Escura, ela lia como um retangulo
+      // preto colado no peito; o que separa a pala do bolso e a sombra propria
+      // dela (1,2 mm de degrau), nao a cor.
       noPeito.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PEITO, {
         folga: f, phi0: 0.38, phi1: 0.82, nu: 5, nv: 2,
-        y0: () => 0.104, y1: () => 0.120, fora: () => 0.0046,
-      }), linha)))
+        y0: () => 0.104, y1: () => 0.121, fora: () => 0.0050,
+      }), pano)))
 
-      // COLARINHO: pe de gola no pescoco (cilindro, o pescoco e redondo) e a
-      // folha caindo por cima dos ombros, aberta num V na frente. O pe para em
-      // raio 0,0545, logo abaixo de RAIO_GOLA_ALTA: e o teto que faz a corrente
-      // do colar passar POR FORA de qualquer gola do catalogo.
+      // COLARINHO: pe de gola no pescoco (cilindro, e nao lathe achatada — o
+      // pescoco e redondo) e a folha caindo por cima dos ombros, aberta num V
+      // na frente.
+      // O CONE DO PE E CALIBRADO PELA CORRENTE, nao pelo desenho: na altura em
+      // que o colar da a volta (y = 0.052 no espaco do pescoco) ele esta em
+      // 0.0544, logo abaixo de RAIO_GOLA_ALTA (0.0555), que e o raio a partir do
+      // qual todo colar do catalogo e construido. Engordar o pe aqui enterra a
+      // corrente de todo mundo.
       const pe = N.tubo(0.0525, 0.0560, 0.048, pano, 16)
       pe.position.y = 0.054
       c.montar(pe, 'neck')
       noPeito.add(N.sh(new THREE.Mesh(painel(c, c.perfil.PEITO, {
-        folga: f, phi0: 0.62, phi1: TAU - 0.62, nu: 20, nv: 3,
-        y0: (u) => 0.168 - 0.010 * Math.sin(u * Math.PI),
-        y1: () => 0.206,
+        folga: f, phi0: 0.44, phi1: TAU - 0.44, nu: 22, nv: 3,
+        y0: (u) => 0.164 - 0.010 * Math.sin(u * Math.PI),
+        y1: () => 0.208,
         // a folha AFASTA do corpo conforme desce: e o que faz ela ler como
         // aba caida e nao como faixa colada no pescoco
         fora: (u, v) => 0.0008 + 0.0044 * (1 - v),
@@ -646,14 +724,16 @@ export const CAMISAS = [
         { y: -0.062, r: 0.0640 },
         { y: -0.052, r: 0.0570 },
         { y: -0.030, r: 0.0552 },
-        // Mesmo motivo da camiseta: a cabeca da manga copia as alturas de
-        // SLEEVE_PROFILE, que e o perfil sob o qual o deltoide foi desenhado.
-        { y: -0.008, r: 0.0530 },
-        { y: 0.008, r: 0.0456 },
-        { y: 0.021, r: 0.0298 },
+        // Mesmo motivo da camiseta, e a mesma correcao: as alturas sao as de
+        // SLEEVE_PROFILE e o kz abre a secao em Z na cabeca do ombro, porque o
+        // deltoide e mais FUNDO do que largo e escapava pela quina da manga.
+        { y: -0.008, r: 0.0530, kz: 1.04 },
+        { y: 0.008, r: 0.0456, kz: 1.08 },
+        { y: 0.021, r: 0.0345, kz: 1.14 },
+        { y: 0.030, r: 0.0250, kz: 1.22 },
       ]
       for (const lado of ['armRUpper', 'armLUpper']) {
-        c.montar(N.sh(new THREE.Mesh(loft(mg, 16, { y: 0.029 }), pano)), lado)
+        c.montar(N.sh(new THREE.Mesh(loft(mg, 16, { y: 0.040 }), pano)), lado)
       }
       return g
     },
@@ -703,8 +783,15 @@ export const CAMISAS = [
 
       // A casca de fora nasce lisa (revolucao) e a onda entra depois, por
       // vertice — a onda depende do ANGULO e lathe nenhuma sabe disso.
-      const rFora = (perfil) => (y) => N.raioPerfil(perfil, y) * tabela(CAI, y)
-      const rDentro = (perfil, base) => (y) => N.raioPerfil(perfil, y) * tabela(CAI, y) - esp(y + base)
+      //
+      // `base` NAO E OPCIONAL. A tabela de caimento e escrita em altura
+      // ABSOLUTA de torso, e a metade de cima da peca vive no 'chest', 0,30 m
+      // acima: sem somar a base, a casca do peito lia a tabela pela altura do
+      // QUADRIL e nascia em 1,030 onde a de baixo terminava em 1,058. O
+      // resultado era um degrau de 3,6 mm dando a volta na cintura, visivel na
+      // foto como uma linha atravessando o peito.
+      const rFora = (perfil, base) => (y) => N.raioPerfil(perfil, y) * tabela(CAI, y + base)
+      const rDentro = (perfil, base) => (y) => N.raioPerfil(perfil, y) * tabela(CAI, y + base) - esp(y + base)
 
       const ondular = (geo, base) => {
         const flat = c.medida.FLAT_Z
@@ -725,10 +812,14 @@ export const CAMISAS = [
 
       // Tronco. A parede de dentro entra com y DECRESCENDO pra face olhar pro
       // corpo; a de fora com y crescendo. Ver comEspessura().
-      const pTorso = parede(0.034, 0.300, 13, rFora(c.perfil.PELVIS))
+      // 16 degraus na parede de fora e 12 na de dentro: e a de fora que carrega
+      // o caimento, e com 13 aneis a rampa de 1,030 pra 1,070 (que acontece em
+      // 5,6 cm) caia em dois passos so e o blusao ganhava uma quina na altura
+      // do quadril. A de dentro ninguem ve de perto.
+      const pTorso = parede(0.034, 0.300, 16, rFora(c.perfil.PELVIS, 0))
       g.add(N.sh(new THREE.Mesh(ondular(N.revolver(
         pTorso, c.medida.TORSO_SEG, c.medida.FLAT_Z), 0), m)))
-      g.add(lathe(c, parede(0.300, 0.034, 13, rDentro(c.perfil.PELVIS, 0)), mDentro))
+      g.add(lathe(c, parede(0.300, 0.034, 12, rDentro(c.perfil.PELVIS, 0)), mDentro))
 
       // A casca do peito MORRE EM 0.170 e nao la em cima no decote, e os dois
       // ultimos degraus da tabela de caimento RECOLHEM ela (1,026) na mesma
@@ -738,7 +829,7 @@ export const CAMISAS = [
       // de y = 0.174 — dali pra cima era a CASCA que aparecia por fora da
       // gola, com a borda crua dela exposta. Recolhida, a casca entra na gola
       // como o corpo do moletom entra no punho.
-      const pPeito = parede(0, 0.170, 7, rFora(c.perfil.PEITO))
+      const pPeito = parede(0, 0.170, 7, rFora(c.perfil.PEITO, c.medida.CHEST_Y))
       noPeito.add(N.sh(new THREE.Mesh(ondular(N.revolver(
         pPeito, c.medida.TORSO_SEG, c.medida.FLAT_Z), c.medida.CHEST_Y), m)))
       noPeito.add(lathe(c, parede(0.170, 0, 7, rDentro(c.perfil.PEITO, c.medida.CHEST_Y)), mDentro))
@@ -766,13 +857,29 @@ export const CAMISAS = [
         // dobra — 1 cm ABAIXO da altura onde a corrente do colar da a volta no
         // pescoco (0.212 no espaco do peito), entao gola e colar nunca se
         // encontram.
+        //
+        // O 0,0710 DO TOPO E CONTA, NAO GOSTO, e a conta e a do ACHATAMENTO.
+        // Esta lathe e revolvida com FLAT_Z (0,76), que e o achatamento do
+        // TRONCO — ela precisa dele embaixo pra engolir a borda da casca. Mas o
+        // PESCOCO e achatado por 0,90: em y = 0.202 ele tem 55,2 mm em x e
+        // 49,7 mm em z. Com os 64 mm da primeira versao a gola saia com
+        // 64 x 0,76 = 48,6 mm em z, ou seja, 1,1 mm POR DENTRO da pele do
+        // pescoco — e a pele aparecia atravessando a gola bem na frente e bem
+        // nas costas, que sao as duas direcoes que a camera mais ve (medido:
+        // 1,7 mm de pescoco por fora do pano). Raio escrito na mao contra o
+        // pescoco e o erro numero 1 do CONTRATO. 71 mm da 54 mm em z (4,3 mm de
+        // folga, sobrando ate no vale do canelado) e continua abaixo dos 85 mm
+        // de FOLGA_LARGA nessa altura.
         [[rg(0.156, 1.062, 0.0012), 0.156], [rg(0.178, 1.062, 0.0012), 0.178],
-          [rg(0.192, 1.030, 0.0010), 0.192], [0.0640, 0.202]],
+          [rg(0.192, 1.030, 0.0010), 0.192], [0.0710, 0.202]],
         // Parede de DENTRO, descendo: e ela que fecha o decote, indo do
         // pescoco ate POR DENTRO da casca interna. Sem esse funil o buraco da
         // gola dava vista pro miolo do boneco. 0,995 do perfil na ponta de
         // baixo garante que ela passe por dentro da casca e nao por fora.
-        [[0.0590, 0.202], [0.0800, 0.190], [0.1030, 0.176], [rg(0.156, 0.995, 0), 0.156]],
+        // 66 mm no topo (50,2 mm em z) mantem a espessura de 5 mm da dobra e
+        // ainda passa por FORA do pescoco: assim o funil inteiro fica visivel
+        // por dentro da gola em vez de ser cortado pela pele.
+        [[0.0660, 0.202], [0.0800, 0.190], [0.1030, 0.176], [rg(0.156, 0.995, 0), 0.156]],
         0.9,
       ), 32, c.medida.FLAT_Z)
       noPeito.add(N.sh(new THREE.Mesh(canelar(gola, 8, 0.0016, c.medida.FLAT_Z), mRib)))
@@ -795,15 +902,22 @@ export const CAMISAS = [
       // PELE do cotovelo, que nenhum 'esconde' apaga.
       N.mangaLonga(c, m, { r: 0.058 })
 
-      // PUNHO CANELADO: a mesma dupla parede, agora no espaco do antebraco
-      // (sem achatamento — o braco e redondo). Nasce mais gordo que o tubo da
-      // manga (1,02 contra 1,00 de MANGA_R_PUNHO) pra engolir a ponta dele.
+      // PUNHO CANELADO: a mesma dupla parede, agora no espaco do antebraco (sem
+      // achatamento — o braco e redondo).
+      //
+      // Os multiplicadores saem do TUBO DA MANGA, nao do gosto. mangaLonga
+      // afina o antebraco de 0,97r ate MANGA_R_PUNHO, entao 3,8 cm acima do fim
+      // ele ainda tem 1,034 de MANGA_R_PUNHO — mais gordo que a borda de cima
+      // do punho na primeira tentativa. Resultado: a ponta do tubo aparecia
+      // pelo VALE da canelura, e o punho ficava rasgado de listra. A parede de
+      // fora comeca em 1,10 (1,5 mm de sobra ate no vale) e a de dentro em 1,00,
+      // que passa por dentro do tubo e ainda sobra 1,7 cm ate a pele do pulso.
       const rp = N.MANGA_R_PUNHO
       const yf = -(c.medida.FORE_ARM - N.MANGA_FIM_Y)
       for (const s of ['R', 'L']) {
         const p = N.revolver(comEspessura(
-          [[rp * 1.02, yf + 0.036], [rp * 1.02, yf - 0.001]],
-          [[rp * 1.10, yf - 0.001], [rp * 1.12, yf + 0.016], [rp * 1.06, yf + 0.038]],
+          [[rp * 1.00, yf + 0.040], [rp * 1.02, yf - 0.001]],
+          [[rp * 1.10, yf - 0.001], [rp * 1.13, yf + 0.016], [rp * 1.10, yf + 0.040]],
         ), 24, 1)
         c.montar(N.sh(new THREE.Mesh(canelar(p, 6, 0.0016, 1), mRib)), 'arm' + s + 'Lower')
       }

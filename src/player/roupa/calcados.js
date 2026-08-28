@@ -766,6 +766,27 @@ function esculpir(g, o, fora = 0) {
     pos.setXYZ(i, p[0], cz > 0 ? p[1] : o.base + cz * (o.prato || 0.005), p[2])
   }
   pos.needsUpdate = true
+  // A CASCA NASCIA AO AVESSO, E ERA POR CAUSA DESTE REMAPEAMENTO.
+  //
+  // pontoMoc troca dois eixos da esfera de lugar: o Y dela (polo a polo) vira o
+  // COMPRIMENTO do pe (o Z do sapato) e o Z dela vira a altura da secao (o Y do
+  // sapato). Trocar dois eixos e uma permutacao de determinante -1 — uma
+  // reflexao —, e reflexao inverte a MAO da malha: o enrolamento que saia
+  // anti-horario visto de fora passa a sair horario, e todo triangulo fica com
+  // a normal apontando pro miolo do sapato. Com o backface culling ligado (o
+  // couro e FrontSide) o cabedal e a sola simplesmente NAO APARECIAM: dava pra
+  // ver o pe por dentro do mocassim. Nao aparecia em nenhuma conta de tamanho
+  // nem no orcamento de triangulos, so no sinal do volume.
+  // Inverter cada triangulo aqui desfaz a reflexao e custa zero em runtime.
+  const idx = g.index
+  if (idx) {
+    for (let t = 0; t < idx.count; t += 3) {
+      const a = idx.getX(t)
+      idx.setX(t, idx.getX(t + 2))
+      idx.setX(t + 2, a)
+    }
+    idx.needsUpdate = true
+  }
   g.computeVertexNormals()
   // A esfera fecha a volta DUPLICANDO a coluna de vertices — sem soldar, um
   // risco aceso desce pelo meio do bico.

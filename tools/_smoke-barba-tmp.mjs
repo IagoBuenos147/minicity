@@ -1,15 +1,11 @@
-// Smoke adversarial dos OLHOS: 5 itens x 6 cranios.
-//   node tools/_smoke-olhos-tmp.mjs
-//
-// Modelado no _smoke-cabelo-tmp.mjs: caixa por vertice, normais, folga contra a
-// MALHA do cranio realmente desenhada, costura de revolucao, orcamento de
-// triangulo, geometria compartilhada, useHead, determinismo e Z nao-fixo.
-// Acrescenta o que so o olho precisa: triangulo COSTADO em peca de material
-// FrontSide (iris/esclera/pupila invisiveis) e janela de altura do CONTRATO.
+// Smoke adversarial da BARBA: 4 itens x 6 cranios.
+//   node tools/_smoke-barba-tmp.mjs
+// Mesmo molde do _smoke-cabelo-tmp.mjs, com os casos proprios da barba:
+// vao da boca, folga do nariz e adesao a pele.
 import * as THREE from 'three'
-import { OLHOS, OLHO_GLOBO } from '../src/player/rosto/olhos.js'
+import { BARBAS } from '../src/player/rosto/barba.js'
 import {
-  CRANIOS, setActiveHead, makeHeadGeometry, HEAD, HEAD_S, EYE_ANCHOR, surfaceZ,
+  CRANIOS, setActiveHead, makeHeadGeometry, HEAD, HEAD_S,
 } from '../src/player/rosto/nucleo.js'
 
 const S = HEAD_S
@@ -20,35 +16,27 @@ function ok(nome, cond, detalhe) {
   console.log((cond ? 'OK   ' : 'FALHA') + '  ' + nome + (detalhe ? '  -> ' + detalhe : ''))
 }
 
-const ctxDe = (cabeca, olhos = 0) => ({ cabeca, olhos, pele: 3, corCabelo: 1, corBarba: 0 })
+const ctxDe = (cabeca, barba = 0) => ({ cabeca, barba, pele: 3, corCabelo: 1, corBarba: 0 })
 
 // --------------------------------------------------------------------------
 function analisa(obj) {
   const r = {
     meshes: 0, tris: 0, verts: 0, nan: 0, degen: 0, idxFora: 0,
-    bbox: new THREE.Box3(), semNormal: 0, costura: 0, costadas: 0, costadasOnde: '',
-    dobro: 0,
+    bbox: new THREE.Box3(), costadas: 0, semNormal: 0, costura: 0, piorDot: 1,
   }
-  const m4 = new THREE.Matrix4()
-  const nm = new THREE.Matrix3()
-  obj.updateMatrixWorld(true)
   obj.traverse((o) => {
     if (!o.isMesh) return
     r.meshes++
     const g = o.geometry
-    m4.copy(o.matrixWorld)
-    nm.getNormalMatrix(m4)
     const pos = g.attributes.position
     r.verts += pos.count
     const idx = g.index ? g.index.array : null
     const nTri = idx ? idx.length / 3 : pos.count / 3
     r.tris += nTri
-    const w = new THREE.Vector3()
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { r.nan++; continue }
-      w.set(x, y, z).applyMatrix4(m4)
-      r.bbox.expandByPoint(w)
+      r.bbox.expandByPoint(new THREE.Vector3(x, y, z))
     }
     const nor = g.attributes.normal
     if (nor) {
@@ -57,14 +45,10 @@ function analisa(obj) {
         if (!(m > 0.5)) r.semNormal++
       }
       // COSTURA NAO SOLDADA: vertices na MESMA posicao com normais diferentes.
-      // ExtrudeGeometry fica de fora: tampa contra parede e ARESTA VIVA de
-      // projeto, nao emenda de revolucao — a normal ali TEM que ser diferente.
       const mapa = new Map()
-      if (g.type !== 'ExtrudeGeometry') {
-        for (let i = 0; i < pos.count; i++) {
-          const k = pos.getX(i) + '|' + pos.getY(i) + '|' + pos.getZ(i)
-          const l = mapa.get(k); if (l) l.push(i); else mapa.set(k, [i])
-        }
+      for (let i = 0; i < pos.count; i++) {
+        const k = pos.getX(i) + '|' + pos.getY(i) + '|' + pos.getZ(i)
+        const l = mapa.get(k); if (l) l.push(i); else mapa.set(k, [i])
       }
       for (const lista of mapa.values()) {
         if (lista.length < 2) continue
@@ -72,18 +56,11 @@ function analisa(obj) {
         for (let q = 1; q < lista.length; q++) {
           const b = lista[q]
           const d = nor.getX(a) * nor.getX(b) + nor.getY(a) * nor.getY(b) + nor.getZ(a) * nor.getZ(b)
+          if (d < r.piorDot) r.piorDot = d
           if (d < 0.999) { r.costura++; break }
         }
       }
     }
-    // triangulo COSTADO: so importa em SUPERFICIE ABERTA de material de uma
-    // face so. Sphere/Extrude/Tube/Lathe sao VOLUMES fechados — metade das
-    // faces deles aponta pra tras por construcao e fica ocluida pela outra
-    // metade; conta-las seria so ruido. As superficies abertas deste arquivo
-    // (leque, fundoDoOlho, cascaOrbita, faixaVarrida, tiras) sao todas
-    // BufferGeometry montada na mao, e nelas UM triangulo costado ja e um furo.
-    const umaFace = !(o.material && o.material.side === THREE.DoubleSide)
-      && g.type === 'BufferGeometry'
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
     const ab = new THREE.Vector3(), ac = new THREE.Vector3(), n = new THREE.Vector3()
     for (let t = 0; t < nTri; t++) {
@@ -91,30 +68,22 @@ function analisa(obj) {
       const ib = idx ? idx[t * 3 + 1] : t * 3 + 1
       const ic = idx ? idx[t * 3 + 2] : t * 3 + 2
       if (ia >= pos.count || ib >= pos.count || ic >= pos.count) { r.idxFora++; continue }
-      a.fromBufferAttribute(pos, ia).applyMatrix4(m4)
-      b.fromBufferAttribute(pos, ib).applyMatrix4(m4)
-      c.fromBufferAttribute(pos, ic).applyMatrix4(m4)
+      a.fromBufferAttribute(pos, ia); b.fromBufferAttribute(pos, ib); c.fromBufferAttribute(pos, ic)
       ab.subVectors(b, a); ac.subVectors(c, a); n.crossVectors(ab, ac)
       const area = n.length() * 0.5
-      if (!(area > 1e-12)) { r.degen++; continue }
-      if (!umaFace) continue
+      if (!(area > 1e-11)) { r.degen++; continue }
       const cx = (a.x + b.x + c.x) / 3, cy = (a.y + b.y + c.y) / 3, cz = (a.z + b.z + c.z) / 3
-      // direcao "pra fora da cabeca" no centroide (gradiente do elipsoide base)
       const gx = cx / (HEAD.rx * HEAD.rx), gy = cy / (HEAD.ry * HEAD.ry), gz = cz / (HEAD.rz * HEAD.rz)
       const gm = Math.hypot(gx, gy, gz) || 1
       const d = (n.x / (2 * area)) * (gx / gm) + (n.y / (2 * area)) * (gy / gm) + (n.z / (2 * area)) * (gz / gm)
-      if (d < -0.30) {
-        r.costadas++
-        if (!r.costadasOnde) r.costadasOnde = (o.material && o.material.name) || ('mesh#' + r.meshes) +
-          ' em y=' + cy.toFixed(3) + ' z=' + cz.toFixed(3)
-      }
+      if (d < -0.30) r.costadas++
     }
   })
   return r
 }
 
 // --------------------------------------------------------------------------
-// FOLGA CONTRA A CABECA REALMENTE DESENHADA.
+// FOLGA CONTRA A CABECA REALMENTE DESENHADA (nao contra o campo).
 // --------------------------------------------------------------------------
 const NB = 96
 function indiceCranio(geo) {
@@ -164,136 +133,158 @@ function raioMalha(ind, dx, dy, dz) {
   }
   return melhor
 }
-/**
- * Folga radial (m) contra a malha do cranio.
- *
- * O olho NAO e o cabelo: metade dele mora DENTRO da cabeca de proposito (o
- * globo e uma esfera afundada na orbita), entao "folga minima" nao diz nada
- * sozinha — nos tres metodos com globo ela e sempre ~-80 mm, que e o fundo do
- * globo, e esta certa. O que importa e o contrario: como o cranio e CASCA
- * FECHADA, uma peca colorida inteiramente atras de surfaceZ nao existe pro
- * jogador. Entao mede-se, por PECA de material de uma face (esclera, iris,
- * limbo, pupila, canto, brilho), quanto ela sobra pra fora — e cobra-se da
- * PIOR delas. A pele/palpebra e DoubleSide e pode afundar a vontade: e ela
- * que fecha o olho por tras.
- */
 function folgas(obj, ind) {
-  let max = -Infinity, ondeMax = ''
-  let piorPeca = Infinity, ondePeca = ''
-  const w = new THREE.Vector3()
-  obj.updateMatrixWorld(true)
-  let n = 0
+  let min = Infinity, max = -Infinity, ondeMin = ''
   obj.traverse((o) => {
     if (!o.isMesh) return
-    n++
-    const visivel = !(o.material && o.material.side === THREE.DoubleSide)
     const pos = o.geometry.attributes.position
-    let mxPeca = -Infinity
     for (let i = 0; i < pos.count; i++) {
-      w.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld)
-      const m = w.length()
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+      const m = Math.hypot(x, y, z)
       if (!(m > 1e-6)) continue
-      const t = raioMalha(ind, w.x / m, w.y / m, w.z / m)
+      const t = raioMalha(ind, x / m, y / m, z / m)
       if (t < 0) continue
       const d = m - t
-      if (d > max) { max = d; ondeMax = 'y=' + w.y.toFixed(3) + ' az=' + Math.atan2(w.x, w.z).toFixed(2) }
-      if (d > mxPeca) mxPeca = d
-    }
-    if (visivel && mxPeca > -Infinity && mxPeca < piorPeca) {
-      piorPeca = mxPeca
-      ondePeca = 'mesh#' + n + ' (' + o.geometry.type + ')'
+      if (d < min) { min = d; ondeMin = 'y=' + y.toFixed(3) + ' az=' + Math.atan2(x, z).toFixed(2) }
+      if (d > max) max = d
     }
   })
-  return [piorPeca, max, ondePeca, ondeMax]
-}
-
-/** So a folga da LATERAL (|az| > 0.75 rad): o calombo da tempora. */
-function folgaLateral(obj, ind) {
-  let max = -Infinity, onde = ''
-  const w = new THREE.Vector3()
-  obj.traverse((o) => {
-    if (!o.isMesh) return
-    const pos = o.geometry.attributes.position
-    for (let i = 0; i < pos.count; i++) {
-      w.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld)
-      const m = w.length()
-      if (!(m > 1e-6)) continue
-      if (Math.abs(Math.atan2(w.x, w.z)) < 0.75) continue
-      const t = raioMalha(ind, w.x / m, w.y / m, w.z / m)
-      if (t < 0) continue
-      if (m - t > max) { max = m - t; onde = 'y=' + w.y.toFixed(3) + ' az=' + Math.atan2(w.x, w.z).toFixed(2) }
-    }
-  })
-  return [max === -Infinity ? 0 : max, onde]
+  return [min, max, ondeMin]
 }
 
 // --------------------------------------------------------------------------
-console.log('=== OLHOS: ' + OLHOS.length + ' itens ===')
-ok('o catalogo tem 5 itens (CONTRATO §9)', OLHOS.length === 5, String(OLHOS.length))
-for (const b of OLHOS) {
+// CASOS PROPRIOS DA BARBA
+// --------------------------------------------------------------------------
+const Y_BOCA = -0.082 * S
+const X_BOCA = 0.047
+const Y_NARIZ = -0.035 * S
+const Y_OLHO = 0.035 * S
+const MEIA_BOCA = 0.011   // labio de ate 0.014*S + folga
+
+/** Vertices dentro do vao que a boca ocupa. */
+function invadeBoca(obj) {
+  let n = 0, acima = Infinity, abaixo = Infinity
+  obj.traverse((o) => {
+    if (!o.isMesh) return
+    const pos = o.geometry.attributes.position
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+      if (z <= 0 || Math.abs(x) >= X_BOCA) continue
+      const d = y - Y_BOCA
+      if (Math.abs(d) < MEIA_BOCA) n++
+      if (d >= 0 && d < acima) acima = d
+      if (d < 0 && -d < abaixo) abaixo = -d
+    }
+  })
+  return [n, acima, abaixo]
+}
+
+/** Maior y no setor do NARIZ (|x| < 24 mm, frente) — nao pode cruzar a base. */
+function topoNoNariz(obj) {
+  let max = -Infinity
+  obj.traverse((o) => {
+    if (!o.isMesh) return
+    const pos = o.geometry.attributes.position
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+      if (z <= 0 || Math.abs(x) >= 0.024) continue
+      if (y > max) max = y
+    }
+  })
+  return max
+}
+
+/** Maior y em toda a frente — nao pode chegar no olho. */
+function topoNaFrente(obj) {
+  let max = -Infinity
+  obj.traverse((o) => {
+    if (!o.isMesh) return
+    const pos = o.geometry.attributes.position
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i)
+      if (z <= 0) continue
+      const y = pos.getY(i)
+      if (y > max) max = y
+    }
+  })
+  return max
+}
+
+// --------------------------------------------------------------------------
+console.log('=== BARBAS: ' + BARBAS.length + ' itens ===')
+ok('o catalogo tem 4 itens (CONTRATO §9)', BARBAS.length === 4, String(BARBAS.length))
+ok('indice 0 devolve null (sem barba)', BARBAS[0].build(ctxDe(0, 0)) === null)
+for (const b of BARBAS) {
   ok('item ' + b.id + ' tem id/nome/name/metodo/build',
     !!(b.id && b.nome && b.name && b.metodo && typeof b.build === 'function'))
 }
-ok('OLHO_GLOBO tem uma entrada por item', OLHO_GLOBO.length === OLHOS.length,
-  OLHO_GLOBO.length + ' vs ' + OLHOS.length)
+{
+  const ms = BARBAS.map((b) => b.metodo)
+  ok('os 4 metodos declarados sao distintos', new Set(ms).size === ms.length, ms.join(' | '))
+}
 
 const ORCAMENTO = 12000
-// janela do CONTRATO §5: sobrancelha em +0.096*S, base do nariz em -0.035*S
-const Y_SOBRANCELHA = 0.096 * S
-const Y_NARIZ = -0.035 * S
-const Y_OLHO = EYE_ANCHOR.y
-
 const tabela = []
 const indices = []
 for (let ci = 0; ci < CRANIOS.length; ci++) indices.push(indiceCranio(makeHeadGeometry(ci, 1)))
 
 for (let ci = 0; ci < CRANIOS.length; ci++) {
-  for (let bi = 0; bi < OLHOS.length; bi++) {
-    const item = OLHOS[bi]
+  for (let bi = 0; bi < BARBAS.length; bi++) {
+    const item = BARBAS[bi]
     let obj = null, erro = null
     try { obj = item.build(ctxDe(ci, bi)) } catch (e) { erro = e }
     ok('build ' + item.id + ' no cranio ' + CRANIOS[ci].id + ' nao lanca', !erro, erro && String(erro.stack || erro))
     if (!obj) continue
     setActiveHead(ci)
     const r = analisa(obj)
-    const [fpeca, fmax, ondePeca, ondeMax] = folgas(obj, indices[ci])
-    const [flat, ondeLat] = folgaLateral(obj, indices[ci])
+    const [fmin, fmax, onde] = folgas(obj, indices[ci])
+    const [nBoca, acima, abaixo] = invadeBoca(obj)
+    const nariz = topoNoNariz(obj)
+    const frente = topoNaFrente(obj)
     tabela.push({
       cranio: CRANIOS[ci].id, item: item.id, meshes: r.meshes, tris: r.tris,
       y: [r.bbox.min.y, r.bbox.max.y], z: [r.bbox.min.z, r.bbox.max.z], x: [r.bbox.min.x, r.bbox.max.x],
-      folga: [fpeca, fmax], lat: flat,
+      folga: [fmin, fmax], boca: [acima, abaixo], nariz, costura: r.costura, degen: r.degen,
     })
     const tag = '  ' + item.id + '/' + CRANIOS[ci].id + ': '
     ok(tag + 'sem NaN, sem indice fora, sem normal nula',
       r.nan === 0 && r.idxFora === 0 && r.semNormal === 0,
       'nan=' + r.nan + ' idxFora=' + r.idxFora + ' normalZero=' + r.semNormal)
     ok(tag + 'orcamento de triangulos (<=' + ORCAMENTO + ')', r.tris <= ORCAMENTO, r.tris + ' tris')
-    ok(tag + 'nenhum triangulo COSTADO em material de uma face', r.costadas === 0,
-      r.costadas + ' costados ' + r.costadasOnde)
-    ok(tag + 'costura de revolucao soldada', r.costura === 0, r.costura + ' vertices de costura')
-    ok(tag + 'TODA peca colorida sai da pele (o cranio e casca fechada)', fpeca > 0.0002,
-      'a mais escondida sobra ' + (fpeca * 1000).toFixed(2) + ' mm: ' + ondePeca)
-    ok(tag + 'nao flutuando (folga max <= 30 mm)', fmax <= 0.030,
-      'folga max ' + (fmax * 1000).toFixed(2) + ' mm em ' + ondeMax)
-    ok(tag + 'calombo LATERAL menor que o frontal', flat <= fmax + 1e-9 && flat <= 0.022,
-      'lateral ' + (flat * 1000).toFixed(2) + ' mm em ' + ondeLat + ' (max ' + (fmax * 1000).toFixed(2) + ')')
-    ok(tag + 'caixa na janela do rosto (abaixo da sobrancelha, acima do nariz)',
-      r.bbox.max.y <= Y_SOBRANCELHA + 0.030 && r.bbox.min.y >= Y_NARIZ - 0.030,
-      'y ' + r.bbox.min.y.toFixed(4) + '..' + r.bbox.max.y.toFixed(4) +
-      ' (sobrancelha ' + Y_SOBRANCELHA.toFixed(4) + ', nariz ' + Y_NARIZ.toFixed(4) + ')')
-    ok(tag + 'o olho cobre a ancora y=' + Y_OLHO.toFixed(4),
-      r.bbox.min.y < Y_OLHO && r.bbox.max.y > Y_OLHO)
-    ok(tag + 'nao passa da lateral da cabeca', r.bbox.max.x <= HEAD.rx * 1.02,
-      'x max ' + r.bbox.max.x.toFixed(4) + ' vs rx ' + HEAD.rx.toFixed(4))
-    ok(tag + 'simetrico', Math.abs(r.bbox.max.x + r.bbox.min.x) < 1e-6,
-      r.bbox.min.x.toFixed(5) + ' / ' + r.bbox.max.x.toFixed(5))
-    if (r.degen) avisos.push(item.id + '/' + CRANIOS[ci].id + ': ' + r.degen + ' triangulos degenerados')
+    // cranio 5: malhaConchas amostra a superelipse na MALHA e sai ate 11% mais
+    // gordo que o campo; nenhuma peca construida a partir do campo escapa.
+    if (ci === 5 && fmin < -0.005) {
+      avisos.push('CONHECIDO (nucleo.malhaConchas): ' + item.id + '/mandibula afunda ' +
+        (-fmin * 1000).toFixed(1) + ' mm em ' + onde)
+    } else {
+      ok(tag + 'nao enterrado na malha do cranio (>= -8 mm; a base do tufo tem que ficar enterrada)',
+        fmin >= -0.008, 'folga min ' + (fmin * 1000).toFixed(2) + ' mm em ' + onde)
+    }
+    ok(tag + 'nao flutuando (folga max <= 30 mm)', fmax <= 0.030, 'folga max ' + (fmax * 1000).toFixed(2) + ' mm')
+    ok(tag + 'VAO DA BOCA livre (+-' + (MEIA_BOCA * 1000) + ' mm de y=' + Y_BOCA.toFixed(4) + ', |x|<' + X_BOCA + ')',
+      nBoca === 0, nBoca + ' vertices; folga acima ' + (acima * 1000).toFixed(1) +
+      ' mm, abaixo ' + (abaixo * 1000).toFixed(1) + ' mm')
+    ok(tag + 'nao cruza a base do nariz (' + Y_NARIZ.toFixed(4) + ')',
+      nariz <= Y_NARIZ + 1e-4, 'topo no setor do nariz ' + nariz.toFixed(4) +
+      ' (' + ((nariz - Y_NARIZ) * 1000).toFixed(2) + ' mm)')
+    ok(tag + 'nao chega no olho (' + Y_OLHO.toFixed(4) + ')',
+      frente < Y_OLHO - 0.010, 'topo na frente ' + frente.toFixed(4))
+    ok(tag + 'costura soldada (vertice coincidente com normal divergente)', r.costura === 0,
+      r.costura + ' vertices de costura (pior dot ' + r.piorDot.toFixed(4) + ')')
+    // Triangulo "de costas" NAO e falha neste catalogo: fio() e tufo() sao
+    // TUBOS — metade da casca de qualquer tubo aponta pro cranio por definicao
+    // — e todo material de pelo (peloMat/hairMat) e DoubleSide. So vale como
+    // numero de acompanhamento.
+    if (r.costadas) avisos.push(item.id + '/' + CRANIOS[ci].id + ': ' + r.costadas +
+      ' triangulos virados pro cranio (tubo de pelo, material DoubleSide)')
+    if (r.degen) avisos.push(item.id + '/' + CRANIOS[ci].id + ': ' + r.degen + ' triangulos degenerados (colapso de headShell)')
   }
 }
 
 // --- geometria compartilhada entre builds ---------------------------------
-for (const item of OLHOS) {
+for (const item of BARBAS) {
   const a = item.build(ctxDe(0)), b = item.build(ctxDe(0))
+  if (!a || !b) continue
   const ga = [], gb = []
   a.traverse((o) => o.isMesh && ga.push(o.geometry))
   b.traverse((o) => o.isMesh && gb.push(o.geometry))
@@ -307,16 +298,13 @@ for (const item of OLHOS) {
 
 // --- useHead() de verdade --------------------------------------------------
 function assinatura(obj) {
+  if (!obj) return 'null'
   const bb = new THREE.Box3()
-  obj.updateMatrixWorld(true)
-  obj.traverse((o) => {
-    if (!o.isMesh) return
-    o.geometry.computeBoundingBox()
-    bb.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld))
-  })
+  obj.traverse((o) => { if (o.isMesh) { o.geometry.computeBoundingBox(); bb.union(o.geometry.boundingBox) } })
   return [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map((v) => v.toFixed(6)).join(',')
 }
-for (const item of OLHOS) {
+for (const item of BARBAS) {
+  if (!item.build(ctxDe(0))) continue
   const s0a = assinatura(item.build(ctxDe(0)))
   const s5 = assinatura(item.build(ctxDe(5)))
   const s0b = assinatura(item.build(ctxDe(0)))
@@ -327,6 +315,7 @@ for (const item of OLHOS) {
 // --- build deterministico --------------------------------------------------
 function hashPos(obj) {
   let h = 0
+  if (!obj) return h
   obj.traverse((o) => {
     if (!o.isMesh) return
     const p = o.geometry.attributes.position.array
@@ -334,58 +323,43 @@ function hashPos(obj) {
   })
   return h
 }
-for (const item of OLHOS) {
+for (const item of BARBAS) {
   ok('build deterministico: ' + item.id, hashPos(item.build(ctxDe(2))) === hashPos(item.build(ctxDe(2))))
 }
 
+// --- a cor da barba nao pode mexer na GEOMETRIA ----------------------------
+for (const item of BARBAS) {
+  const a = hashPos(item.build({ cabeca: 1, pele: 3, corCabelo: 1, corBarba: 0 }))
+  const b = hashPos(item.build({ cabeca: 1, pele: 3, corCabelo: 4, corBarba: 7 }))
+  ok('trocar a cor nao re-sorteia a geometria: ' + item.id, a === b)
+}
+
 // --- z nao e fixo ----------------------------------------------------------
-for (const item of OLHOS) {
+for (const item of BARBAS) {
+  if (!item.build(ctxDe(0))) continue
   const zs = []
   for (let ci = 0; ci < CRANIOS.length; ci++) {
     const o = item.build(ctxDe(ci))
     const bb = new THREE.Box3()
-    o.updateMatrixWorld(true)
-    o.traverse((m) => {
-      if (!m.isMesh) return
-      m.geometry.computeBoundingBox()
-      bb.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld))
-    })
+    o.traverse((m) => { if (m.isMesh) { m.geometry.computeBoundingBox(); bb.union(m.geometry.boundingBox) } })
     zs.push(bb.max.z)
   }
   const d = Math.max(...zs) - Math.min(...zs)
-  ok('z acompanha o cranio (nao e constante): ' + item.id, d > 0.003,
+  ok('z acompanha o cranio (nao e constante): ' + item.id, d > 0.005,
     'z max varia ' + (d * 1000).toFixed(1) + ' mm entre os 6')
 }
 
-// --- a piscada achata em Y: nada pode estar fora do grupo ------------------
-for (const item of OLHOS) {
-  const o = item.build(ctxDe(0))
-  let solto = 0
-  o.traverse((c) => { if (c !== o && c.parent === o && !c.isMesh && !c.isGroup) solto++ })
-  ok('a raiz devolvida e um Object3D unico: ' + item.id, o && o.isObject3D && solto === 0)
-}
-
-// --- vertexColors proibido (congelar.js) ----------------------------------
-for (const item of OLHOS) {
-  let comCor = 0
-  const o = item.build(ctxDe(0))
-  o.traverse((c) => { if (c.isMesh && c.geometry.attributes.color) comCor++ })
-  ok('nenhuma geometria traz atributo `color`: ' + item.id, comCor === 0, comCor + ' geos com color')
-}
-
-console.log('\ncranio      item        mesh   tris    y-min   y-max   z-max    x-hw   folga(mm)      lat(mm)')
+console.log('\ncranio      item      mesh   tris   y-min   y-max   z-max    x-hw   folga(mm)      boca a/b(mm)  nariz  cost')
 for (const t of tabela) {
   console.log(
-    t.cranio.padEnd(11) + t.item.padEnd(12) +
+    t.cranio.padEnd(11) + t.item.padEnd(10) +
     String(t.meshes).padStart(4) + String(t.tris).padStart(7) +
-    t.y[0].toFixed(3).padStart(9) + t.y[1].toFixed(3).padStart(8) +
+    t.y[0].toFixed(3).padStart(8) + t.y[1].toFixed(3).padStart(8) +
     t.z[1].toFixed(3).padStart(8) + t.x[1].toFixed(3).padStart(8) +
     ('  ' + (t.folga[0] * 1000).toFixed(1) + '..' + (t.folga[1] * 1000).toFixed(1)).padStart(14) +
-    (t.lat * 1000).toFixed(1).padStart(11))
+    ('  ' + (t.boca[0] * 1000).toFixed(1) + '/' + (t.boca[1] * 1000).toFixed(1)).padStart(14) +
+    t.nariz.toFixed(4).padStart(9) + String(t.costura).padStart(6))
 }
-const porItem = new Map()
-for (const t of tabela) porItem.set(t.item, Math.max(porItem.get(t.item) || 0, t.tris))
-console.log('\ntris (par, pior cranio): ' + [...porItem].map(([k, v]) => k + '=' + v).join('  '))
 
 console.log('\n' + (avisos.length ? 'AVISOS:\n  ' + avisos.join('\n  ') : 'sem avisos'))
 console.log('\n' + (falhas.length ? falhas.length + ' FALHAS:\n  ' + falhas.join('\n  ') : 'TUDO PASSOU'))

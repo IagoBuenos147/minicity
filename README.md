@@ -158,14 +158,24 @@ Cada opção mostra uma **miniatura 3D da peça de verdade**, renderizada no cor
 no tom de pele do seu personagem. Arraste na tela para girar; a câmera aproxima
 sozinha do que você está mexendo.
 
-| Categoria | Opções |
+| Aba | Opções |
 |---|---|
-| Cabeça / olhos / pupila / nariz / boca / barba / cabelo / sobrancelha | 10 a 13 cada |
-| Tom de pele / cor do cabelo | 10 e 11 |
-| **Roupa de cima** (blusa, jaqueta, blazer, terno, moletom — **uma aba só**) | 19 |
-| Chapéu / calça / calçado / colar / anel / relógio / tatuagem | 11 cada |
+| Cabeça | 6 formatos, cada um construído por um método diferente |
+| Olhos | 5 — e a íris faz parte de cada olho (não há mais aba de pupila) |
+| Nariz | 3 + "sem nariz" |
+| Boca | 3 |
+| Barba | 3 + "sem barba" — com pelo visível |
+| Cabelo | 3 |
+| Sobrancelha | 3 |
+| **Cor** (cabelo, **barba** e pele **na mesma aba**) | 11 / 9 / 10 |
+| Chapéu | 6 + nenhum |
+| **Camisas** (camisa, jaqueta, moletom — **uma aba só**) | 3 + sem camisa |
+| Calça / calçado | 3 e 4 + descalço |
+| Colar / anel / relógio / tatuagem | 3 cada + nenhum |
 
-Os estilos vão de social e paletó a cowboy, praiano, academia e blusão.
+Menos opções e mais cuidado em cada uma: **cada item de uma aba é feito por um
+método de construção diferente**, para dar para comparar qual combina com o
+jogo.
 
 ## O que saiu do jogo
 

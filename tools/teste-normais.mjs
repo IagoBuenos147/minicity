@@ -49,6 +49,8 @@ function volumeAssinado(g) {
   return v / 6
 }
 
+function pos0(g) { return g.attributes.position.count / 3 }
+
 function varrer(raiz, rotulo) {
   raiz.traverse((o) => {
     if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return
@@ -63,7 +65,10 @@ function varrer(raiz, rotulo) {
     const caixa = Math.max(1e-9, tam.x * tam.y * tam.z)
     const vol = volumeAssinado(g)
     if (vol < -0.06 * caixa) {
-      ruins.push(rotulo + '  volume ' + (vol * 1e6).toFixed(1) + ' cm3 (caixa ' + (caixa * 1e6).toFixed(1) + ')')
+      const quem = (o.name || '(sem nome)') + ' em ' + ((o.parent && o.parent.name) || '?')
+      ruins.push(rotulo.padEnd(14) + quem.padEnd(34)
+        + ' volume ' + (vol * 1e6).toFixed(1) + ' cm3, caixa ' + (caixa * 1e6).toFixed(1)
+        + ', ' + (g.index ? g.index.count / 3 : pos0(g)) + ' tris')
     }
   })
 }

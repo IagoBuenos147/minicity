@@ -25,7 +25,9 @@ import { soldarNormais } from '../rosto/nucleo.js'
 //   A. manga-tribal — FAIXA ENVOLVENTE. Casca de revolucao dando a volta
 //      INTEIRA no membro, com padrao periodico que fecha na emenda. Cobre
 //      muito, custa quase nada, mas so aceita desenho continuo: figura unica
-//      neste metodo sai cortada ao meio na lateral do braco.
+//      neste metodo sai cortada ao meio na lateral do braco. E, por ser de
+//      REVOLUCAO, so cobre o que e redondo em volta do osso — por isso ela
+//      comeca abaixo do deltoide (ver BRACO_TOPO).
 //
 //   B. falcao — CHAPA FIGURATIVA. Setor de casca de arco limitado colado no
 //      peito, com o desenho recortado por alpha. Nao fecha volta nenhuma,
@@ -38,24 +40,100 @@ import { soldarNormais } from '../rosto/nucleo.js'
 //      close (nenhum serrilhado de alphaTest), brilho especular proprio de
 //      tinta fresca e um volume de decimo de milimetro que textura nao tem.
 //
-// Orcamento do CONTRATO: 1500 triangulos. A custa 468 e B custa 140; C custa
-// 932, que e o preco de nao ter textura.
+// Orcamento do CONTRATO: 1500 triangulos por peca. A custa 936 (o perfil dela e
+// amostrado ponto a ponto na curva do membro, e e isso que a faz acompanhar a
+// pele em vez de boiar), B custa 140 e C custa 932, que e o preco de nao ter
+// textura.
 // ---------------------------------------------------------------------------
 
 // Quanto a tinta sobe acima da pele. Ver o cabecalho.
 const FORA = 0.0015
 
-// Raio das capsulas de pele do braco, de character.js (limbGeo(0.045, 0.225) no
-// braco e limbGeo(0.041, ...) no antebraco). Aqui NAO da pra ler do perfil como
-// a camisa faz: ctx.perfil so entrega PELVIS/PEITO/MANGA, o membro e capsula e
-// nao lathe. Se o braco engordar em character.js, estes dois numeros vao junto.
-const R_BRACO = 0.045
-const R_ANTE = 0.041
+// A PELE DO BRACO NAO E UMA CAPSULA.
+//
+// Nao existe mais limbGeo(0.045, ...) nem cilindro de raio unico: character.js
+// gera braco e antebraco com membroGeo(), um LOFT cujo raio sai de uma curva —
+// ventre do deltoide grosso em cima, afinamento no cotovelo, bojo do
+// braquiorradial e pulso fino. Medido no boneco nu: o braco vai de 0.0470 a
+// 0.0350 e o antebraco de 0.0414 (logo abaixo do cotovelo) a 0.0240 (pulso).
+//
+// Escrever UM raio pro membro inteiro faz os dois defeitos ao mesmo tempo: a
+// tinta AFUNDA onde o membro e gordo e BOIA onde ele e fino. Com 0.041 no
+// antebraco a faixa nascia 1,7 cm por fora do pulso — um tubo pendurado no
+// braco, visivel de qualquer angulo, nao so no close.
+//
+// Entao aqui a tinta le a MESMA curva que gera a pele. Os pares e os
+// comprimentos sao os de character.js (RAIO_BRACO / RAIO_ANTEBRACO com
+// UPPER_ARM - 0.016 e FORE_ARM - 0.018): se o braco mudar la, e esta tabela que
+// vai junto. E o mais perto de raioPerfil() que da pra chegar num membro —
+// ctx.perfil so entrega PELVIS/PEITO/MANGA porque membro e loft, nao lathe.
+const CURVA_BRACO = [
+  [0.00, 0.0455],  // deltoide
+  [0.18, 0.0470],  // ventre do deltoide, o ponto mais grosso
+  [0.55, 0.0405],  // meio do umero
+  [0.86, 0.0355],  // acima do cotovelo
+  [1.00, 0.0350],
+]
+const CURVA_ANTE = [
+  [0.00, 0.0385],
+  [0.16, 0.0415],  // bojo do braquiorradial, logo abaixo do cotovelo
+  [0.55, 0.0330],
+  [0.86, 0.0248],  // pulso
+  [1.00, 0.0240],
+]
 
-// A capsula do braco (mesh em y = -0.1375, meio de 0.225) tem cilindro reto de
-// y = -0.025 a -0.250 e o domo do ombro subindo dali ate +0.020.
-const BRACO_CIL_Y0 = -0.250
-const BRACO_DOMO_Y = -0.025
+/** A MESMA interpolacao suave de curvaR() em character.js. */
+function curvaR(pares, t) {
+  if (t <= pares[0][0]) return pares[0][1]
+  for (let i = 1; i < pares.length; i++) {
+    if (t <= pares[i][0]) {
+      const a = pares[i - 1], b = pares[i]
+      const k = (t - a[0]) / (b[0] - a[0])
+      return a[1] + (b[1] - a[1]) * k * k * (3 - 2 * k)
+    }
+  }
+  return pares[pares.length - 1][1]
+}
+
+/**
+ * Raio da pele do membro na altura y — y = 0 na junta, o membro desce em -Y.
+ * Fora do trecho do loft vale a CUPULA que membroGeo poe nas duas pontas (meia
+ * esfera achatada em 0.72). Nao e enfeite: e a cupula do topo do antebraco que
+ * cobre o cotovelo dobrado, e por causa dela que character.js pode ter tirado a
+ * bola de cotovelo.
+ */
+function raioMembro(pares, len, y) {
+  const rTopo = pares[0][1]
+  const rBase = pares[pares.length - 1][1]
+  if (y > 0) {
+    const k = Math.min(1, y / (rTopo * 0.72))
+    return rTopo * Math.sqrt(Math.max(0, 1 - k * k))
+  }
+  if (y < -len) {
+    const k = Math.min(1, (-y - len) / (rBase * 0.72))
+    return rBase * Math.sqrt(Math.max(0, 1 - k * k))
+  }
+  return curvaR(pares, -y / len)
+}
+
+// ONDE A FAIXA DO BRACO PARA, e por que nao no ombro.
+//
+// character.js pendura no braco o DELTOIDE: um elipsoide (0.052, 0.058, 0.050)
+// centrado em y = -0.020 e deslocado 8 mm pra DENTRO do corpo. Ele chega a
+// 6,0 cm do eixo do braco do lado de dentro contra 4,4 cm do lado de fora — ou
+// seja, ele NAO e um solido de revolucao em volta do osso. Uma casca revolvida
+// que o cobrisse teria que ter 6,1 cm de raio e boiaria 1,6 cm do lado de fora;
+// a versao anterior desta faixa escolheu o contrario, ficou em 4,65 cm, e
+// enterrou 1,35 cm do ombro DENTRO da tinta (a bola do deltoide atravessava o
+// desenho). Nenhum dos dois e aceitavel, entao a faixa comeca abaixo dele: a
+// manga nasce no biceps, que e onde manga tribal nasce mesmo.
+// O deltoide passa da casca acima de y = -0.058; -0.062 deixa 4 mm de margem.
+const BRACO_TOPO = -0.062
+// A base da faixa do braco entra 8 mm na CUPULA DE BAIXO do loft (por isso sai
+// do comprimento do membro e nao de um numero fixo): e la que a cupula do
+// antebraco, que vem pela OUTRA junta e e mais gorda, engole a borda desta.
+// Assim a manga nao abre vao no cotovelo nem com ele dobrado.
+const bracoBase = (len) => -(len + 0.008)
 
 // Tinta de verdade em pele clara LE CINZA-AZULADO. Preto puro num boneco
 // estilizado nao le como tatuagem, le como buraco no braco.
@@ -192,38 +270,50 @@ function desenhoTribal(g, s) {
 }
 
 /**
- * Perfil da faixa do BRACO: cilindro reto ate o ombro e, no ombro, a MESMA
- * esfera da ponta da capsula so que 1,5 mm maior. Fazer o domo a mao (dois
- * pontos e uma reta entre eles) afundava a tinta na pele no meio do deltoide,
- * que e onde a esfera e mais gorda.
+ * Perfil da faixa do BRACO: a curva de raio da PELE + FORA, amostrada ponto a
+ * ponto. Nao ha cilindro nem domo escrito a mao — o loft ja tem os dois, e foi
+ * exatamente isso que a versao anterior errou (cilindro de raio unico com um
+ * domo de esfera colado em cima de um membro que nao e nem cilindro nem esfera).
  */
-function perfilBraco() {
-  const R = R_BRACO + FORA
-  const p = [[R, BRACO_CIL_Y0 - 0.002], [R, BRACO_DOMO_Y]]
-  for (let i = 1; i <= 4; i++) {
-    const dy = (i / 4) * (R - 0.0009)   // 0.9 mm de sobra pro domo nao virar bico
-    p.push([Math.sqrt(Math.max(1e-6, R * R - dy * dy)), BRACO_DOMO_Y + dy])
+function perfilBraco(c) {
+  const len = c.medida.UPPER_ARM - 0.016
+  const base = bracoBase(len)
+  const p = []
+  for (let i = 0; i <= 10; i++) {
+    const y = base + (BRACO_TOPO - base) * (i / 10)
+    p.push([raioMembro(CURVA_BRACO, len, y) + FORA, y])
   }
   return p
 }
 
-// Perfil da faixa do ANTEBRACO, no espaco do cotovelo (armRLower). Os raios sao
-// o ENVELOPE da pele naquela altura + 1,5 mm, e o envelope ali e a uniao de
-// tres coisas: a ponta da capsula do braco (esfera r 0.045 centrada em +0.030),
-// a bola do cotovelo (r 0.042 na origem) e a capsula do antebraco (r 0.041 a
-// partir de -0.041). O afinamento em -0.024 nao e enfeite: e o vinco do
-// cotovelo, e um tubo de raio unico passando reto por ali boiava 1 cm.
-const PERFIL_ANTEBRACO = [
-  [R_ANTE + FORA, -0.215],
-  [R_ANTE + FORA, -0.045],
-  [0.0425, -0.036],
-  [0.0400, -0.024],
-  [0.0420, -0.012],
-  [0.0435, 0.000],
-  [0.0442, 0.010],
-  [0.0460, 0.020],
-  [R_BRACO + FORA, 0.030],
-]
+/**
+ * Perfil da faixa do ANTEBRACO, no espaco do COTOVELO (armRLower): do pulso ate
+ * a junta, e dali a CUPULA do proprio antebraco.
+ *
+ * A cupula tem que estar aqui. Ela e a peca que cobre a articulacao — o topo do
+ * antebraco (3,85 cm) e mais gordo que a ponta do braco (3,5 cm), e e por isso
+ * que character.js nao precisa mais de bola de cotovelo. A versao anterior
+ * terminava esta faixa num ARO de 4,65 cm de raio no y = +0.030: um disco
+ * pendurado no cotovelo, 2 cm mais largo que a pele, que abria conforme o braco
+ * dobrava.
+ */
+function perfilAntebraco(c) {
+  const len = c.medida.FORE_ARM - 0.018
+  // Para 1,8 cm antes do fim do loft: dali pra baixo comeca a cupula do pulso,
+  // que ja e a mao. Sai do comprimento do membro, nao de um numero fixo.
+  const baixo = -(len - 0.018)
+  const p = []
+  for (let i = 0; i <= 12; i++) {
+    const y = baixo * (1 - i / 12)
+    p.push([raioMembro(CURVA_ANTE, len, y) + FORA, y])
+  }
+  const rT = CURVA_ANTE[0][1] + FORA
+  for (let i = 1; i <= 4; i++) {
+    const phi = (i / 4) * (Math.PI / 2)
+    p.push([rT * Math.cos(phi), rT * 0.72 * Math.sin(phi)])
+  }
+  return p
+}
 
 // ===========================================================================
 // B. CHAPA FIGURATIVA — silhueta, e nao padrao
@@ -390,8 +480,8 @@ function tracoTinta(curva, rRaiz, rPonta, achata, segT = 32, segR = 5) {
  * eixo achatado para sempre em +Z, e o ponto que nao estivesse exatamente na
  * frente do braco nascia de perfil — um risco fino em vez de um ponto.
  */
-function pontoTinta(mat, ang, y, raio, achata = 0.4) {
-  const rEixo = R_ANTE + FORA - raio * achata
+function pontoTinta(mat, ang, y, rTinta, raio, achata = 0.4) {
+  const rEixo = rTinta - raio * achata
   const m = N.malha(new THREE.SphereGeometry(raio, 8, 5), mat,
     Math.sin(ang) * rEixo, y, Math.cos(ang) * rEixo)
   m.scale.set(1, achata, 1)
@@ -406,25 +496,27 @@ export const TATUAGENS = [
   {
     id: 'manga-tribal',
     nome: 'Manga tribal',
-    metodo: 'faixa envolvente: casca de revolucao no braco inteiro com padrao periodico que fecha na emenda',
+    metodo: 'faixa envolvente: casca de revolucao do biceps ao pulso, com o raio saindo da curva de pele do proprio membro e padrao periodico que fecha na emenda',
     build(c) {
-      // faixaMembro() do nucleo e um CILINDRO reto, e o braco nao e reto: tem o
-      // domo do ombro em cima e o vinco do cotovelo no meio. A faixa aqui sai
-      // do mesmo lugar (uma superficie de revolucao dando a volta inteira), so
-      // que com o raio certo em CADA altura — e por isso a manga cobre do
-      // deltoide ao pulso sem nenhum pedaco de pele solto entre as pecas.
+      // faixaMembro() do nucleo e um CILINDRO reto, e o braco nao e reto: ele
+      // engorda no ventre do deltoide e afina do cotovelo pro pulso. A faixa
+      // aqui sai do mesmo lugar (uma superficie de revolucao dando a volta
+      // inteira), so que com o raio da PELE em CADA altura — e por isso a manga
+      // acompanha o membro do biceps ao pulso em vez de afundar em cima e boiar
+      // embaixo.
       const mat = tinta('tribal-manga', desenhoTribal)
 
-      // Braco: um so mesh do cotovelo ao deltoide. O topo morre dentro do torso,
-      // que e onde a manga da camisa tambem morre.
-      c.montar(cascaMembro(perfilBraco(), mat), 'armRUpper')
+      // Braco: um so mesh, do biceps ate dentro da cupula do cotovelo. O topo
+      // para abaixo do deltoide — ver BRACO_TOPO.
+      c.montar(cascaMembro(perfilBraco(c), mat), 'armRUpper')
 
       // Cotovelo + antebraco: outro mesh, na OUTRA junta. Tem que ser separado
       // mesmo: os dois moram em juntas diferentes e a tinta precisa dobrar com
       // o cotovelo. Uma casca so, montada numa junta, arrancaria do braco na
-      // primeira flexao. O topo desta casca (0.030 no espaco do cotovelo)
-      // encosta na base da de cima (-0.250 no espaco do ombro): a manga fecha.
-      c.montar(cascaMembro(PERFIL_ANTEBRACO, mat), 'armRLower')
+      // primeira flexao. A cupula desta casca sobe ate +0.0288 no espaco do
+      // cotovelo e engole a borda da de cima (-0.272 no espaco do ombro, que e
+      // -0.008 aqui): a manga fecha, dobrada ou esticada.
+      c.montar(cascaMembro(perfilAntebraco(c), mat), 'armRLower')
       return null
     },
   },
@@ -474,7 +566,13 @@ export const TATUAGENS = [
       // qualquer angulo rasante. A conta e por TRACO e nao uma so: a passada
       // fina e mais rasa, e usando o eixo da passada grossa ela nascia com 0,8
       // mm de crista — meio milimetro de tinta em cima de um braco a 4 m.
-      const eixoDe = (rr) => R_ANTE + FORA - rr * achata
+      //
+      // E e por ALTURA, nao um raio so. O antebraco vai de 0.0396 em y = -0.055
+      // a 0.0243 em y = -0.200: com um raio unico o comeco do traco encostava na
+      // pele e a ponta dele terminava 1,7 cm no ar, junto com os tres pontos.
+      const LEN_A = c.medida.FORE_ARM - 0.018
+      const yDe = (t) => -0.055 - t * 0.145
+      const eixoDe = (y, rr) => raioMembro(CURVA_ANTE, LEN_A, y) + FORA - rr * achata
 
       // A LINHA MESTRA, em funcao de um t de 0 a 1. Tudo do item sai dela: as
       // duas passadas e os tres pontos. Desenhar cada pedaco com angulo proprio
@@ -486,13 +584,12 @@ export const TATUAGENS = [
       const ang = (t, off) => -0.30 + t * 2.55 + off + Math.sin(t * Math.PI * 2) * 0.20
       const espiral = (t0, t1, off, rr) => {
         const ctrl = []
-        const r = eixoDe(rr)
         for (let i = 0; i < 9; i++) {
           const t = t0 + (i / 8) * (t1 - t0)
           const a = ang(t, off)
-          ctrl.push(new THREE.Vector3(
-            Math.sin(a) * r, -0.055 - t * 0.145, Math.cos(a) * r,
-          ))
+          const y = yDe(t)
+          const r = eixoDe(y, rr)
+          ctrl.push(new THREE.Vector3(Math.sin(a) * r, y, Math.cos(a) * r))
         }
         // tensao 0.4 (o padrao e 0.5): com a curva mais frouxa os pontos de
         // controle ficam sobre o cilindro do antebraco mas a curva ENTRE eles
@@ -517,7 +614,7 @@ export const TATUAGENS = [
       // fechando em cima delas o conjunto ganha comeco. O raio do toro ja
       // desconta a espessura pra crista ficar nos mesmos 1,5 mm da fita.
       const t = 0.0022
-      const aro = N.anel(R_ANTE + FORA - t, t, mat, 5, 22)
+      const aro = N.anel(raioMembro(CURVA_ANTE, LEN_A, -0.042) + FORA - t, t, mat, 5, 22)
       aro.rotation.x = Math.PI / 2
       aro.position.y = -0.042
       c.montar(aro, 'armRLower')
@@ -526,7 +623,9 @@ export const TATUAGENS = [
       // gesto perdendo forca, nao uma fileira de bolinhas ao lado do traco.
       for (let i = 0; i < 3; i++) {
         const tp = 0.72 + i * 0.085
-        c.montar(pontoTinta(mat, ang(tp, 0.52), -0.055 - tp * 0.145,
+        const y = yDe(tp)
+        c.montar(pontoTinta(mat, ang(tp, 0.52), y,
+          raioMembro(CURVA_ANTE, LEN_A, y) + FORA,
           0.0038 - i * 0.0008, achata), 'armRLower')
       }
       return null

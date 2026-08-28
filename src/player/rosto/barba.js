@@ -234,9 +234,20 @@ function tufo(ma, p, cresc, lado, comp, raio, achata, giro, verga, aneis = 4, co
   for (let i = 0; i < cols; i++) ma.tri(ant[i], ant[(i + 1) % cols], ponta)
 }
 
-/** Vertice do manto: ponto da pele afastado por `fora` + a ondulacao. */
+/**
+ * Vertice do manto: ponto da pele afastado por `fora` + a ondulacao.
+ *
+ * A ondulacao MORRE no polo do queixo (o fator `polo`). Em theta = PI a normal
+ * de eggNormal e (0,-1,0) para TODOS os azimutes, entao o afastamento decide
+ * sozinho onde o vertice cai: com a onda ligada, as 45 colunas terminam em 45
+ * pontos DIFERENTES do mesmo eixo em vez de num ponto so, o leque do queixo
+ * vira um punhado de slivers e computeVertexNormals devolve normal NULA nos
+ * vertices que sobram so em triangulo degenerado — que na tela e um vertice
+ * preto no fundo do queixo. Com a onda apagada ali, o polo e UM ponto.
+ */
 function pontoManto(ma, theta, az, fora, onda) {
-  pontoNaPele(theta, az, fora + onda * ondaPele(theta, az), _p, _n)
+  const polo = clamp(Math.sin(theta) * 4, 0, 1)
+  pontoNaPele(theta, az, fora + onda * polo * ondaPele(theta, az), _p, _n)
   return ma.v(_p.x, _p.y, _p.z)
 }
 
@@ -343,9 +354,18 @@ export const BARBAS = [
       // entre a barba e o labio de baixo, e 1 cm de amplitude ali e a diferenca
       // entre "borda viva" e "barba comendo a boca" — sem contar que a mordida
       // na frente nem aparece, o queixo esta de perfil pra camera.
+      // O Math.min(PI, ...) e o que faz a sentinela FORA cumprir o que ela
+      // promete. headShell recoloca o vertice em (sin(lim), cos(lim)) SEM
+      // clamp: com lim = 3.30, sin da NEGATIVO (-0.158) e o vertice nao vai pro
+      // polo do queixo — ele vai pro azimute OPOSTO, a 2 cm do eixo. O fim da
+      // barba, em vez de fechar num ponto, dobrava numa aba de casca embaixo do
+      // queixo (medido: 2.1 cm de raio na 'redonda', 3.6 cm na 'mandibula'),
+      // escondida por 0.5 mm dentro da propria calota — e por isso ninguem viu.
+      // Com o clamp o colapso e no polo de verdade e a aba some.
       const linha = (az) => {
         const g = smoothstep(0.30, 0.78, az < 0 ? -az : az)
-        return base(az) + g * (0.028 * Math.sin(az * 6.1 + 0.6) + 0.015 * Math.sin(az * 11.7 - 1.3))
+        return Math.min(Math.PI,
+          base(az) + g * (0.028 * Math.sin(az * 6.1 + 0.6) + 0.015 * Math.sin(az * 11.7 - 1.3)))
       }
 
       // s = 1.022: ~3.5 mm de pelo sobre a pele. Barba aparada nao tem volume
@@ -456,7 +476,17 @@ export const BARBAS = [
       const mas = [tecelagem(), tecelagem(), tecelagem()]
 
       const LINHAS = 9, COLS = 38
-      const Y_TOPO = -0.036 * S   // logo abaixo da base do nariz (-0.035*S)
+      // A base do nariz do CONTRATO e -0.035*S. Este numero NAO e a altura da
+      // raiz de cima: sobre ela ainda entram o sorteio (+0.002*S) e o RAIO DO
+      // TUBO (0.0015*S), e os tres somados sao 3.7 mm. Com -0.036*S a
+      // superficie do fio chegava a -0.0442, 2.4 mm ACIMA da base do nariz —
+      // dentro da caixa da narina de nariz.js (que vai de -0.0525 a -0.0419 e
+      // fura o plano subnasal de proposito), o que poe pelo cor de barba dentro
+      // do buraco do nariz visto de baixo. -0.0388*S poe o TOPO DO FIO em
+      // -0.0470, meio milimetro abaixo da linha, e ainda sobra 6 mm de
+      // sobreposicao com a asa do nariz (que desce ate -0.040*S) — nada de vao
+      // de pele entre o nariz e o bigode.
+      const Y_TOPO = -0.0388 * S
       // -0.064*S e a fileira de baixo. Medido: a ponta do fio central para em
       // y = -0.095, 1.4 cm acima do meio da boca e ~5 mm acima da aresta de
       // cima de um labio de 0.014*S. Em -0.068*S a ponta encostava na boca no
@@ -579,7 +609,18 @@ export const BARBAS = [
       manto(maM, loY, hiY, furoCima, furoBaixo, {
         nA: 44, nT: 9, azMax: 2.40, fora: 0.0035, onda: 0.0016,
       })
-      g.add(sh(new THREE.Mesh(maM.geo(), hairMat(shade(cor, 0.80)))))
+      // SOLDAR: o manto tem vertices coincidentes de proposito — a faixa de
+      // cima colapsa contra a de baixo onde o furo da boca ja fechou (o `mA`
+      // igual ao `mB` de manto()), e as colunas do fim da barba colapsam
+      // inteiras. computeVertexNormals trata cada copia como um vertice
+      // separado e da a cada uma a media dos triangulos DELA: medido, ate 19
+      // graus de diferenca ao longo da linha da comissura (17 a 40 vertices por
+      // cranio) e normal NULA nas colunas colapsadas (44 a 64 vertices, que na
+      // tela sao pontos pretos). E o mesmo defeito da costura de Lathe que o
+      // CONTRATO §4 descreve — uma listra acesa atravessando a barba na altura
+      // da boca. tecelagem().geo() nao solda sozinha.
+      const geoManto = soldarNormais(maM.geo())
+      g.add(sh(new THREE.Mesh(geoManto, hairMat(shade(cor, 0.80)))))
 
       // --- camada 2: os tufos ------------------------------------------------
       const maT = [tecelagem(), tecelagem()]
