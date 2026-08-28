@@ -272,6 +272,18 @@ export const GRUPOS = {
       espera: 300, semQuadro: true,
     },
     {
+      // A fachada VISTA DE FORA, a noite. A PointLight de dentro nao projeta
+      // sombra (uma PointLight com sombra sao seis mapas por quadro), entao ela
+      // atravessa a parede: esta foto e quem diz se o vazamento aparece.
+      nome: 'casa-luz-5-fora-noite',
+      antes: `const c = G.camera
+        c.position.set(43.6, 2.20, 4.4); c.lookAt(43.2, 1.70, 12.0)
+        c.fov = 58; c.updateProjectionMatrix()
+        G.lighting.setTimeOfDay(0.80); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
+    },
+    {
       nome: 'casa-luz-4-porta-dia',
       antes: `const c = G.camera
         G.lighting.setTimeOfDay(0.22); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
@@ -284,7 +296,18 @@ export const GRUPOS = {
       nome: 'tela-10-porao',
       // Pelo FLUXO de verdade: comecarPartida poe o jogo em 'abertura', e e
       // esse estado que faz o laco desenhar o porao em vez da cidade.
-      antes: `G.fluxo.comecar([
+      //
+      // As duas primeiras linhas desfazem o que os grupos ANTERIORES deixaram:
+      // 'casa', 'barbeiro' e 'casaluz' chamam fluxo.foto(true), que trava a
+      // camera e poe o estado em 'jogo' — e comecarPartida comeca com
+      // `if (estado === 'abertura' || estado === 'jogo') return`. Rodando a
+      // ferramenta SEM ARGUMENTO (todos os grupos em sequencia) a cutscene nao
+      // saia do lugar e G.abertura ficava undefined. 'casaluz' ainda deixa o
+      // ciclo de dia pausado no meio da noite.
+      antes: `G.fluxo.foto(false)
+        G.fluxo.menu()
+        G.lighting.pauseCycle = false
+        G.fluxo.comecar([
           { id:1, nome:'Iago',  aparencia:G.appearance, anfitriao:true },
           { id:2, nome:'Irmao', aparencia:Object.assign({}, G.appearance, {cabeca:4,cabelo:6,pele:5,blusa:9,calca:4,chapeu:2}), anfitriao:false },
           { id:3, nome:'Primo', aparencia:Object.assign({}, G.appearance, {cabeca:9,cabelo:3,pele:8,blusa:14,calca:7,colar:3}), anfitriao:false },
@@ -309,6 +332,16 @@ export const GRUPOS = {
       nome: 'tela-13-rua-fila',
       antes: 'for (let i=0;i<340;i++) G.abertura.atualizar(1/60)',
       quadros: 3, espera: 400,
+    },
+    {
+      // SOLO: um jogador so no sofa de quatro. E o caso que o dono nao ve, mas
+      // que e o padrao pra quem joga sozinho.
+      nome: 'tela-14-porao-solo',
+      antes: `G.fluxo.foto(false)
+        G.fluxo.menu()
+        G.fluxo.comecar([{ id:1, nome:'Iago', aparencia:G.appearance, anfitriao:true }])
+        for (let i=0;i<1638;i++) G.abertura.atualizar(1/60)`,
+      quadros: 3, espera: 500,
     },
   ],
 }

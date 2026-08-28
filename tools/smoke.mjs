@@ -143,16 +143,29 @@ try {
   })
   check('sem geometria NaN', scene.nan === 0, 'nan=' + scene.nan)
   check('so o sol projeta sombra', scene.shadow === 1, 'luzes com sombra=' + scene.shadow)
-  /* 21 luzes CARAS: 2 direcionais + 1 hemisferio + 18 pontuais (2 do pool de
+  /* 22 luzes CARAS: 2 direcionais + 1 hemisferio + 19 pontuais (2 do pool de
      efeito, 8 dos postes de rua, 3 da barbearia, 3 da mercearia, 2 do salao do
-     cassino). O teto era 20 contando TODAS; subiu com o cassino, que e um
-     salao de 19 x 17 m sem uma janela virada pro sol — com uma luz so, o canto
-     das caca-niqueis e o balcao do caixa ficavam pretos, porque o emissivo do
-     neon acende o proprio neon e nao a parede na frente dele. Duas para o
-     predio inteiro continua sendo menos por metro quadrado do que a barbearia
-     gasta. Se este numero voltar a subir, o caminho NAO e subir o teto de novo:
-     e trocar luz por emissivo, que e o que o resto do jogo faz. */
-  check('orcamento de luzes caras <= 21', scene.luzCara <= 21,
+     cassino, 1 da casa velha). O teto era 20 contando TODAS; subiu com o
+     cassino, que e um salao de 19 x 17 m sem uma janela virada pro sol — com
+     uma luz so, o canto das caca-niqueis e o balcao do caixa ficavam pretos,
+     porque o emissivo do neon acende o proprio neon e nao a parede na frente
+     dele.
+
+     Subiu de novo, de 21 pra 22, pela lampada da CASA VELHA — e vale registrar
+     por que, porque a versao anterior deste comentario dizia o contrario ("o
+     caminho NAO e subir o teto: e trocar luz por emissivo").
+
+     Essa regra vale quando o problema e "a peca nao brilha o bastante". Nao
+     valia aqui: a casa ja era so emissivo, o bulbo BRILHAVA e nao ILUMINAVA, e
+     fotografado a noite o chao logo abaixo dele ficava tao preto quanto o canto
+     mais distante. Emissivo, por definicao, nao resolve escuro — ele acende a
+     propria superficie. Trocar mais luz por emissivo aqui daria mais um ponto
+     amarelo num quarto preto.
+
+     A casa fica com UMA luz. A barbearia tem tres e a mercearia tres, as duas
+     em comodos menores; este e o interior mais barato do jogo por metro
+     quadrado, e e onde o jogador vai passar o comeco da partida. */
+  check('orcamento de luzes caras <= 22', scene.luzCara <= 22,
     'caras=' + scene.luzCara + ' (total com as ambientes=' + scene.lights + ')')
   check('colisores registrados', scene.colliders > 100, String(scene.colliders))
   for (const id of ['barber-talk', 'barber-chair', 'barber-mirror', 'grocery-clerk', 'grocery-buy']) {
@@ -509,6 +522,84 @@ try {
     naCriacao.estado === 'criacao' && naCriacao.aberto,
     'estado=' + naCriacao.estado + ' painel=' + naCriacao.aberto)
 
+  // --- a CUTSCENE com quatro jogadores -------------------------------------
+  //
+  // Este bloco existe por causa de tres defeitos que ja aconteceram, todos
+  // invisiveis pro resto do teste porque o fluxo normal do smoke roda SOLO:
+  //  1. o quarto jogador sentava no braco do sofa, de pernas penduradas;
+  //  2. ninguem levantava na ideia do cassino (o pedido era "levantar juntos");
+  //  3. na parte 2 nao havia ninguem na calcada — a camera de 3a pessoa
+  //     apontava pra uma rua vazia.
+  const quatro = await page.evaluate(async () => {
+    const G = window.__game
+    const cru = { id: 1, nome: 'A', aparencia: G.appearance, anfitriao: true }
+    const outro = (i) => ({ id: i, nome: 'J' + i, aparencia: G.appearance, anfitriao: false })
+    G.fluxo.comecar([cru, outro(2), outro(3), outro(4)])
+    const A = G.abertura
+    // 6 s: os quatro ja estao no sofa, ninguem levantou. Eles moram na cena
+    // PROPRIA da cutscene, entao a cena do jogo ainda nao tem nenhum deles.
+    for (let i = 0; i < 360; i++) A.atualizar(1 / 60)
+    let noPorao = 0
+    G.scene.traverse((o) => { if (o.name && o.name.indexOf('abertura:') === 0) noPorao++ })
+    // 34 s: passou a fala do cassino (todos de pe) e a cena ja virou pra rua
+    for (let i = 0; i < 1740; i++) A.atualizar(1 / 60)
+    const fila = []
+    G.scene.traverse((o) => {
+      if (o.name && o.name.indexOf('abertura:') === 0) fila.push({ x: +o.position.x.toFixed(2), z: +o.position.z.toFixed(2) })
+    })
+    const parte = A.parte
+    // dispose e nao pular: pular roda o callback do fim (teleporte, tutorial,
+    // trava de mouse) e este bloco esta so inspecionando a cutscene.
+    A.dispose()
+    let sobrou = 0
+    G.scene.traverse((o) => { if (o.name && o.name.indexOf('abertura:') === 0) sobrou++ })
+    return { noPorao, fila, parte, sobrou }
+  })
+  check('a cutscene monta UM boneco por jogador do coop', quatro.fila.length === 4,
+    'na fila=' + quatro.fila.length)
+  // O porao e cena PROPRIA da cutscene: enquanto ela roda, a cena do jogo nao
+  // pode ter boneco nenhum dela dentro (seria o grupo aparecendo na rua antes
+  // da hora, e depois em dobro).
+  check('o porao nao vaza pra cena do jogo', quatro.noPorao === 0,
+    'na cena do jogo durante a parte 1=' + quatro.noPorao)
+  check('na parte 2 eles estao em FILA, cada um num x', (() => {
+    const xs = quatro.fila.map((f) => f.x).sort((a, b) => a - b)
+    if (xs.length !== 4) return false
+    for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - xs[i - 1]) < 0.9) return false
+    return quatro.fila.every((f) => Math.abs(f.z - quatro.fila[0].z) < 0.01)
+  })(), quatro.fila.map((f) => f.x).join(' | ') + ' em z=' + (quatro.fila[0] && quatro.fila[0].z))
+  check('a parte 2 e a da rua', quatro.parte === 2, 'parte=' + quatro.parte)
+  // Os bonecos da rua vivem na cena do JOGO, entao soltarPorao nao os alcanca:
+  // sem soltarAtores() no dispose eles ficariam parados na calcada pra sempre.
+  check('abortar a cutscene tira os bonecos da rua', quatro.sobrou === 0,
+    'sobraram=' + quatro.sobrou)
+
+  // A FILA e o TELEPORTE saem da MESMA conta. Se divergirem, o jogador nasce
+  // no lugar do boneco de outro — o defeito que o dono chamou de "nascer em
+  // local igual", so que ao contrario.
+  const filaOk = await page.evaluate(async () => {
+    const L = await import('/src/world/layout.js')
+    const G = window.__game
+    const fora = []
+    for (let n = 1; n <= 4; n++) {
+      const vistos = []
+      for (let i = 0; i < n; i++) {
+        const f = L.filaDaCasa(i, n)
+        if (vistos.some((v) => Math.abs(v - f.x) < 0.5)) fora.push(n + ':' + i + ' colado')
+        vistos.push(f.x)
+        if (!G.collision.isFree(f.x, f.z, 0.42)) fora.push(n + ':' + i + ' em colisor')
+        if (f.yaw !== 0) fora.push(n + ':' + i + ' virado pro lado errado')
+      }
+    }
+    return fora
+  })
+  check('todo lugar da fila e livre, distinto e virado pra casa', filaOk.length === 0,
+    filaOk.join(' | ') || '1..4 jogadores, 10 lugares conferidos')
+
+  await page.evaluate(() => { window.__game.fluxo.menu() })
+  await step(6)
+  await page.evaluate(() => window.__game.fluxo.solo())
+  await step(10)
   await page.evaluate(() => window.__game.fluxo.comecar())
   await step(10)
   const naAbertura = await page.evaluate(() => ({

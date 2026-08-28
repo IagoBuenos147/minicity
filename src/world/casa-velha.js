@@ -46,8 +46,9 @@ const DR = B.door.center + B.door.width / 2   // 43.85
 const DH = B.door.height                      // 2.3
 
 // Forro BAIXO de proposito (2.76 no mundo contra os 3.2 da parede): a casa tem
-// que apertar. O vao que sobra entre o forro e o telhado e o sotao, e e ele que
-// aparece pelo buraco do forro caido.
+// que apertar. O vao que sobra entre o forro e o telhado e o sotao — que hoje
+// nao se ve de lugar nenhum, desde que o pedaco caido do forro foi fechado
+// (ver forro()).
 const CEIL = 2.60                      // local; o miolo inteiro sobe pra BASE
 
 // --- paredes internas do L -------------------------------------------------
@@ -474,30 +475,6 @@ function poeiraTex() {
   }, 1)
 }
 
-/**
- * Fresta de luz: forte em cima (onde entra pelo buraco do forro), apagando pra
- * baixo e apagando tambem PARA OS LADOS. E o lado que importa: sem o degrade
- * horizontal o plano tem uma aresta reta, e uma aresta reta no ar nao le como
- * luz, le como vidro.
- */
-function frestaTex() {
-  return tex('casa-fresta', 128, (g, s) => {
-    const v = g.createLinearGradient(0, 0, 0, s)
-    v.addColorStop(0, 'rgba(255,242,214,0.95)')
-    v.addColorStop(0.45, 'rgba(255,240,208,0.42)')
-    v.addColorStop(1, 'rgba(255,238,204,0)')
-    g.fillStyle = v; g.fillRect(0, 0, s, s)
-    g.globalCompositeOperation = 'destination-in'
-    const h = g.createLinearGradient(0, 0, s, 0)
-    h.addColorStop(0, 'rgba(0,0,0,0)')
-    h.addColorStop(0.5, 'rgba(0,0,0,1)')
-    h.addColorStop(1, 'rgba(0,0,0,0)')
-    g.fillStyle = h; g.fillRect(0, 0, s, s)
-    g.globalCompositeOperation = 'source-over'
-  }, 1)
-}
-
-/** Pano do lencol: trama fina, vinco e a poeira depositada em cima. */
 function lencolTex() {
   return tex('casa-lencol-tex', 256, (g, s) => {
     g.fillStyle = '#cdc7b8'; g.fillRect(0, 0, s, s)
@@ -639,16 +616,6 @@ const M = {
       map: poeiraTex(), transparent: true, opacity: 0.16, depthWrite: false,
       side: THREE.DoubleSide, roughness: 1,
       emissive: 0xffffff, emissiveMap: poeiraTex(), emissiveIntensity: 0.08,
-    })
-  },
-  // Lamina de luz sem luz nenhuma. Tem que ficar no limite do visivel: com
-  // opacidade alta as duas laminas viram vidro fosco pendurado na sala.
-  get luzFresta() {
-    const t = frestaTex()
-    return stdMat('casa-luz-fresta', {
-      map: t, color: 0xfff0cc, transparent: true, opacity: 0.30, depthWrite: false,
-      side: THREE.DoubleSide, roughness: 1,
-      emissive: 0xffe9c0, emissiveMap: t, emissiveIntensity: 0.5,
     })
   },
   calcada(w, d) {
@@ -1328,12 +1295,17 @@ function frenteAbandonada(g, colliders) {
   const rnd = mulberry32(0x4A70)
   // Tufos de mato: fora da faixa da varanda e longe do meio da calcada, senao
   // o jogador atravessa capim toda vez que passa na rua.
-  // O tufo de (41.15, 13.65) esta DENTRO da sala, saindo da falha do assoalho
-  // que piso() abre ali. Mato brotando pelo buraco do chao diz mais sobre o
-  // tempo de abandono do que qualquer objeto que se pudesse por na sala.
+  //
+  // NAO HA MAIS MATO DENTRO DA CASA. Havia um tufo em (41.15, 13.65) brotando
+  // pela falha do assoalho, a 1 m da soleira: contava bem o tempo de abandono,
+  // mas o comodo e o PRIMEIRO ESTABELECIMENTO do dono do projeto e ele entra
+  // ali pra montar alguma coisa. Capim no meio do chao, logo na entrada, e
+  // exatamente o tipo de coisa que ele mandou tirar junto com o sofa e as
+  // caixas. A falha do assoalho fica: buraco de tabua podre nao atrapalha
+  // ninguem, mato na altura do joelho atrapalha.
   const tufos = [
     [38.9, 11.4], [39.8, 10.8], [40.4, 11.6], [46.6, 11.5], [47.4, 10.9],
-    [48.6, 11.4], [49.6, 10.9], [41.15, 13.65], [37.6, 15.2], [37.5, 19.4],
+    [48.6, 11.4], [49.6, 10.9], [37.6, 15.2], [37.5, 19.4],
   ]
   for (let i = 0; i < tufos.length; i++) {
     const tx = tufos[i][0], tz = tufos[i][1]
@@ -1419,9 +1391,10 @@ function piso(g) {
   // A falha TEM que ser recorte de geometria. O assoalho e uma laje OPACA:
   // uma caixa preta encostada por baixo dela fica invisivel, e o que sobrava
   // era a tabua solta boiando num chao inteiro. Entao o piso nasce em faixas
-  // de Z que contornam cada falha, igual o forro faz com o buraco do teto —
-  // por isso a lista tem que vir ordenada em Z e sem duas falhas na mesma
-  // faixa (as tres estao a metros uma da outra).
+  // de Z que contornam cada falha — por isso a lista tem que vir ordenada em Z
+  // e sem duas falhas na mesma faixa (as tres estao a metros uma da outra).
+  // (O forro fazia o mesmo recorte quando tinha um pedaco caido; hoje ele e uma
+  // laje inteira e este e o unico lugar da casa que ainda contorna vao.)
   const falhas = [[41.2, 13.6, 0.9, 0.28], [45.8, 15.6, 0.7, 0.26], [48.4, 18.9, 0.8, 0.3]]
 
   // A UV de cada faixa sai deslocada pela POSICAO dela no comodo: sem isso o
@@ -1586,51 +1559,31 @@ function revestimento(g) {
 }
 
 /**
- * Forro baixo de tabua com um pedaco CAIDO. O buraco nao mostra o telhado: ele
- * mostra o barrote e um fundo preto de sotao. Se mostrasse o telhado por
- * dentro, a laje de neve que neve.js poe na altura da parede apareceria como um
- * teto branco flutuando no meio da sala quando o clima virasse.
+ * Forro baixo de tabua, INTEIRO.
+ *
+ * Havia aqui um pedaco caido: um recorte de 1,6 x 1,2 m mostrando o barrote e
+ * um fundo preto de sotao, com duas laminas cruzadas de material emissivo
+ * fazendo as vezes de raio de sol descendo pelo vao.
+ *
+ * Saiu a pedido do dono do projeto, e as fotos deram razao a ele por um motivo
+ * que nao era o estetico: a lamina de luz e EMISSIVA, nao e luz. Ela nao sabe
+ * que horas sao. As tres da manha, com a casa no escuro, o "raio de sol"
+ * continuava aceso, atravessando o comodo inteiro e iluminando o papel de
+ * parede - foi fotografado. Um raio de sol a noite le como defeito, porque e.
+ *
+ * Fechando o forro sumiram tambem frestaTex() e M.luzFresta, que so existiam
+ * pra essa lamina. Ficaram as vigas aparentes: sao elas que dao ritmo ao teto
+ * e nao dependem de buraco nenhum.
  */
 function forro(g) {
-  const buraco = { x0: 44.9, x1: 46.5, z0: 14.5, z1: 15.7 }
-  // faixas do forro contornando o buraco
-  const faixas = [
-    [IN.x0, IN.x1, IN.z0, buraco.z0], [IN.x0, IN.x1, buraco.z1, IN.z1],
-    [IN.x0, buraco.x0, buraco.z0, buraco.z1], [buraco.x1, IN.x1, buraco.z0, buraco.z1],
-  ]
-  for (let i = 0; i < faixas.length; i++) {
-    const f = faixas[i]
-    const m = caixaUV(f[1] - f[0], 0.05, f[3] - f[2], M.forro,
-      (f[0] + f[1]) / 2, CEIL + 0.025, (f[2] + f[3]) / 2, (f[1] - f[0]) / 1.3, (f[3] - f[2]) / 1.3)
-    m.castShadow = false
-    g.add(m)
-  }
-  // fundo do sotao + barrotes atravessando o buraco
-  const fundo = box(buraco.x1 - buraco.x0 + 0.1, 0.04, buraco.z1 - buraco.z0 + 0.1, M.vao,
-    (buraco.x0 + buraco.x1) / 2, CEIL + 0.34, (buraco.z0 + buraco.z1) / 2)
-  fundo.castShadow = false
-  g.add(fundo)
-  for (const x of [45.3, 46.1]) {
-    g.add(caixaUV(0.09, 0.14, buraco.z1 - buraco.z0 + 0.2, M.ripa, x, CEIL + 0.16,
-      (buraco.z0 + buraco.z1) / 2, 1, 1))
-  }
-  // aba do forro pendurada na beirada do buraco
-  const aba = caixaUV(0.7, 0.04, 0.55, M.forro, buraco.x0 - 0.1, CEIL - 0.18, 15.0, 1, 1)
-  aba.rotation.z = 0.75
-  g.add(aba)
+  // laje inteira, num pedaco so
+  const laje = caixaUV(IN.x1 - IN.x0, 0.05, IN.z1 - IN.z0, M.forro,
+    (IN.x0 + IN.x1) / 2, CEIL + 0.025, (IN.z0 + IN.z1) / 2,
+    (IN.x1 - IN.x0) / 1.3, (IN.z1 - IN.z0) / 1.3)
+  laje.castShadow = false
+  g.add(laje)
 
-  // FRESTA DE LUZ descendo pelo buraco (duas laminas cruzadas dao volume sem
-  // custar nenhuma luz nova: o orcamento de PointLight da cena esta estourado)
-  for (let i = 0; i < 2; i++) {
-    const l = new THREE.Mesh(new THREE.PlaneGeometry(0.8, CEIL - 0.1), M.luzFresta)
-    l.position.set(45.7 + i * 0.05, (CEIL - 0.1) / 2, 15.1 - i * 0.06)
-    l.rotation.y = i === 0 ? 0.5 : -1.1
-    l.rotation.z = 0.1
-    l.castShadow = false
-    g.add(l)
-  }
-
-  // vigas aparentes no resto do forro: 3 travessas correndo em X
+  // vigas aparentes: 3 travessas correndo em X
   for (const z of [13.4, 18.2, 20.6]) {
     const v = caixaUV(IN.w, 0.12, 0.16, M.ripa, IN.cx, CEIL - 0.06, z, IN.w / 1.3, 1)
     v.castShadow = false
@@ -1638,7 +1591,30 @@ function forro(g) {
   }
 }
 
-/** Lampada pelada no fio. Retorna o pivo (o unico no dinamico da casa). */
+/**
+ * Lampada pelada no fio. Retorna o pivo (o unico no dinamico da casa).
+ *
+ * E A UNICA LUZ DE VERDADE DA CASA, e ate agora ela nao era luz nenhuma: o
+ * bulbo e material emissivo, entao ele BRILHAVA sem ILUMINAR. Fotografado a
+ * noite, o resultado era um ponto amarelo no meio de um comodo preto, com o
+ * chao logo abaixo do bulbo tao escuro quanto o canto mais distante. O dono do
+ * projeto viu isso e disse "ta muito escuro dentro da casa".
+ *
+ * A PointLight vai DENTRO do pivo de proposito: assim ela balanca junto com a
+ * lampada e a sombra do comodo anda com ela, que e metade da graca de uma
+ * lampada pendurada. O pivo ja e o unico no marcado com userData.dynamic, o
+ * que tambem protege a luz do forno de world/bake.js.
+ *
+ * Numeros, e de onde vieram:
+ *  - 32 de intensidade com decay 2 e a mesma ordem de grandeza das tres luzes
+ *    da barbearia (34, alcance 10) num comodo de tamanho parecido;
+ *  - alcance 12 porque a sala da frente tem 8,75 m de x e o corredor do L
+ *    comeca a 5 m do bulbo: com 10 o braco do L voltava a ser um tunel preto;
+ *  - cor 0xffdca8, a MESMA do emissivo do bulbo (M.bulbo). Luz de uma cor e
+ *    vidro de outra denuncia que sao duas coisas separadas.
+ *  - sem sombra: uma PointLight com sombra e SEIS renderizacoes de mapa por
+ *    quadro, e esta casa fica de porta aberta pra rua.
+ */
 function lampada(g) {
   const pivo = new THREE.Group()
   pivo.position.set(43.5, CEIL - 0.02, 14.5)
@@ -1655,6 +1631,10 @@ function lampada(g) {
   b.position.y = -L - 0.13
   b.castShadow = false
   pivo.add(b)
+  const luz = new THREE.PointLight(0xffdca8, 15, 9.5, 2)
+  luz.position.y = -L - 0.13
+  luz.castShadow = false
+  pivo.add(luz)
   // roseta no forro
   const ros = cyl(0.07, 0.07, 0.03, M.escuro, 10)
   ros.position.y = 0.01
@@ -1724,10 +1704,15 @@ function teiasEPoeira(g) {
   teiaDeCanto(g, BRACO_X0, ZA + TI, 1, 1, 0.85, CEIL - 0.03, mt)
   teiaDeCanto(g, IN.x1, IN.z1, -1, -1, 0.95, CEIL - 0.03, mt)
 
-  // POEIRA: planos soltos onde bate luz (janela e buraco do forro). Ficam
-  // parados de proposito -- poeira animada exigiria mais um no dinamico e a
-  // unica coisa que se move nesta casa e a lampada.
-  const pos = [[46.6, 1.5, 13.4, 0.2], [45.6, 1.4, 15.2, -0.9], [40.2, 1.5, 13.2, 0.5]]
+  // POEIRA: planos soltos onde bate luz. Ficam parados de proposito -- poeira
+  // animada exigiria mais um no dinamico e a unica coisa que se move nesta casa
+  // e a lampada.
+  //
+  // Eram tres: duas nas janelas e uma embaixo do buraco do forro. Com o forro
+  // fechado a terceira perdeu o motivo, e foi pro lugar onde AGORA ha luz: sob
+  // o bulbo (43.5, 14.5). Poeira so le como poeira quando alguma coisa a
+  // atravessa.
+  const pos = [[46.6, 1.5, 13.4, 0.2], [44.9, 1.4, 15.3, -0.9], [40.2, 1.5, 13.2, 0.5]]
   for (let i = 0; i < pos.length; i++) {
     const p = pos[i]
     const m = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.9), M.poeira)
@@ -1896,9 +1881,25 @@ export function buildCasaVelha(game) {
     // 6 m, entram o telhado arruinado, a varanda, a placa de vende-se e o mato.
     // O leve deslocamento pra +X poe a porta no terco esquerdo em vez do centro
     // morto, que e o enquadramento que um diretor de fotografia escolheria.
+    /**
+     * A camera da segunda parte da cutscene.
+     *
+     * Era um plano de PRIMEIRA PESSOA: a camera na altura do olho, encarando a
+     * fachada, sem ninguem no quadro. O dono do projeto pediu o contrario -
+     * "quero todos os jogadores enfilerados... e olhando pra casa" -, entao ela
+     * foi pra TRAS e pra CIMA do grupo, que e de onde a camera de 3a pessoa do
+     * jogo olha.
+     *
+     * z = 4.6 poe a lente 4,2 m atras da fila (que nasce em z = 8.8). Com os
+     * 58 graus de lente do jogo isso da 4,1 m de meia-largura no plano dos
+     * bonecos: a fila de quatro tem 4,33 m de ponta a ponta e cabe com folga,
+     * e a casa inteira (12 m de fachada, 5,1 m ate a cumeeira) ainda entra no
+     * fundo. y = 2.30 e um palmo acima da cabeca deles (1,85 + o piso em 0,16),
+     * o que deixa ver a fila E a porta por cima dos ombros.
+     */
     poseDaCutscene: {
-      x: 44.8, y: 1.72, z: 4.4,
-      olharX: 43.0, olharY: 2.35, olharZ: 12.1,
+      x: 43.1, y: 2.30, z: 4.6,
+      olharX: 43.0, olharY: 1.78, olharZ: 12.0,
     },
   }
 }

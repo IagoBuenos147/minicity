@@ -42,7 +42,7 @@ import { buildCity } from './world/city.js'
 import { buildBarbershop } from './world/barbershop.js'
 import { buildGrocery } from './world/grocery.js'
 import { bakeStatic } from './world/bake.js'
-import { BARBER, GROCERY, CASINO, CASA, FILLERS, WALL_T } from './world/layout.js'
+import { BARBER, GROCERY, CASINO, CASA, FILLERS, WALL_T, filaDaCasa } from './world/layout.js'
 import { createCharacter } from './player/character.js'
 import { defaultAppearance } from './player/appearance.js'
 import { createPlayerController } from './player/controller.js'
@@ -679,14 +679,45 @@ function comecarPartida(elencoForcado) {
   // customizaram (a aparencia de cada um ja chegou pelo ENTROU/APARENCIA).
   const elenco = Array.isArray(elencoForcado) && elencoForcado.length ? elencoForcado : []
   if (elenco.length) return montarCutscene(elenco)
-  const souAnfitriao = !rede.conectado || rede.sala.anfitriao === rede.meuId
-  elenco.push({ id: rede.meuId || 1, nome: meuNome, aparencia: appearance, anfitriao: souAnfitriao })
-  for (const j of rede.jogadores.values()) {
-    if (!j.id || j.id === rede.meuId) continue
+  const eu = rede.meuId || 1
+  const souAnfitriao = !rede.conectado || rede.sala.anfitriao === eu
+
+  // O ELENCO SAI DA LISTA DA SALA, E NAO DO MUNDO.
+  //
+  // Duas armadilhas moram aqui, e as duas ja custaram a cena.
+  //
+  // 1. `rede.jogadores` esta VAZIO neste instante. Aquele mapa e preenchido
+  //    dentro de rede.atualizar(), que o laco de quadro so chama no estado
+  //    'jogo' — e a gente esta indo pro estado 'abertura'. Montando o elenco
+  //    por ali, o coop inteiro assistia a cutscene com UMA pessoa no sofa. A
+  //    lista da sala vem do servidor e ja esta cheia desde o lobby; a aparencia
+  //    de cada um vem de rede.perfilDe(), que le o perfil escrito na hora em
+  //    que o pacote ENTROU/APARENCIA chegou.
+  //
+  // 2. A ORDEM e a da SALA, e nao "eu primeiro". A posicao no elenco decide em
+  //    que almofada cada um senta, em que ponto da fila fica na rua e onde o
+  //    jogador nasce quando a cutscene acaba. Com "eu primeiro" cada cliente se
+  //    poe no lugar 1: os quatro se veem no mesmo assento e os quatro nascem em
+  //    cima do mesmo metro quadrado. A lista do servidor (listaDaSala) chega
+  //    igual pra todo mundo, na ordem em que as pessoas entraram.
+  const naSala = Array.isArray(rede.sala.jogadores) ? rede.sala.jogadores : []
+  for (const j of naSala) {
+    if (!j || !j.id) continue
+    if (j.id === eu) {
+      elenco.push({ id: eu, nome: meuNome, aparencia: appearance, anfitriao: souAnfitriao })
+      continue
+    }
+    const perfil = (typeof rede.perfilDe === 'function' && rede.perfilDe(j.id)) || null
     elenco.push({
-      id: j.id, nome: j.nome || 'Jogador', aparencia: j.aparencia,
+      id: j.id,
+      nome: (perfil && perfil.nome) || j.nome || 'Jogador',
+      aparencia: perfil && perfil.aparencia,
       anfitriao: rede.sala.anfitriao === j.id,
     })
+  }
+  // Solo, offline, ou sala que ainda nao mandou a foto: eu sozinho.
+  if (!elenco.some((e) => e.id === eu)) {
+    elenco.unshift({ id: eu, nome: meuNome, aparencia: appearance, anfitriao: souAnfitriao })
   }
 
   // A cutscene e criada AQUI, e nao no boot, por um motivo so: o elenco dela e
@@ -706,6 +737,7 @@ function montarCutscene(elenco) {
     camera,
     jogadores: elenco,
     casa: (casa && casa.poseDaCutscene) || null,
+    chao: game.groundY,
   })
   game.abertura = abertura
 
@@ -714,7 +746,12 @@ function montarCutscene(elenco) {
     hud.setJogando(true)
     hud.showHelp(true)
     hotbar.mostrar(true)
-    player.teleport(CASA.door.center, CASA.z0 - 3.2, 0)
+    // Nasce no MEU lugar da fila, que e o mesmo em que o boneco da cutscene
+    // acabou de estar (a conta e uma so, filaDaCasa em world/layout.js). Sem
+    // isto os quatro nasciam empilhados no centro da porta.
+    const meu = Math.max(0, elenco.findIndex((e) => e && e.id === (rede.meuId || 1)))
+    const f = filaDaCasa(meu, elenco.length)
+    player.teleport(f.x, f.z, f.yaw)
     tutorial.definir(MISSOES_INICIAIS)
     tutorial.mostrar(true)
     try { input.requestLock() } catch (err) { void err }

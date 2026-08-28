@@ -958,6 +958,22 @@ export function criarRede({ url, nome, aparencia } = {}) {
   }
 
   /** Chamado TODO FRAME pelo main, com o dt real do video. */
+  /**
+   * Nome e aparencia de um jogador, do jeito que ENTROU/APARENCIA deixaram.
+   *
+   * Existe porque `rede.jogadores` NAO serve pra isso antes da partida comecar:
+   * aquele mapa e preenchido dentro de rede.atualizar(), que main.js so chama
+   * no estado 'jogo' — depois dos `return` dos ramos menu/criacao/abertura. Ou
+   * seja, no instante em que a cutscene monta o sofa, `rede.jogadores` esta
+   * VAZIO, e o coop montava a cena com uma pessoa so.
+   *
+   * `est.perfis`, ao contrario, e escrito na hora em que o pacote chega (o
+   * callback do transporte), entao ja esta cheio desde o lobby.
+   */
+  rede.perfilDe = function perfilDe(id) {
+    return est.perfis.get(id | 0) || null
+  }
+
   rede.atualizar = function atualizar(dtSegundos) {
     const dt = dtSegundos > 0 ? dtSegundos : 0
 

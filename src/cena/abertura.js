@@ -4,6 +4,7 @@ import * as Ap from '../player/appearance.js'
 import { CAMPOS_APARENCIA } from '../comum/protocolo.js'
 import { POSES } from '../npc/npc.js'
 import { PLAYER } from '../config.js'
+import { filaDaCasa, CASA as LOTE } from '../world/layout.js'
 import {
   solid, glass, box, cyl, sphere, plane, roundedBox,
   concreteTex, brickTex, woodTex,
@@ -79,11 +80,33 @@ const SALA = { x0: -3.10, x1: 3.10, z0: -2.70, z1: 3.95, teto: 2.30 }
 // jogador aparece com o pe DENTRO do proprio sofa.
 const SOFA = {
   z0: -2.27, z1: -1.35,     // encosto (z0) ate a frente do assento (z1)
-  xi: -1.18, xf: 1.18,      // vao entre os bracos
+  // 2,34 m de assento pra QUATRO lugares de 0,585 m.
+  //
+  // O que mudou aqui foi o NUMERO DE ALMOFADAS, nao a largura. Eram tres, e o
+  // quarto jogador sentava no BRACO, de pernas penduradas pra fora — sempre o
+  // ultimo da lista, sempre torto, sempre fora do grupo na foto. O dono do
+  // projeto pediu "4 lugares, 1 para cada jogador, um do lado do outro".
+  //
+  // Cabe? Cabe. O ponto mais largo de quem esta SENTADO e o cotovelo, a 0,444 m
+  // de ponta a ponta (2 x (SHOULDER_X 0.124 + a abertura de 0.14 rad do ombro
+  // na pose sit + o raio 0.059 da manga mais grossa do catalogo). Com 0,585 m
+  // por lugar sobram 14 cm entre um vizinho e outro, que e a distancia certa
+  // pra quatro amigos amontoados num sofa de sala.
+  //
+  // NAO ALARGAR. Ja foi tentado (2,68 m) e a conta pareceu melhor ate a foto:
+  // a quarta almofada passou a terminar em x = 1,325 e o segundo degrau da
+  // escada (montarEscada, x 1.1875..1.4425, topo em y 0.3925) atravessava o
+  // assento, saindo 6,5 mm ACIMA da almofada — uma tabua de madeira nascendo
+  // do canto do quarto lugar. A escada nao tem pra onde ir: ela sobe em x e o
+  // ultimo degrau ja para a 12 cm da parede. Com 1,17 o degrau de baixo fica
+  // inteiro DENTRO da caixa do sofa e o de cima inteiro dentro do braco, os
+  // dois invisiveis.
+  xi: -1.17, xf: 1.17,
   bracoW: 0.16,
   assento: 0.41,            // topo da almofada afundada
-  bracoY: 0.60,             // topo do braco (onde o quarto jogador senta)
+  bracoY: 0.60,             // topo do braco
   encosto: 1.02,
+  lugares: 4,
 }
 
 // Altura do quadril na pose 'sit' vem do PERSONAGEM, nunca escrita na mao: o
@@ -107,11 +130,35 @@ const TV = { x: 0.0, z: 2.06, telaY: 0.94, telaW: 1.06, telaH: 0.62 }
 // no fundo. Depois a camera desce e passa por ela ate fechar no sofa.
 const CAM_INI = { x: 1.32, y: 2.06, z: 3.58 }
 const CAM_FIM = { x: 0.42, y: 1.42, z: 1.26 }
-// O alvo termina levemente a direita do centro do sofa: com 4 jogadores o
-// quarto senta no braco (x=1.34) e, mirando o centro, ele saia do quadro
-// justo no plano mais fechado da cena.
+// O alvo termina no CENTRO do sofa. Ele ja esteve deslocado 16 cm pra direita,
+// de quando o quarto jogador sentava no braco e saia do quadro no plano mais
+// fechado; com os quatro nas almofadas o grupo voltou a ser simetrico.
 const CAM_ALVO_INI = { x: 0.02, y: 1.00, z: -1.62 }
-const CAM_ALVO_FIM = { x: 0.16, y: 1.06, z: -1.66 }
+const CAM_ALVO_FIM = { x: 0.02, y: 1.06, z: -1.66 }
+
+// A CAMERA DO LEVANTAR.
+//
+// No plano fechado do fim da cena cabem 2,0 m de largura e 2,3 m de altura na
+// distancia do sofa — de sobra pra quatro pessoas SENTADAS. Em pe elas ganham
+// meio metro de altura e andam 64 cm pra frente (ver o zPe do ator), e com a
+// camera parada o quadro cortaria todo mundo na altura do peito bem no momento
+// em que a cena precisa mostrar quatro pessoas inteiras comemorando.
+//
+// A camera recua o quanto PODE — e o quanto ela pode e pouco: a MOLDURA DA TV
+// comeca em z = 2.05, e passar disso poe o gabinete entre a lente e o grupo.
+// (Aconteceu: com a camera em z = 2.86 a quina da TV entrava pelo canto de
+// baixo do quadro.) Entao ela para em 1.90 e o resto do espaco vem da LENTE:
+// o fov abre de 42 pra 48 graus durante a subida.
+//
+// A 2,96 m do grupo, 48 graus dao 1,32 m de meia-altura: com o alvo em y=1.18
+// o quadro vai de -0,14 a 2,50. O personagem tem 1,845 m e a mao levantada
+// chega a ~2,4 m — cabem os quatro, dos pes a ponta dos dedos, e ainda sobra
+// chao embaixo. Na largura sobra ainda mais: 2,35 m de meia-largura em 16:9
+// (1,76 num monitor 4:3) contra 1,18 m de meia-fila.
+const CAM_PE = { x: 0.26, y: 1.62, z: 1.90 }
+const CAM_ALVO_PE = { x: 0.02, y: 1.18, z: -1.20 }
+const FOV_PORAO = 42
+const FOV_PE = 48
 
 // Onde a camera para na parte 2 quando main.js nao manda a casa. Nao e pra
 // valer: e so pra cutscene nao apontar pro nada se alguem chamar sem 'casa'.
@@ -490,7 +537,7 @@ function montarEscada(g, of) {
 }
 
 // ---------------------------------------------------------------------------
-// B. O SOFA — 3 lugares, almofadas afundadas, um remendo no braco
+// B. O SOFA — 4 lugares, almofadas afundadas, um remendo no braco
 // ---------------------------------------------------------------------------
 function montarSofa(g, of) {
   const S = SOFA
@@ -503,15 +550,19 @@ function montarSofa(g, of) {
   // caixa de baixo (a estrutura), ja gasta e sem pe visivel
   g.add(box(larg + S.bracoW * 2, 0.30, prof, matTecEsc, 0, 0.15, zc))
 
-  // Almofadas: cada uma AFUNDADA de um jeito. A do meio e a mais morta — e a
-  // que aguentou mais gente — e por isso quem senta no meio senta mais fundo.
-  const afund = [0.055, 0.085, 0.050]
-  for (let i = 0; i < 3; i++) {
-    const cx = S.xi + larg * (0.1667 + i * 0.3333)
-    const alm = roundedBox(larg / 3 - 0.03, 0.19, prof - 0.30, 0.06, matTec)
+  // Almofadas: cada uma AFUNDADA de um jeito. As do MEIO sao as mais mortas —
+  // sao as que aguentaram mais gente — e por isso quem senta no meio senta mais
+  // fundo. Quatro valores porque o sofa tem quatro lugares; um sofa em que
+  // todas as almofadas afundam igual le como sofa novo.
+  const afund = [0.050, 0.085, 0.078, 0.055]
+  const n = S.lugares
+  const meio = (n - 1) / 2
+  for (let i = 0; i < n; i++) {
+    const cx = lugarX(i)
+    const alm = roundedBox(larg / n - 0.03, 0.19, prof - 0.30, 0.06, matTec)
     alm.scale.y = 1 - afund[i] * 3.2
     alm.position.set(cx, S.assento - 0.075 - afund[i] * 0.5, S.z0 + 0.30 + (prof - 0.30) / 2)
-    alm.rotation.z = (i - 1) * 0.018
+    alm.rotation.z = (i - meio) * 0.014
     g.add(alm)
   }
 
@@ -522,12 +573,11 @@ function montarSofa(g, of) {
   const enc = box(larg + S.bracoW * 2, S.encosto - 0.20, 0.20, matTecEsc, 0, (S.encosto + 0.20) / 2, S.z0 + 0.10)
   enc.rotation.x = -0.10
   g.add(enc)
-  for (let i = 0; i < 3; i++) {
-    const cx = S.xi + larg * (0.1667 + i * 0.3333)
-    const a = roundedBox(larg / 3 - 0.04, 0.44, 0.13, 0.05, matTec)
-    a.position.set(cx, 0.70, S.z0 + 0.21)
-    // a do meio deita um pouco mais: e a que mais gente amassou
-    a.rotation.x = -(0.12 + (i === 1 ? 0.05 : 0))
+  for (let i = 0; i < n; i++) {
+    const a = roundedBox(larg / n - 0.04, 0.44, 0.13, 0.05, matTec)
+    a.position.set(lugarX(i), 0.70, S.z0 + 0.21)
+    // as do meio deitam um pouco mais: sao as que mais gente amassou
+    a.rotation.x = -(0.12 + (i === 1 || i === 2 ? 0.05 : 0))
     g.add(a)
   }
 
@@ -1057,19 +1107,6 @@ function desenharTV(ctx2d, quadro, programa, saida) {
   _sem = (quadro * 0x9E3779B1) | 0
   const g = ctx2d
 
-  if (programa === 'plateia') {
-    // o flash de plateia: quadro estourado e quente, dura poucos quadros
-    g.fillStyle = '#ffe9c2'; g.fillRect(0, 0, TV_W, TV_H)
-    g.fillStyle = 'rgba(220,150,60,0.5)'
-    for (let i = 0; i < 26; i++) {
-      const s = 3 + _rnd() * 9
-      g.fillRect(_rnd() * TV_W, TV_H * 0.45 + _rnd() * TV_H * 0.5, s, s)
-    }
-    saida.cor = 0xffdca8
-    saida.forca = 5.4
-    return
-  }
-
   if (programa === 'barras') {
     const cores = ['#c8c8c8', '#c8c800', '#00c8c8', '#00c800', '#c800c8', '#c80000', '#0000c8']
     const bw = TV_W / cores.length
@@ -1147,28 +1184,41 @@ const JUNTAS = [
 ]
 const ZERO = [0, 0, 0]
 
+/** Centro da almofada `i`, contado do vao entre os bracos. */
+function lugarX(i) {
+  const larg = SOFA.xf - SOFA.xi
+  return SOFA.xi + larg * ((i + 0.5) / SOFA.lugares)
+}
+
 /**
- * Onde cada um senta, por numero de jogadores.
- * 1 no meio; 2 espalhados (ninguem senta colado num sofa vazio); 3 apertados;
- * o quarto vai pro BRACO do sofa — mais honesto que espremer quatro num sofa
- * de tres, e o braco e alto o bastante pra perna ficar pendurada certinho.
+ * Onde cada um senta, por numero de jogadores. TODO MUNDO NO SOFA — ninguem
+ * mais no braco.
+ *
+ * Com quatro, cada um pousa no centro da propria almofada (lugarX): as
+ * posicoes saem da MESMA conta que desenhou as almofadas, entao ninguem senta
+ * na emenda entre duas. Com menos gente eles espalham, porque tres pessoas
+ * sentadas no canto de um sofa de quatro lugares parecem tres pessoas que
+ * chegaram cedo demais.
+ *
+ * O `rot` abre os ombros dos das pontas pro meio do grupo: uma fileira de
+ * quatro pessoas perfeitamente paralelas le como banco de rodoviaria.
  */
 const LUGARES = {
-  1: [{ x: 0.00, topo: SOFA.assento, rot: 0.00 }],
+  1: [{ x: lugarX(1), rot: 0.06 }],
   2: [
-    { x: -0.66, topo: SOFA.assento, rot: 0.14 },
-    { x: 0.66, topo: SOFA.assento, rot: -0.14 },
+    { x: lugarX(0), rot: 0.15 },
+    { x: lugarX(2), rot: -0.10 },
   ],
   3: [
-    { x: -0.80, topo: SOFA.assento, rot: 0.16 },
-    { x: 0.02, topo: SOFA.assento, rot: 0.00 },
-    { x: 0.82, topo: SOFA.assento, rot: -0.16 },
+    { x: lugarX(0), rot: 0.16 },
+    { x: lugarX(1), rot: 0.05 },
+    { x: lugarX(3), rot: -0.16 },
   ],
   4: [
-    { x: -0.84, topo: SOFA.assento, rot: 0.18 },
-    { x: -0.06, topo: SOFA.assento, rot: 0.02 },
-    { x: 0.70, topo: SOFA.assento, rot: -0.12 },
-    { x: 1.40, topo: SOFA.bracoY, rot: -0.46, braco: true },
+    { x: lugarX(0), rot: 0.16 },
+    { x: lugarX(1), rot: 0.05 },
+    { x: lugarX(2), rot: -0.05 },
+    { x: lugarX(3), rot: -0.16 },
   ],
 }
 
@@ -1181,9 +1231,10 @@ function criarAtores(cena, of, jogadores) {
     const j = jogadores[i] || {}
     const L = lugares[i]
     const personagem = createCharacter({ appearance: paraAparencia(j.aparencia) })
-    const lift = alturaSentado(L.topo)
-    const z = L.braco ? -1.86 : -1.70
-    personagem.root.position.set(L.x, lift + (POSES.sit ? POSES.sit.rootY : 0), z)
+    const lift = alturaSentado(SOFA.assento)
+    const z = -1.70
+    const ySent = lift + (POSES.sit ? POSES.sit.rootY : 0)
+    personagem.root.position.set(L.x, ySent, z)
     personagem.root.rotation.y = L.rot
     personagem.root.name = 'abertura:' + (j.id || i)
     cena.add(personagem.root)
@@ -1194,8 +1245,19 @@ function criarAtores(cena, of, jogadores) {
       nome: String(j.nome || ('Jogador ' + (i + 1))),
       anfitriao: !!j.anfitriao,
       x: L.x, z, rotY: L.rot,
+      // Os dois pousos do personagem, pro levantar poder interpolar entre eles
+      // sem recalcular nada por quadro.
+      //
+      // Em pe ele nao fica em cima da almofada: ele DA UM PASSO A FRENTE, pra
+      // z = -1.06. Levantar sem sair do lugar deixaria o corpo dentro do
+      // proprio sofa (o assento vai de z -2.27 a -1.35). O -1.06 e o meio do
+      // corredor entre a frente do sofa e o fundo da mesinha (que comeca em
+      // -0.78): sobra folga pros pes nas duas pontas.
+      ySent, zSent: z, yPe: 0, zPe: -1.06,
+      cabecaSent: ySent + personagem.headCenterY,
+      cabecaPe: personagem.headCenterY,
       // altura da cabeca no MUNDO: o root ja carrega o afundamento da pose
-      cabecaY: personagem.root.position.y + personagem.headCenterY,
+      cabecaY: ySent + personagem.headCenterY,
       // fase propria: dois vizinhos respirando em sincronia entregam o truque.
       // Deriva do indice, nunca de Math.random — a cutscene tem que sair igual
       // na tela dos quatro.
@@ -1241,15 +1303,31 @@ function criarAtores(cena, of, jogadores) {
   return atores
 }
 
-/** Aplica a pose 'sit' crua em todas as juntas (o resto e somado por cima). */
-function porPoseSentada(P) {
-  const j = POSES.sit ? POSES.sit.j : {}
+/**
+ * Escreve a pose base de todas as juntas, misturando SENTADO (k=0) com EM PE
+ * (k=1). O resto da animacao e somado por cima disto.
+ *
+ * Misturar as duas poses junta por junta e o jeito barato de levantar do sofa:
+ * nao existe clipe de animacao no jogo inteiro, e uma transicao escrita a mao
+ * (dobra o tronco, estica a perna, empurra o quadril) seria uma segunda pose
+ * pra manter em sincronia com POSES.sit toda vez que o esqueleto mudasse.
+ * Junta que existe numa pose e nao na outra vai pra zero pelo ZERO, que e
+ * exatamente onde a pose neutra a quer.
+ */
+function porPose(P, k) {
+  const a = POSES.sit ? POSES.sit.j : {}
+  const b = POSES.idle ? POSES.idle.j : {}
   for (let i = 0; i < JUNTAS.length; i++) {
     const n = JUNTAS[i]
     const p = P[n]
     if (!p) continue
-    const b = j[n] || ZERO
-    p.rotation.set(b[0], b[1], b[2])
+    const x = a[n] || ZERO
+    const y = b[n] || ZERO
+    p.rotation.set(
+      x[0] + (y[0] - x[0]) * k,
+      x[1] + (y[1] - x[1]) * k,
+      x[2] + (y[2] - x[2]) * k,
+    )
   }
 }
 
@@ -1268,7 +1346,24 @@ function atualizarAtor(a, d, ctx) {
   const t = a.t
   const P = a.P
 
-  porPoseSentada(P)
+  // kL = 0 sentado, 1 em pe. Tudo que esta ligado ao sofa some junto com ele.
+  const kL = ctx.levantar
+  const tq = 1 - kL
+  porPose(P, kL)
+
+  // O CORPO SOBE E DA UM PASSO. E o root que anda, nao as juntas: as juntas ja
+  // estao ocupadas misturando as duas poses, e mover o quadril por rotacao pra
+  // ganhar 37 cm de altura enterraria os pes no assoalho.
+  // O PULINHO: uma unica batida durante a subida (pico em kL = 0.5, 5,5 cm).
+  // E o empurrao contra o sofa. Sem ele a subida e linear e le como elevador.
+  const hop = kL > 0.02 && kL < 0.999 ? Math.sin(kL * Math.PI) * 0.055 : 0
+  a.personagem.root.position.set(
+    a.x,
+    a.ySent + (a.yPe - a.ySent) * kL + hop,
+    a.zSent + (a.zPe - a.zSent) * kL,
+  )
+  a.z = a.zSent + (a.zPe - a.zSent) * kL
+  a.cabecaY = a.cabecaSent + (a.cabecaPe - a.cabecaSent) * kL
 
   // --- respiracao (a mesma ideia do npc.js: peito nos MESHES, tronco na junta)
   const br = Math.sin(t * 1.5)
@@ -1282,33 +1377,37 @@ function atualizarAtor(a, d, ctx) {
   P.chest.rotation.x += br * 0.010
 
   // --- tique proprio ---------------------------------------------------------
+  // Tudo aqui e tique de quem esta LARGADO num sofa: perna balancando, gole de
+  // lata, coceira na nuca. Quando o grupo levanta os tiques desaparecem por
+  // `tq`, e nao com um if: cortar de uma vez faria a perna nervosa parar num
+  // quadro so, no meio da batida, o que le como travamento.
   if (a.tique === 0) {
     // perna nervosa: quem espera alguem falar balanca o joelho
-    const p = Math.sin(t * 8.4)
+    const p = Math.sin(t * 8.4) * tq
     P.legRUpper.rotation.x += p * 0.030
     P.legRLower.rotation.x -= p * 0.055
     P.footR.rotation.x += p * 0.16
   } else if (a.tique === 1) {
     // mexendo no controle: antebracos pequenos e rapidos, cabeca meio caida
-    P.armRLower.rotation.x += Math.sin(t * 5.1) * 0.030
-    P.armLLower.rotation.x += Math.sin(t * 5.1 + 1.7) * 0.030
-    P.handR.rotation.z += Math.sin(t * 9.3) * 0.06
-    P.handL.rotation.z -= Math.sin(t * 8.1) * 0.06
+    P.armRLower.rotation.x += Math.sin(t * 5.1) * 0.030 * tq
+    P.armLLower.rotation.x += Math.sin(t * 5.1 + 1.7) * 0.030 * tq
+    P.handR.rotation.z += Math.sin(t * 9.3) * 0.06 * tq
+    P.handL.rotation.z -= Math.sin(t * 8.1) * 0.06 * tq
   } else if (a.tique === 2) {
     // um gole a cada ~9 s: o resto do tempo a lata descansa na perna
     const ciclo = (t % 9.0)
-    const gole = ciclo > 6.2 && ciclo < 8.0 ? Math.sin((ciclo - 6.2) / 1.8 * Math.PI) : 0
+    const gole = (ciclo > 6.2 && ciclo < 8.0 ? Math.sin((ciclo - 6.2) / 1.8 * Math.PI) : 0) * tq
     P.armRUpper.rotation.x -= gole * 0.55
     P.armRLower.rotation.x -= gole * 0.95
     P.handR.rotation.x -= gole * 0.35
   } else {
     // coca a nuca de vez em quando; no resto do tempo so ajeita o ombro
     const ciclo = (t % 11.0)
-    const coca = ciclo > 8.0 && ciclo < 9.6 ? Math.sin((ciclo - 8.0) / 1.6 * Math.PI) : 0
+    const coca = (ciclo > 8.0 && ciclo < 9.6 ? Math.sin((ciclo - 8.0) / 1.6 * Math.PI) : 0) * tq
     P.armLUpper.rotation.x -= coca * 1.55
     P.armLUpper.rotation.z -= coca * 0.55
     P.armLLower.rotation.x -= coca * 1.30
-    P.chest.rotation.z += Math.sin(t * 0.9) * 0.02
+    P.chest.rotation.z += Math.sin(t * 0.9) * 0.02 * tq
   }
 
   // --- reacao ao coro --------------------------------------------------------
@@ -1320,11 +1419,24 @@ function atualizarAtor(a, d, ctx) {
   const r = a.reacao
   if (r > 0.002) {
     if (ctx.animado) {
-      // cassino: bracos pra cima, corpo pra tras, cabeca balancando que SIM
-      P.armRUpper.rotation.x -= r * 1.85
-      P.armLUpper.rotation.x -= r * 1.85
-      P.armRUpper.rotation.z += r * 0.35
-      P.armLUpper.rotation.z -= r * 0.35
+      // cassino: bracos pra cima, corpo pra tras, cabeca balancando que SIM.
+      //
+      // Sentado o braco sobe 1.85 rad no maximo — mais que isso e o cotovelo
+      // entra no encosto do sofa. Em pe nao ha encosto: 3.0 rad com a reacao em
+      // 0.90 poe a mao ACIMA DA CABECA (2.7 rad, 155 graus), que e o gesto que
+      // o dono pediu ("como se fosse uma ideia milhonaria"). Com os 2.35 da
+      // primeira tentativa o braco parava na horizontal e a foto virava quatro
+      // pessoas dando de ombros.
+      const alto = 1.85 + kL * 1.15
+      P.armRUpper.rotation.x -= r * alto
+      P.armLUpper.rotation.x -= r * alto
+      // A ABERTURA lateral diminui quando eles levantam. Sentado, abrir o
+      // cotovelo 0.35 rad e o que da largura ao gesto; em pe, com 58 cm entre
+      // um e o outro, a mao levantada de um entrava no espaco do vizinho. Mais
+      // reto pra cima tambem le melhor como comemoracao do que como aceno.
+      const abre = 0.35 - kL * 0.17
+      P.armRUpper.rotation.z += r * abre
+      P.armLUpper.rotation.z -= r * abre
       P.chest.rotation.x += r * 0.16
       P.hips.rotation.x += r * 0.06
     } else {
@@ -1382,7 +1494,7 @@ function atualizarAtor(a, d, ctx) {
 // ninguem e outra piada.
 //
 // quem: 'anf'  o anfitriao fala
-//       'coro' os OUTROS respondem juntos (sozinho, quem responde e a TV)
+//       'coro' os OUTROS respondem juntos (sozinho, e o proprio jogador)
 //       'todos' todo mundo junto, incluindo o anfitriao
 //       'pensa' ninguem fala, o grupo pensa
 //       null   silencio
@@ -1393,13 +1505,14 @@ const ROTEIRO = [
   { d: 3.2, quem: 'anf', txt: 'A gente vive de energetico morno e pizza de ontem.' },
   { d: 3.0, quem: 'anf', txt: { grupo: 'Eu quero um negocio nosso. Dinheiro de verdade.', so: 'Eu quero um negocio meu. Dinheiro de verdade.' } },
   { d: 2.6, quem: 'anf', txt: 'E se a gente abrir um restaurante?' },
-  { d: 1.8, quem: 'coro', txt: 'NAOOO', tranco: 1.0 },
+  { d: 1.8, quem: 'coro', txt: { grupo: 'NAOOO', so: 'Nao. Nao mesmo.' }, tranco: 1.0 },
   { d: 2.0, quem: 'anf', txt: 'Ta bom, ta bom. Calma.' },
   { d: 3.2, quem: 'anf', txt: 'E se a gente abrir uma distribuidora de bebidas?' },
   { d: 1.2, quem: 'pensa' },
-  { d: 1.8, quem: 'coro', txt: 'NAOOO', tranco: 1.15 },
-  { d: 2.2, quem: 'anf', txt: 'Entao me ajuda, porque eu to sem ideia.' },
-  { d: 3.0, quem: 'todos', txt: 'E SE A GENTE ABRIR UM CASSINO?', tranco: 0.55, animado: true },
+  { d: 1.8, quem: 'coro', txt: { grupo: 'NAOOO', so: 'Nao. De jeito nenhum.' }, tranco: 1.15 },
+  { d: 2.2, quem: 'anf', txt: { grupo: 'Entao me ajuda, porque eu to sem ideia.', so: 'Entao pensa, porque eu to sem ideia.' } },
+  { d: 3.0, quem: 'todos', tranco: 0.55, animado: true,
+    txt: { grupo: 'E SE A GENTE ABRIR UM CASSINO?', so: 'E SE EU ABRIR UM CASSINO?' } },
   { d: 1.4, quem: null, animado: true },
   { d: 1.9, quem: null, animado: true, fade: [0, 1] },
   // --- parte 2: a rua ------------------------------------------------------
@@ -1512,7 +1625,7 @@ function criarCamada(nBaloes) {
 // ---------------------------------------------------------------------------
 // I. A CUTSCENE
 // ---------------------------------------------------------------------------
-export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) {
+export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } = {}) {
   const lista = Array.isArray(jogadores) && jogadores.length ? jogadores.slice(0, 4) : [{ nome: 'Voce', anfitriao: true }]
   const nJog = lista.length
   const CASA = casa || CASA_PADRAO
@@ -1539,7 +1652,6 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
   // estilo em cima de um elemento fixed:inset:0 pra nao mudar pixel nenhum.
   let fadeEscrito = -1
   let trancoT = -1, trancoA = 0
-  let tvPlateiaT = -1
   let ultimoQuadroTV = -1
 
   // Estado de camera do jogo, pra devolver como estava se a parte 2 nem rodar.
@@ -1591,7 +1703,7 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     if (anf) nomeAnf = anf.nome
 
     camPorao = new THREE.PerspectiveCamera(
-      42, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 60,
+      FOV_PORAO, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 60,
     )
     camPorao.position.set(CAM_INI.x, CAM_INI.y, CAM_INI.z)
     camPorao.lookAt(CAM_ALVO_INI.x, CAM_ALVO_INI.y, CAM_ALVO_INI.z)
@@ -1614,13 +1726,26 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     else { fadeDe = fadePara = fadeAtual }
     if (p.tranco) { trancoT = 0; trancoA = p.tranco }
     if (p.parte === 2 && parte !== 2) entrarNaParte2()
-    // o coro solo e a TV respondendo: acende o flash de plateia junto da fala
-    if (nJog <= 1 && (p.quem === 'coro' || p.quem === 'todos')) tvPlateiaT = 0
     mostrarFala(p)
   }
 
+  /**
+   * A troca de cena: o grupo sai do porao e vai pra CALCADA, em fila, olhando
+   * pra casa.
+   *
+   * Os bonecos sao os MESMOS. Poderiam ser criados de novo na cena do jogo, ou
+   * poderiam ser os avatares de rede — e as duas alternativas falham pelo mesmo
+   * motivo: no instante desta troca o servidor ainda nao mandou ninguem pra
+   * frente da casa (a partida nem comecou), e no modo solo nao existe rede
+   * nenhuma. Reaproveitando os atores a fila esta certa nos dois modos e sai de
+   * graca: eles ja estao construidos, ja estao com a customizacao de cada
+   * jogador e ja estao EM PE, porque acabaram de levantar do sofa.
+   *
+   * O preco e que soltarPorao() nao pode mais mata-los junto (ver la).
+   */
   function entrarNaParte2() {
     parte = 2
+    porAtoresNaFila()
     // O porao ja nao aparece mais. Soltar aqui (e nao no fim) devolve a memoria
     // enquanto a tela esta PRETA, que e o unico momento em que um engasgo de
     // GC/driver nao aparece pra ninguem.
@@ -1640,6 +1765,54 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
       CASA.olharY !== undefined ? CASA.olharY : olhoY,
       CASA.olharZ !== undefined ? CASA.olharZ : (CASA.z || 0) - 6,
     )
+  }
+
+  /** Move cada ator pro lugar dele na fila e vira todos pra casa. */
+  function porAtoresNaFila() {
+    if (!cena || !atores.length) return
+    const n = atores.length
+    // A altura do piso vem de quem monta o mundo (main.js passa game.groundY):
+    // a calcada da frente da casa esta em LEVELS.SHOP_FLOOR hoje, mas escrever
+    // 0.16 aqui seria a quarta copia desse numero no projeto.
+    const base = typeof chao === 'function' ? chao(LOTE.door.center, LOTE.z0 - 3.2) : 0
+    for (let i = 0; i < n; i++) {
+      const a = atores[i]
+      const f = filaDaCasa(i, n)
+      // O root sai do porao e entra na cena do jogo. add() ja tira do pai
+      // anterior, entao o porao fica sem eles antes de soltarPorao varrer.
+      cena.add(a.personagem.root)
+      // Os dois pousos passam a ser o MESMO ponto: na rua ninguem senta, e com
+      // sentado == em pe o levantar (que fica travado em 1) nao move nada.
+      a.x = f.x
+      a.zSent = f.z; a.zPe = f.z; a.z = f.z
+      a.ySent = base; a.yPe = base
+      a.cabecaSent = base + a.personagem.headCenterY
+      a.cabecaPe = a.cabecaSent
+      a.cabecaY = a.cabecaSent
+      a.rotY = f.yaw
+      a.personagem.root.position.set(f.x, base, f.z)
+      a.personagem.root.rotation.y = f.yaw
+      // A lata e o controle ficam no porao (na historia, nao na cena): o corte
+      // pro preto e uma elipse, eles andaram ate aqui. Chegar na calcada com um
+      // controle de video game na mao le como objeto esquecido pelo programador.
+      if (a.acessorio) a.acessorio.visible = false
+    }
+  }
+
+  // Na rua eles so respiram e olham pra casa: `levantar` travado em 1 (ja estao
+  // em pe) e reacao zerada. O alvo do olhar e a PORTA, nao o centro da fachada
+  // — e pra porta que a cena inteira aponta.
+  const _ctxRua = {
+    falando: false, reacao: 0, animado: false, pensando: false, levantar: 1,
+    olharX: 0, olharY: 0, olharZ: 0,
+  }
+
+  function atualizarAtoresRua(d) {
+    if (!atores.length) return
+    _ctxRua.olharX = LOTE.door.center
+    _ctxRua.olharY = 1.55
+    _ctxRua.olharZ = LOTE.z0
+    for (const a of atores) atualizarAtor(a, d, _ctxRua)
   }
 
   function mostrarFala(p) {
@@ -1673,13 +1846,22 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
       camada.legQuem.textContent = nomeAnf
       camada.legTxt.textContent = txt
     } else {
-      // COROS: um balao unico e grande. Sozinho na sala, quem responde e a TV —
-      // o roteiro pede humor, nao silencio, e "ate a televisao discorda" e a
-      // piada mais barata e mais certeira que essa cena tem.
+      // COROS: um balao unico e grande.
+      //
+      // QUEM RESPONDE SAO OS OUTROS JOGADORES. Havia aqui uma piada de plateia
+      // de TV: sozinho na sala, o "NAOOO" vinha da televisao, com flash de
+      // risada enlatada na tela. O dono do projeto cortou ("n e a plateia como
+      // vc colocou") e ele tem razao pelo motivo certo: a cena e sobre quatro
+      // amigos decidindo um negocio, e por uma piada ela passava a ser sobre um
+      // sujeito sendo ridicularizado por um aparelho.
+      //
+      // Sozinho, quem diz "NAOOO" e o PROPRIO jogador — a cena vira alguem
+      // discutindo consigo mesmo num porao, que e mais honesto e continua tendo
+      // graca. Sem plateia nenhuma.
       const c = camada.coro
       let quem
-      if (p.quem === 'todos') quem = nJog <= 1 ? 'Voce e a TV, juntos' : 'Todos'
-      else quem = nJog <= 1 ? 'TV (risada de plateia)' : 'Todos os outros'
+      if (nJog <= 1) quem = nomeAnf
+      else quem = p.quem === 'todos' ? 'Todos' : 'Todos os outros'
       c.quem.textContent = quem
       c.fala.textContent = txt
       c.el.classList.add('on')
@@ -1699,8 +1881,15 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     // redimensiona a janela no meio da cutscene teria o porao esticado ate o
     // fim dela. Comparar antes de escrever evita recalcular a projecao a toa.
     const asp = window.innerWidth / Math.max(1, window.innerHeight)
-    if (Math.abs(camPorao.aspect - asp) > 0.0001) {
+    // A LENTE ABRE quando o grupo levanta (ver CAM_PE): e ela que compra o
+    // enquadramento que o recuo nao pode comprar, porque atras da camera esta a
+    // TV. Escrever so quando muda evita recalcular a projecao a cada quadro.
+    const fovAlvo = FOV_PORAO + (FOV_PE - FOV_PORAO) * _ctxAtor.levantar
+    const trocouAsp = Math.abs(camPorao.aspect - asp) > 0.0001
+    const trocouFov = Math.abs(camPorao.fov - fovAlvo) > 0.01
+    if (trocouAsp || trocouFov) {
       camPorao.aspect = asp
+      camPorao.fov = fovAlvo
       camPorao.updateProjectionMatrix()
     }
     const k = suave(Math.min(1, tParte1 / DUR_PORAO))
@@ -1722,15 +1911,25 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     ox += Math.sin(t * 0.63) * 0.012
     oy += Math.sin(t * 0.81 + 2.1) * 0.009
 
+    // kp ja vem suavizado de atualizarAtores, que roda ANTES desta funcao no
+    // mesmo quadro. Ler de la em vez de manter uma segunda contagem garante que
+    // a camera e os quatro corpos levantem no mesmo instante.
+    const kp = _ctxAtor.levantar
+    const px = CAM_INI.x + (CAM_FIM.x - CAM_INI.x) * k
+    const py = CAM_INI.y + (CAM_FIM.y - CAM_INI.y) * k
+    const pz = CAM_INI.z + (CAM_FIM.z - CAM_INI.z) * k
+    const ax = CAM_ALVO_INI.x + (CAM_ALVO_FIM.x - CAM_ALVO_INI.x) * k
+    const ay = CAM_ALVO_INI.y + (CAM_ALVO_FIM.y - CAM_ALVO_INI.y) * k
+    const az = CAM_ALVO_INI.z + (CAM_ALVO_FIM.z - CAM_ALVO_INI.z) * k
     camPorao.position.set(
-      CAM_INI.x + (CAM_FIM.x - CAM_INI.x) * k + ox,
-      CAM_INI.y + (CAM_FIM.y - CAM_INI.y) * k + oy,
-      CAM_INI.z + (CAM_FIM.z - CAM_INI.z) * k + oz,
+      px + (CAM_PE.x - px) * kp + ox,
+      py + (CAM_PE.y - py) * kp + oy,
+      pz + (CAM_PE.z - pz) * kp + oz,
     )
     camPorao.lookAt(
-      CAM_ALVO_INI.x + (CAM_ALVO_FIM.x - CAM_ALVO_INI.x) * k + ox * 0.25,
-      CAM_ALVO_INI.y + (CAM_ALVO_FIM.y - CAM_ALVO_INI.y) * k + oy * 0.25,
-      CAM_ALVO_INI.z + (CAM_ALVO_FIM.z - CAM_ALVO_INI.z) * k,
+      ax + (CAM_ALVO_PE.x - ax) * kp + ox * 0.25,
+      ay + (CAM_ALVO_PE.y - ay) * kp + oy * 0.25,
+      az + (CAM_ALVO_PE.z - az) * kp,
     )
   }
 
@@ -1763,12 +1962,6 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     const bloco = Math.floor(t / 7.0) % 3
     if (bloco === 1) programa = 'filme'
     else if (bloco === 2) programa = 'barras'
-
-    if (tvPlateiaT >= 0) {
-      tvPlateiaT += d
-      if (tvPlateiaT < 0.75) programa = 'plateia'
-      else tvPlateiaT = -1
-    }
 
     const quadro = Math.floor(t * TV_HZ)
     if (quadro !== ultimoQuadroTV) {
@@ -1835,10 +2028,20 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
   function atualizarBaloes(passo) {
     if (!camada) return
     if (parte === 2) {
-      // primeira pessoa: nao existe cabeca pra ancorar. O balao vai fixo no
-      // rodape, que e onde o olho ja esta procurando legenda.
+      // A parte 2 deixou de ser primeira pessoa: o anfitriao esta na fila, de
+      // costas, e o balao pode sair da cabeca dele como sai no porao. So cai
+      // pro rodape se, por algum motivo, nao houver corpo (cutscene chamada sem
+      // elenco).
       const b = camada.baloes[0]
-      if (b.el.classList.contains('on')) b.el.style.transform = 'translate(-50%,-100%)'
+      if (!b.el.classList.contains('on')) return
+      const anf2 = anfitriao()
+      if (anf2 && camera) {
+        b.el.classList.remove('fixo')
+        projetar(b.el, anf2.x, anf2.cabecaY + 0.42, anf2.z, camera, null)
+      } else {
+        b.el.classList.add('fixo')
+        b.el.style.transform = 'translate(-50%,-100%)'
+      }
       return
     }
     if (!camPorao) return
@@ -1856,15 +2059,16 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
       const e = batida(tf, 0.55)
       _sacode.x = Math.sin(tf * 44) * 9 * e
       _sacode.y = Math.sin(tf * 37 + 0.8) * 7 * e
-      let ax = 0, az = -1.72, ay = 0
-      if (nJog <= 1 && passo.quem === 'coro') {
-        // quem responde e a TV: o balao sai da TV, nao do sofa
-        ax = TV.x; az = TV.z - 0.10; ay = TV.telaY + 0.86
-      } else {
-        for (const a of atores) { ax += a.x; ay += a.cabecaY }
-        ax /= atores.length
-        ay = ay / atores.length + 0.62
-      }
+      // O balao do coro sai de cima do GRUPO, sempre — inclusive quando ha um
+      // jogador so, que agora responde a si mesmo (ver mostrarFala). Antes ele
+      // saia da TV no caso solo, o que era a piada de plateia que caiu.
+      // O z tambem e a media: quando o grupo levanta, todo mundo anda meio metro
+      // pra frente e um balao ancorado no sofa vazio ficaria pra tras deles.
+      let ax = 0, az = 0, ay = 0
+      for (const a of atores) { ax += a.x; ay += a.cabecaY; az += a.z }
+      ax /= atores.length
+      az /= atores.length
+      ay = ay / atores.length + 0.62
       projetar(camada.coro.el, ax, ay, az, camPorao, _sacode)
     }
   }
@@ -1875,14 +2079,33 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
   // pelos 36 segundos da cutscene inteira.
   const _cena = { quem: '', animado: false, pensando: false, coro: false, reacaoBase: 0 }
   const _ctxAtor = {
-    falando: false, reacao: 0, animado: false, pensando: false,
+    falando: false, reacao: 0, animado: false, pensando: false, levantar: 0,
     olharX: 0, olharY: 0, olharZ: 0,
   }
+
+  // LEVANTAR: 0 todo mundo sentado, 1 todo mundo em pe.
+  //
+  // E um valor SO pra cena inteira, e nao um por ator, de proposito: o pedido
+  // era "todos vao falar juntos e levantar juntos", e quatro cronometros
+  // separados dariam quatro tempos ligeiramente diferentes — que e o oposto de
+  // junto. Ele sobe em 1.15 s, que e o tempo de uma pessoa que levanta com
+  // vontade (mais rapido vira teletransporte, mais devagar vira preguica).
+  let levantar = 0
+  const VEL_LEVANTAR = 1 / 1.15
 
   function atualizarAtores(d, passo) {
     const c = _cena
     c.quem = passo.quem || ''
     c.animado = !!passo.animado
+    // Os tres ultimos passos da parte 1 sao os `animado`, e o primeiro deles e
+    // a fala do cassino: e exatamente ali que o grupo levanta. Amarrar o
+    // levantar ao passo (e nao a um cronometro proprio) mantem a coisa presa
+    // ao ROTEIRO, que e quem manda no tempo desta cena.
+    const alvoLev = c.animado ? 1 : 0
+    if (levantar < alvoLev) levantar = Math.min(1, levantar + d * VEL_LEVANTAR)
+    else if (levantar > alvoLev) levantar = Math.max(0, levantar - d * VEL_LEVANTAR)
+    // suave() nas duas pontas: sair e chegar sem tranco
+    _ctxAtor.levantar = levantar * levantar * (3 - 2 * levantar)
     c.pensando = passo.quem === 'pensa'
     c.coro = passo.quem === 'coro' || passo.quem === 'todos'
     // A reacao dura o COMECO do passo, nao o passo inteiro: berro segurado por
@@ -1892,16 +2115,39 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     for (const a of atores) {
       const ehAnf = a === anf
       _ctxAtor.falando = ehAnf && (passo.quem === 'anf' || passo.quem === 'todos')
+      // em pe ninguem fica gesticulando "explicando": o gesto de fala e de quem
+      // esta sentado argumentando
+      if (_ctxAtor.levantar > 0.4) _ctxAtor.falando = false
       _ctxAtor.animado = c.animado
       _ctxAtor.pensando = c.pensando && !ehAnf
       // o anfitriao nao responde ao proprio coro (a nao ser no 'todos')
       _ctxAtor.reacao = (passo.quem === 'todos' || !ehAnf) ? c.reacaoBase : 0
-      if (c.animado && passo.quem !== 'coro') _ctxAtor.reacao = Math.max(_ctxAtor.reacao, 0.55)
+      // Em pe a comemoracao e mais forte: 0.55 e o piso de quem festeja
+      // sentado, com o encosto do sofa no caminho do ombro; sem sofa nenhum o
+      // piso vai a 0.90, e e a diferenca entre acenar e comemorar.
+      if (c.animado && passo.quem !== 'coro') {
+        _ctxAtor.reacao = Math.max(_ctxAtor.reacao, 0.55 + _ctxAtor.levantar * 0.35)
+      }
 
       // Pra onde cada um olha: quem fala olha pro grupo, o grupo olha pra quem
       // fala, e sem ninguem falando todo mundo volta pra TV — que e exatamente
       // o que quatro pessoas num porao fazem.
-      if (passo.quem === 'anf' && !ehAnf) {
+      // A IDEIA DE MILHAO se olha PRA CIMA, nunca pra TV.
+      //
+      // Sem este ramo o alvo caia no `else` la embaixo, que e a televisao — e a
+      // televisao esta em z = 2.06, y = 0.94, ou seja ATRAS e ABAIXO de quem
+      // acabou de levantar. Os quatro comemoravam de bracos erguidos encarando
+      // o chao. Pior: o anfitriao, no passo 'todos', mirava um ponto do sofa
+      // que agora esta atras dele, e o LOOK_LIMIT de 0.6 rad travava a cabeca
+      // dele torta no plano mais importante da cena.
+      //
+      // O alvo e um ponto alto e a frente: eles olham pra ideia, nao um pro
+      // outro.
+      if (c.animado) {
+        _ctxAtor.olharX = a.x * 0.35
+        _ctxAtor.olharY = 2.30
+        _ctxAtor.olharZ = 1.60
+      } else if (passo.quem === 'anf' && !ehAnf) {
         _ctxAtor.olharX = anf.x; _ctxAtor.olharY = anf.cabecaY; _ctxAtor.olharZ = anf.z
       } else if (passo.quem === 'anf' && ehAnf) {
         _ctxAtor.olharX = 0; _ctxAtor.olharY = 1.20; _ctxAtor.olharZ = -1.2
@@ -1945,6 +2191,7 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
       atualizarAtores(d, passo)
       atualizarCameraPorao(d)
     } else {
+      atualizarAtoresRua(d)
       atualizarCameraRua()
     }
     atualizarBaloes(passo)
@@ -1961,13 +2208,14 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
   }
 
   // --- limpeza ---------------------------------------------------------------
-  function soltarPorao() {
-    if (!porao) return
-
-    // Personagem primeiro: character.dispose() sabe quais geometrias sao DELE e
-    // quais sao do modulo (a mao com dedos, por exemplo, e uma so pro jogo
-    // inteiro). Depois disso o root ja saiu da cena e a varredura abaixo nem
-    // encosta nele.
+  /**
+   * Devolve os personagens. Separado de soltarPorao porque eles SOBREVIVEM ao
+   * porao: na parte 2 os mesmos bonecos estao em pe na calcada.
+   *
+   * character.dispose() sabe quais geometrias sao DELE e quais sao do modulo (a
+   * mao com dedos, por exemplo, e uma so pro jogo inteiro).
+   */
+  function soltarAtores() {
     for (const a of atores) {
       for (const g of a.geosProprias) g.dispose()
       a.geosProprias.length = 0
@@ -1976,6 +2224,17 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
       a.personagem.dispose()
     }
     atores.length = 0
+  }
+
+  function soltarPorao() {
+    if (!porao) return
+
+    // Se os atores ainda moram AQUI, eles saem primeiro: a varredura de
+    // geometrias logo abaixo pega tudo que estiver dentro do porao, e o
+    // character.dispose() e quem sabe o que e dele e o que e do modulo. Quando
+    // a cutscene chega na rua eles ja mudaram de cena (porAtoresNaFila) e este
+    // if nao dispara — la eles ainda estao em uso.
+    if (atores.length && atores[0].personagem.root.parent === porao) soltarAtores()
 
     // Geometrias: TODAS as que sobraram nasceram aqui. Set porque as reusadas
     // (bituca, ponto de costura, fita) aparecem em varios meshes e dispose
@@ -2006,6 +2265,10 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     terminado = true
     rodando = false
     soltarPorao()
+    // Os da rua: soltarPorao nao encosta neles de proposito, entao e aqui, com
+    // a cutscene acabando, que eles saem. Um quadro depois main.js poe o
+    // jogador de verdade exatamente na mesma posicao (ver filaDaCasa).
+    soltarAtores()
     if (camada) camada.dispose()
     camada = null
     desligarTeclado()
@@ -2060,6 +2323,12 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa } = {}) 
     rodando = false
     aoTerminar = null
     soltarPorao()
+    // E soltarAtores TAMBEM aqui, e nao so em terminar(): depois que a cena vai
+    // pra rua os bonecos moram na cena do JOGO, entao soltarPorao nao encosta
+    // neles de proposito. Quem aborta a cutscene no meio (fluxo.jogar, F8, um
+    // segundo comecarPartida) passa por dispose e nao por terminar — sem esta
+    // linha, quatro pessoas ficavam paradas na calcada pelo resto da partida.
+    soltarAtores()
     if (camada) camada.dispose()
     camada = null
     desligarTeclado()

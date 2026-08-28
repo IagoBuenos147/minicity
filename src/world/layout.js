@@ -72,6 +72,39 @@ export const CASA = {
   signColor: 0x9a8a6a,
 }
 
+// Distancia entre um jogador e o vizinho na fila da frente da casa.
+//
+// 1,30 m: o personagem tem 0,426 m de ombro a ombro, entao sobram 87 cm de
+// respiro entre dois. Menos que isso e a fila vira aglomeracao e os bracos
+// atravessam o vizinho na animacao de idle; mais que isso e a fila de quatro
+// passa de 4,3 m e comeca a encostar na placa de VENDE-SE (x 47.6..48.2) de um
+// lado e no poste do outro.
+const PASSO_FILA = 1.30
+
+/**
+ * Onde nasce o jogador de indice `i` num grupo de `n`, EM FILA na frente da
+ * casa velha e olhando pra ela.
+ *
+ * Existe aqui, e nao em main.js nem na cutscene, porque os TRES precisam da
+ * mesma conta e precisam concordar: a cutscene poe os bonecos na fila, o
+ * teleport do fim poe o jogador de verdade, e se as duas contas divergirem o
+ * jogador ve o proprio corpo saltar de lugar no instante em que ganha o
+ * controle. Antes disso todo mundo nascia no MESMO ponto (door.center,
+ * z0-3.2), o que no coop empilhava quatro corpos no mesmo metro quadrado.
+ *
+ * O yaw e 0 porque a fachada da casa e a face z0 e o jogador chega pelo z
+ * menor: olhar pra +Z e olhar pra porta.
+ */
+export function filaDaCasa(i, n) {
+  const total = Math.max(1, n | 0)
+  const idx = Math.min(total - 1, Math.max(0, i | 0))
+  return {
+    x: CASA.door.center + (idx - (total - 1) / 2) * PASSO_FILA,
+    z: CASA.z0 - 3.2,
+    yaw: 0,
+  }
+}
+
 // interior util (dentro das paredes)
 export function interiorOf(b) {
   return {
