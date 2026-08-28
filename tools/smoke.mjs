@@ -541,8 +541,10 @@ try {
     for (let i = 0; i < 360; i++) A.atualizar(1 / 60)
     let noPorao = 0
     G.scene.traverse((o) => { if (o.name && o.name.indexOf('abertura:') === 0) noPorao++ })
-    // 34 s: passou a fala do cassino (todos de pe) e a cena ja virou pra rua
-    for (let i = 0; i < 1740; i++) A.atualizar(1 / 60)
+    // 52 s: passou a fala do cassino (todos de pe) e a cena ja virou pra rua.
+    // O roteiro ficou mais lento a pedido do dono, entao este numero cresceu
+    // junto: parte 1 sao 46 s.
+    for (let i = 0; i < 2760; i++) A.atualizar(1 / 60)
     const fila = []
     G.scene.traverse((o) => {
       if (o.name && o.name.indexOf('abertura:') === 0) fila.push({ x: +o.position.x.toFixed(2), z: +o.position.z.toFixed(2) })
@@ -588,7 +590,9 @@ try {
         if (vistos.some((v) => Math.abs(v - f.x) < 0.5)) fora.push(n + ':' + i + ' colado')
         vistos.push(f.x)
         if (!G.collision.isFree(f.x, f.z, 0.42)) fora.push(n + ':' + i + ' em colisor')
-        if (f.yaw !== 0) fora.push(n + ':' + i + ' virado pro lado errado')
+        // PI e nao 0: com yaw 0 a camera de 3a pessoa vai parar DENTRO da casa
+        // (medido: z = 13.2, com a fachada em z = 12). Ver filaDaCasa.
+        if (Math.abs(f.yaw - Math.PI) > 1e-6) fora.push(n + ':' + i + ' virado pro lado errado')
       }
     }
     return fora
@@ -619,6 +623,7 @@ try {
       estado: G.fluxo.estado,
       hudVisivel: !document.getElementById('hud').classList.contains('fora-do-jogo'),
       objetivo: G.tutorial.atual ? G.tutorial.atual.id : null,
+      feitas: Array.from(G.tutorial.concluidas || []),
       x: +G.player.position.x.toFixed(1), z: +G.player.position.z.toFixed(1),
     }
   })
@@ -628,7 +633,8 @@ try {
     Math.abs(noJogo.x - 43) < 4 && noJogo.z > 4 && noJogo.z < 12,
     'x=' + noJogo.x + ' z=' + noJogo.z)
   check('a primeira missao do tutorial esta na tela',
-    noJogo.objetivo === 'entrar-na-casa', 'objetivo=' + noJogo.objetivo)
+    noJogo.objetivo === 'entrar-na-casa',
+    'objetivo=' + noJogo.objetivo + ' ja feitas=[' + (noJogo.feitas || []).join(',') + ']')
 
   // --- a porta da casa: fechada, ela BARRA; aberta, ela deixa passar ---------
   // Andar de verdade contra o vao, e nao teleportar pra dentro: o que este caso

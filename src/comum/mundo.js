@@ -33,7 +33,7 @@
 // desconhecida — e nunca entenderia por que ele comecou a andar. Pior: ele
 // tambem nao saberia mandar ZUMBI_TIRO, entao atirava e nada acontecia. Melhor
 // recusar e pedir pra recarregar.
-export const VERSAO_PROTOCOLO = 6
+export const VERSAO_PROTOCOLO = 7
 export const TICK_HZ = 15
 export const ATRASO_INTERP = 0.1      // segundos: o remoto e desenhado 100 ms atras
 // QUATRO, e nao vinte. O jogo passou a ter LOBBY: o dono do projeto pediu

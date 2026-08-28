@@ -63,11 +63,30 @@ export const CASINO = {
 // que a cena precisa.
 export const CASA = {
   id: 'casa',
-  x0: 38, x1: 50,     // 12 m
-  z0: 12, z1: 22,     // 10 m
-  wallHeight: 3.2,
+  // 14 x 12,5 m. O tamanho NAO e uma escala escolhida a dedo: e o que o
+  // quarteirao da, medido nos quatro lados.
+  //  - x0 = 36.9 porque o avental (apronOf(b, 0.9), que entra no groundY)
+  //    encosta EXATAMENTE em 36.0, a borda da laje do beco: junta topo a topo,
+  //    sem sobra de grama e sem duas lajes disputando o mesmo Y;
+  //  - x1 = 50.9 porque o avental para em 51.8 e o asfalto do anel comeca em
+  //    52.0;
+  //  - z0 = 12 e INTOCAVEL: 8..12 e a calcada da avenida e e la que nasce a
+  //    fila (filaDaCasa poe todo mundo em z0 - 3.2);
+  //  - z1 = 24.5 come os 2 m livres ate o quintal murado, que recuou pra 25.5.
+  //
+  // O eixo que estava matando o lugar era o Z. A sala da frente tinha 4,10 m de
+  // fundura e UMA mesa de sinuca de 7 pes precisa de 4,17 (1,27 de mesa mais
+  // 1,45 de taco de cada lado): faltavam 7 cm pra caber uma. Agora sao 5,40.
+  x0: 36.9, x1: 50.9, // 14 m
+  z0: 12, z1: 24.5,   // 12.5 m
+  // 3.5 e nao 3.2: o forro subiu pra 2.90 local (3.06 no mundo) porque isto
+  // deixou de ser sala de casa e virou salao de jogos — o taco de sinuca
+  // levanta 1,45 m acima do pano, que fica a 0,80 do chao.
+  wallHeight: 3.5,
   facade: 'z0',
-  door: { center: 43, width: 1.7, height: 2.3 },
+  // 2.0 e nao 1.7: e por aqui que a mesa de sinuca (1,27 m de lado curto) entra
+  // carregada. Era o vao mais estreito do mapa; a barbearia tem 2.3.
+  door: { center: 43, width: 2.0, height: 2.4 },
   sign: 'CASA 42',
   signColor: 0x9a8a6a,
 }
@@ -92,8 +111,19 @@ const PASSO_FILA = 1.30
  * controle. Antes disso todo mundo nascia no MESMO ponto (door.center,
  * z0-3.2), o que no coop empilhava quatro corpos no mesmo metro quadrado.
  *
- * O yaw e 0 porque a fachada da casa e a face z0 e o jogador chega pelo z
- * menor: olhar pra +Z e olhar pra porta.
+ * O YAW E PI, E ISSO FOI MEDIDO, NAO DEDUZIDO.
+ *
+ * A intuicao diz 0: a fachada e a face z0, o jogador chega pelo z menor, entao
+ * "olhar pra +Z" pareceria ser olhar pra porta. Esta errado. Nascendo com yaw 0
+ * em (43, 8.8) a camera de 3a pessoa vai parar em z = 13.2 — DENTRO da casa,
+ * atras da porta, e a tela inteira vira uma tabua de madeira. Foi assim que o
+ * dono do projeto recebeu o jogo depois da cutscene. Com yaw = PI a mesma
+ * camera vai pra z = 4.4: na calcada, atras do jogador, com a casa de frente.
+ *
+ * A razao esta em player/controller.js: teleport(x, z, yaw) guarda o yaw da
+ * CAMERA e poe o corpo em yaw + PI. A camera de 3a pessoa recua no sentido
+ * oposto ao que ela olha, entao quem quiser a casa na tela tem que olhar PRA
+ * ela, e nesta convencao isso e PI.
  */
 export function filaDaCasa(i, n) {
   const total = Math.max(1, n | 0)
@@ -101,7 +131,7 @@ export function filaDaCasa(i, n) {
   return {
     x: CASA.door.center + (idx - (total - 1) / 2) * PASSO_FILA,
     z: CASA.z0 - 3.2,
-    yaw: 0,
+    yaw: Math.PI,
   }
 }
 
@@ -132,7 +162,11 @@ export const FILLERS = [
   // SE (dois lotes sairam daqui: 14..34 / 12..30 virou o CASSINO, e a faixa
   // 38..50 / 12..22 virou a CASA VELHA. O que sobrou do lote de esquina virou
   // o quintal murado dos fundos dela.)
-  { x0: 36, x1: 52, z0: 24, z1: 28, h: 7, c: 0xbba07f, style: 'brick' },
+  // Recuou de z0=24 pra 25.5 e baixou de 7 pra 4.5 m: a casa velha cresceu ate
+  // z1=24.5 e o avental dela vai ate 25.4. Com 2,5 m de fundura, 7 m de altura
+  // viraria uma torre em cima de uma laje fina; 4,5 le como muro de quintal,
+  // que e o que ele sempre foi.
+  { x0: 36, x1: 52, z0: 25.5, z1: 28, h: 4.5, c: 0xbba07f, style: 'brick' },
   { x0: 14, x1: 32, z0: 34, z1: 52, h: 10, c: 0x9c9086, style: 'plaster' },
   { x0: 36, x1: 52, z0: 32, z1: 52, h: 15, c: 0x77828f, style: 'panel' },
   // SW e o parque (sem predios grandes), so um no canto

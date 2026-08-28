@@ -111,7 +111,12 @@ const game = {
 
   setAppearance(partial) {
     Object.assign(appearance, partial)
-    character.setAppearance(appearance)
+    // LE DE VOLTA o que o personagem resolveu. character.setAppearance devolve a
+    // aparencia ja normalizada (apelidos EN/PT casados, 'skin' derivado do
+    // indice 'pele'), e sem esta copia o objeto do jogo ficava com a cor de
+    // pele do primeiro quadro pra sempre — e era ELE que a tela de criacao
+    // copiava, que a cutscene levava pro sofa e que ia pro save.
+    Object.assign(appearance, character.setAppearance(appearance))
     // E AQUI que o visual vira coisa dos outros jogadores. Sem esta linha o
     // barbeiro so mudava o boneco desta tela: MINHA_APARENCIA nunca saia e o
     // servidor nunca guardava nada.
@@ -242,6 +247,7 @@ rede.aoEvento = (ev) => {
       }
       break
     case 'sala-estado': aoEstadoDaSala(); break
+    case 'porta-estado': aoPortaEstado(ev); break
     case 'entrou': if (estado === 'jogo') hud.toast(ev.nome + ' entrou'); break
     case 'saiu': hud.toast('um jogador saiu'); break
     case 'bemvindo':
@@ -576,7 +582,9 @@ const criacao = criarCriacao({
     // clicado. Sem isto o jogador escolhe no escuro.
     aoMudar(ap) {
       Object.assign(appearance, ap)
-      character.setAppearance(appearance)
+      // mesma leitura de volta do game.setAppearance: quem resolve 'skin' a
+      // partir de 'pele' e o personagem, e o resto do jogo copia daqui
+      Object.assign(appearance, character.setAppearance(appearance))
       provador.setAparencia(appearance)
       if (rede.conectado) rede.enviarAparencia(appearance)
     },
@@ -760,6 +768,19 @@ function montarCutscene(elenco) {
 }
 
 // O servidor virou a fase da sala: e ele quem manda no coop.
+/**
+ * O servidor mandou o estado de uma porta. Quem abre a porta e ESTA linha, e
+ * nao o clique: o clique so pede (ver o onInteract em world/casa-velha.js).
+ * Assim os quatro jogadores veem a mesma folha no mesmo lugar, e o colisor que
+ * barra — que tambem e por maquina — acompanha.
+ */
+function aoPortaEstado(ev) {
+  if (!ev) return
+  if (casa && casa.portaId === ev.portaId && typeof casa.setPortaAberta === 'function') {
+    casa.setPortaAberta(ev.aberta)
+  }
+}
+
 function aoEstadoDaSala() {
   const f = rede.sala.fase
   menu.setSala({ fase: f, anfitriao: rede.sala.anfitriao, meuId: rede.meuId,

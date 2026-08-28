@@ -49,14 +49,23 @@ const DH = B.door.height                      // 2.3
 // que apertar. O vao que sobra entre o forro e o telhado e o sotao — que hoje
 // nao se ve de lugar nenhum, desde que o pedaco caido do forro foi fechado
 // (ver forro()).
-const CEIL = 2.60                      // local; o miolo inteiro sobe pra BASE
+// 2.90 local = 3.06 no mundo. Era 2.60 (2,76 no mundo, 2,64 sob as vigas) e a
+// justificativa antiga era "a casa tem que apertar". Deixou de valer: aqui vai
+// entrar mesa de sinuca, e o taco levanta 1,45 m acima do pano a 0,80 do chao —
+// com 2,64 de forro o taco encosta no teto na tacada de bola presa na tabela.
+const CEIL = 2.90                      // local; o miolo inteiro sobe pra BASE
 
 // --- paredes internas do L -------------------------------------------------
 // TI mais fina que a externa: divisoria de tabique, nao parede de fora.
 const TI = 0.25
-const ZA = 16.40                       // face sul da divisoria transversal
-const XA = 47.05                       // face oeste da divisoria do braco
-const BRACO_X0 = XA + TI               // 47.30 — sobra 2.40 m livres ate 49.7
+// 17.70 da 5,40 m de fundura livre na sala da frente (12.3 ate 17.70). E a
+// conta da sinuca: 1,45 de taco + 1,27 de mesa + 1,45 de taco = 4,17, mais
+// 1,20 de faixa de entrada na frente da porta. Eram 4,10 — nao cabia UMA mesa.
+const ZA = 17.70                       // face sul da divisoria transversal
+// Braco de 2,80 e nao 2,40: dois jogadores se cruzam (0,76 de bitola cada) e um
+// taco de 1,45 vira de lado sem raspar as duas paredes.
+const XA = 47.55                       // face oeste da divisoria do braco
+const BRACO_X0 = XA + TI               // 47.80 — sobra 2.80 m livres ate 50.6
 
 // --- vaos da fachada -------------------------------------------------------
 // As duas janelas tem a MESMA faixa de altura de proposito: cada fileira de
@@ -64,8 +73,11 @@ const BRACO_X0 = XA + TI               // 47.30 — sobra 2.40 m livres ate 49.7
 // diferentes dobrariam o numero de faixas pra nada.
 const JAN_Y0 = 1.02
 const JAN_Y1 = 2.16
-const JAN_L = { x0: 39.55, x1: 40.95, y0: JAN_Y0, y1: JAN_Y1 }   // janelinha oeste
-const JAN_R = { x0: 45.80, x1: 47.80, y0: JAN_Y0, y1: JAN_Y1 }   // janela do X
+// As duas recuaram pra abrir espaco pras FOLHAS DE CORRER da porta nova (ver
+// porta()): cada folha corre 1,03 m pro lado, entao a fachada precisa de 1,03 m
+// livres de cada lado do vao. Sobram 0,67 m a oeste e 0,47 m a leste.
+const JAN_L = { x0: 38.30, x1: 40.30, y0: JAN_Y0, y1: JAN_Y1 }   // janelinha oeste
+const JAN_R = { x0: 45.50, x1: 48.10, y0: JAN_Y0, y1: JAN_Y1 }   // janela do X
 // Vaos da fachada em coordenadas de MUNDO (x, y). A porta entra na lista
 // porque tabua, tinta e papel de parede param nela igual param na janela.
 const VAOS_F = [
@@ -73,7 +85,8 @@ const VAOS_F = [
   JAN_L, JAN_R,
 ]
 // Janela da parede LESTE (a unica luz do braco; sem ela o corredor fica cego).
-const JAN_E = { z0: 18.55, z1: 19.85, y0: 1.10, y1: 2.10 }
+// O braco agora vai de 17,70 a 24,2: a janela desceu pro meio dele.
+const JAN_E = { z0: 20.20, z1: 21.80, y0: 1.10, y1: 2.10 }
 
 // --- varanda ---------------------------------------------------------------
 // Ela e RASA (7 cm do chao ao estrado) e isso nao e preguica:
@@ -82,9 +95,12 @@ const JAN_E = { z0: 18.55, z1: 19.85, y0: 1.10, y1: 2.10 }
 // calcada ou afundar no estrado. A casa que APODRECEU e afundou no proprio
 // terreno e a unica versao que respeita o contrato de alturas — e por sorte e
 // tambem a que combina com o resto.
-const VAR = { x0: 41.05, x1: 45.65, z0: 10.45, z1: 12.00 }
+// 5,60 m de largura e CENTRADA no eixo da porta (43,0). A antiga tinha 4,60 e
+// estava centrada em 43,35 — torta por acidente, o que so aparecia quando se
+// media.
+const VAR = { x0: 40.20, x1: 45.80, z0: 10.45, z1: 12.00 }
 const VAR_Y = 0.07                     // topo do estrado acima do piso
-const POSTE_X = [41.35, 45.35]
+const POSTE_X = [40.55, 45.45]
 const POSTE_Z = 10.70
 
 // --- telhado ---------------------------------------------------------------
@@ -94,7 +110,10 @@ const POSTE_Z = 10.70
 // lado.
 const TEL_X0 = B.x0 - 0.5, TEL_X1 = B.x1 + 0.5   // 0.5 de beiral por lateral
 const TEL_Z = (B.z0 + B.z1) / 2                  // 17 — linha da cumeeira
-const Y_CUM = H + 1.90                           // 5.10
+// H + 2.30 e nao H + 1.90: a agua do telhado foi de 5,55 pra 6,80 m de corrida
+// e, sem subir a cumeeira junto, a inclinacao cairia de 17,8 pra 14,7 graus.
+// Telha de barro escorrega abaixo de 17.
+const Y_CUM = H + 2.30                           // 5.80
 const Y_BEI = H + 0.12                           // 3.32
 const TEL_RUN = (B.z1 - B.z0) / 2 + 0.55         // 5.55 (beiral de 0.55)
 const TEL_ANG = Math.atan2(Y_CUM - Y_BEI, TEL_RUN)
@@ -102,8 +121,11 @@ const TEL_SL = Math.hypot(TEL_RUN, Y_CUM - Y_BEI)
 const TEL_W = TEL_X1 - TEL_X0                    // 13.0
 // Malha de telhas. Cada telha e um mesh proprio compartilhando UMA geometria:
 // e o unico jeito de uma telha FALTAR de verdade (e o forno funde tudo depois).
-const TEL_COL = 30
-const TEL_LIN = 10
+// 34 x 12 e nao 30 x 10: a agua cresceu pra 15,0 x 7,14 m e, mantendo a malha
+// velha, cada telha visivel iria de 0,44 x 0,59 pra 0,50 x 0,71 — chapa, nao
+// telha.
+const TEL_COL = 34
+const TEL_LIN = 12
 
 // ---------------------------------------------------------------------------
 // PRNG deterministico. As telhas que faltam, as tabuas tortas e o mato TEM que
@@ -317,51 +339,133 @@ function umidadeTex() {
  * Uma teia desenhada como mancha branca nao le como teia; o que le e o fio
  * indo do centro pra fora e a barriga da espiral entre dois fios.
  */
+/**
+ * TEIA DE CANTO. A silhueta e um quarto de disco RASGADO, nao um quadrado.
+ *
+ * Ela lia como quadrado por duas razoes somadas, as duas mensuraveis:
+ *
+ * 1. O DESENHO TRANSBORDAVA O CANVAS. O raio era R = s (e 1.3 s no modo de
+ *    parede) com o centro na quina: as radiais iam de -128 a 384 num canvas de
+ *    0..256 e os quatro aneis de fora eram CORTADOS pela borda. O contorno
+ *    externo da teia virava, literalmente, o retangulo do canvas.
+ * 2. NAO HAVIA BORDA. Mesmo dentro do quadro, o ultimo anel era um arco limpo:
+ *    teia de verdade nao acaba num arco, acaba rasgada e desigual.
+ *
+ * Agora o raio de cada direcao sai de `rasgo()`: um perfil irregular entre 62%
+ * e 100% do raio util, com dois ou tres rasgos fundos. Nada encosta na borda do
+ * canvas (R vai ate 0.94 s), e os fios somem em alpha antes dela.
+ *
+ * E TUDO DETERMINISTICO. Era Math.random(), o que no online dava teias
+ * diferentes em cada tela para a mesma parede — o mesmo defeito que o resto
+ * desta casa ja evitava com mulberry32.
+ */
 function teiaTex(modo) {
   return tex('casa-teia:' + modo, 256, (g, s) => {
+    const rnd = mulberry32(modo === 'topo' ? 0x7E1A01 : modo === 'dir' ? 0x7E1A02 : 0x7E1A03)
     const ax = modo === 'dir' ? s : modo === 'esq' ? 0 : s / 2
     const a0 = modo === 'dir' ? Math.PI / 2 : 0
     const a1 = modo === 'esq' ? Math.PI / 2 : Math.PI
-    const N = modo === 'topo' ? 13 : 9
-    const R = s * (modo === 'topo' ? 1.0 : 1.30)
+    const N = modo === 'topo' ? 15 : 11
+    // 0.94 e nao 1.0: os fios morrem ANTES da borda do canvas. E a diferenca
+    // entre uma teia com contorno proprio e uma teia cortada em quadrado.
+    const R = s * 0.94
     const ang = []
-    for (let i = 0; i < N; i++) ang.push(a0 + ((a1 - a0) * i) / (N - 1))
-    g.lineCap = 'round'
+    const lim = []
     for (let i = 0; i < N; i++) {
-      g.strokeStyle = 'rgba(228,228,216,' + (0.34 + Math.random() * 0.4) + ')'
-      g.lineWidth = 1.6 + Math.random() * 1.2
+      ang.push(a0 + ((a1 - a0) * i) / (N - 1))
+      // O RASGO: dois harmonicos lentos dao a ondulacao geral, e um sorteio
+      // curto morde pedacos. Sem o sorteio a borda vira uma flor regular.
+      const t = i / (N - 1)
+      let r = 0.86 + Math.sin(t * 5.1 + 1.2) * 0.09 + Math.sin(t * 11.7) * 0.05
+      if (rnd() < 0.24) r -= 0.16 + rnd() * 0.12
+      lim.push(Math.max(0.42, Math.min(1, r)))
+    }
+    g.lineCap = 'round'
+
+    // radiais: cada uma para no proprio limite, e a mais externa e a mais fraca
+    for (let i = 0; i < N; i++) {
+      const rr = R * lim[i]
+      const grd = g.createLinearGradient(ax, 0, ax + Math.cos(ang[i]) * rr, Math.sin(ang[i]) * rr)
+      grd.addColorStop(0, 'rgba(232,232,220,0.72)')
+      grd.addColorStop(0.72, 'rgba(228,228,216,0.5)')
+      grd.addColorStop(1, 'rgba(228,228,216,0)')
+      g.strokeStyle = grd
+      g.lineWidth = 1.5 + rnd() * 1.1
       g.beginPath(); g.moveTo(ax, 0)
-      g.lineTo(ax + Math.cos(ang[i]) * R, Math.sin(ang[i]) * R)
+      g.lineTo(ax + Math.cos(ang[i]) * rr, Math.sin(ang[i]) * rr)
       g.stroke()
     }
+
     // Sem as espirais o desenho e um LEQUE, nao uma teia: e o fio circular
     // cedendo entre duas radiais que o olho reconhece. Por isso elas entram
     // mais grossas e mais opacas que os raios, ao contrario do que a intuicao
-    // diz.
-    for (let k = 1; k <= 10; k++) {
-      const r = R * (0.09 + k * 0.088)
-      g.strokeStyle = 'rgba(238,238,226,' + Math.max(0.16, 0.62 - k * 0.03) + ')'
-      g.lineWidth = 1.9
+    // diz. Cada volta acompanha o rasgo, entao a teia inteira e irregular e nao
+    // so a ponta dos fios.
+    for (let k = 1; k <= 11; k++) {
+      const f = 0.07 + k * 0.085
+      if (f > 1) break
+      g.strokeStyle = 'rgba(238,238,226,' + Math.max(0.10, 0.60 - k * 0.028) + ')'
+      g.lineWidth = 1.8
       g.beginPath()
+      let comecou = false
       for (let i = 0; i < N; i++) {
-        const rr = r * (0.9 + Math.random() * 0.2)
+        // a volta some onde o rasgo comeu o fio
+        if (f > lim[i]) { comecou = false; continue }
+        const rr = R * f * (0.92 + rnd() * 0.16)
         const x = ax + Math.cos(ang[i]) * rr, y = Math.sin(ang[i]) * rr
-        if (i === 0) { g.moveTo(x, y); continue }
+        if (!comecou) { g.moveTo(x, y); comecou = true; continue }
         const am = (ang[i - 1] + ang[i]) / 2, rm = rr * 0.84
         g.quadraticCurveTo(ax + Math.cos(am) * rm, Math.sin(am) * rm, x, y)
       }
       g.stroke()
     }
+
     // poeira grudada: e o que faz a teia parecer VELHA e nao recem-tecida
     for (let i = 0; i < 46; i++) {
-      const a = a0 + Math.random() * (a1 - a0), r = Math.random() * R * 0.8
-      g.fillStyle = 'rgba(210,206,190,' + (0.12 + Math.random() * 0.4) + ')'
-      g.beginPath(); g.arc(ax + Math.cos(a) * r, Math.sin(a) * r, 0.7 + Math.random() * 2.2, 0, 7); g.fill()
+      const a = a0 + rnd() * (a1 - a0), r = rnd() * R * 0.72
+      g.fillStyle = 'rgba(210,206,190,' + (0.12 + rnd() * 0.4) + ')'
+      g.beginPath(); g.arc(ax + Math.cos(a) * r, Math.sin(a) * r, 0.7 + rnd() * 2.2, 0, 7); g.fill()
     }
   }, 1)
 }
 
-/** UMA telha: barro desbotado, canal no meio, quina lascada e limo. */
+/**
+ * A ARANHA. Corpo de duas bolas e oito pernas de dois segmentos, com 2,2 cm de
+ * corpo — do tamanho de uma aranha de casa, e nao de um bicho de filme.
+ *
+ * Ela e um GRUPO com o pivo nas costas dela, pra quem pendurar poder gira-la
+ * junto com a teia sem calcular nada.
+ */
+function aranha(escala) {
+  const g = new THREE.Group()
+  const m = M.aranha
+  const abd = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), m)
+  abd.position.set(0, -0.008, 0)
+  abd.scale.set(1, 0.85, 1.25)
+  g.add(abd)
+  const cef = new THREE.Mesh(new THREE.SphereGeometry(0.0068, 7, 5), m)
+  cef.position.set(0, 0.010, 0.002)
+  g.add(cef)
+  // oito pernas: quatro de cada lado, abrindo pra fora e dobrando pra baixo
+  for (let i = 0; i < 8; i++) {
+    const lado = i < 4 ? -1 : 1
+    const k = i % 4
+    const a = 0.55 + k * 0.42
+    const coxa = cyl(0.0016, 0.0016, 0.019, m, 4)
+    coxa.position.set(lado * 0.010, 0.006 - k * 0.004, 0)
+    coxa.rotation.z = lado * a
+    g.add(coxa)
+    const tibia = cyl(0.0014, 0.0014, 0.021, m, 4)
+    tibia.position.set(lado * 0.020, -0.002 - k * 0.004, 0)
+    tibia.rotation.z = lado * (a - 1.15)
+    g.add(tibia)
+  }
+  for (const o of g.children) o.castShadow = false
+  if (escala && escala !== 1) g.scale.setScalar(escala)
+  return g
+}
+
+/** UMA telha: barro desbotado/** UMA telha: barro desbotado, canal no meio, quina lascada e limo. */
 function telhaTex() {
   return tex('casa-telha', 128, (g, s) => {
     g.fillStyle = '#8a6250'; g.fillRect(0, 0, s, s)
@@ -610,6 +714,9 @@ const M = {
     })
   },
   get bulbo() { return emissive(0xffdca8, 2.2) },
+  // A aranha e escura mas nao preta: preto puro num canto sem luz vira um
+  // buraco, e o que se quer e uma silhueta que se reconheca a dois metros.
+  get aranha() { return solid(0x241f1c, 0.85) },
   get fio() { return solid(0x201c18, 0.9) },
   get poeira() {
     return stdMat('casa-poeira-mat', {
@@ -631,10 +738,14 @@ const M = {
     // emissiveMap fraco de proposito: a teia mora em canto de sombra, e sem um
     // fio de luz propria ela some justamente onde deveria aparecer.
     const t = teiaTex(modo)
+    // 0.66 e nao 0.95, e o emissivo caiu de 0.55 pra 0.26. Com o desenho novo
+    // (fio fino, borda rasgada) a opacidade antiga fazia a teia ler como GIZ
+    // desenhado na parede: linha branca cheia, sem nada da parede atravessando.
+    // Teia e fio: da pra ver o que esta atras dela.
     return stdMat('casa-teia-mat:' + modo, {
-      map: t, transparent: true, opacity: 0.95, depthWrite: false,
+      map: t, transparent: true, opacity: 0.66, depthWrite: false,
       side: THREE.DoubleSide, roughness: 1,
-      emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.55,
+      emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.26,
     })
   },
 }
@@ -722,13 +833,36 @@ function faixasLivres(x0, x1, y0, y1, vaos) {
  * diagonal do canto: (sx,sz) sao os sinais da direcao pra dentro do comodo, e
  * as duas pontas do plano encostam uma em cada parede.
  */
-function teiaDeCanto(g, cx, cz, sx, sz, w, yTopo, mat) {
+/**
+ * Pendura uma teia numa quina. Devolve o PIVO, que e quem balanca.
+ *
+ * O pivo fica na LINHA DE CIMA da teia, e nao no centro dela: teia presa no
+ * teto oscila como um pano pregado em cima, entao girar pelo centro faria a
+ * borda de cima descolar da parede. Ele e marcado como dinamico pro forno de
+ * world/bake.js nao congelar o balanco.
+ *
+ * `comAranha` poe uma aranha parada num ponto da teia. Nao vai em todas de
+ * proposito: quatro aranhas numa sala e infestacao, uma ou duas e abandono.
+ */
+function teiaDeCanto(g, cx, cz, sx, sz, w, yTopo, mat, comAranha) {
   const k = (w / 2) / Math.SQRT2
+  const pivo = new THREE.Group()
+  pivo.position.set(cx + sx * k, yTopo, cz + sz * k)
+  pivo.rotation.y = Math.atan2(sx, sz)
+  pivo.userData.dynamic = true
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w), mat)
-  m.position.set(cx + sx * k, yTopo - w / 2, cz + sz * k)
-  m.rotation.y = Math.atan2(sx, sz)
+  m.position.y = -w / 2
   m.castShadow = false
-  g.add(m)
+  pivo.add(m)
+  if (comAranha) {
+    const ar = aranha(1)
+    // no terco de dentro da teia, um pouco fora do eixo: aranha no centro exato
+    // parece enfeite pregado
+    ar.position.set(-sx * w * 0.17, -w * 0.34, 0.004)
+    pivo.add(ar)
+  }
+  g.add(pivo)
+  return pivo
 }
 
 /**
@@ -854,7 +988,11 @@ function tabuasDaFachada(g) {
         // corrida ja e curta (1..2 m) e some uma tabua. Nas faixas cheias a
         // corrida atravessa os 12 m da fachada e tirar uma abriria uma tarja
         // preta de ponta a ponta — foi o que aconteceu ao mirar a fileira 12.
-        if ((fila === 8 && a < 45.4 && b > 45.4) || (fila === 6 && a < 39.0 && b > 39.0)) continue
+        // Os X miram as corridas CURTAS entre a janela e a porta: com a
+        // fachada de 14 m, tirar uma tabua de uma corrida cheia abriria uma
+        // tarja preta de ponta a ponta. 44.7 cai em [44.0, 45.50] e 41.0 cai
+        // em [40.30, 42.0], as duas corridas curtas da faixa das janelas.
+        if ((fila === 8 && a < 44.7 && b > 44.7) || (fila === 6 && a < 41.0 && b > 41.0)) continue
         const molhada = fila <= 1 ? M.tabuaUmida : fila === 2 ? M.tabuaMeia : M.tabua
         const m = caixaUV(w - 0.012, passo - 0.014, esp, molhada,
           (a + b) / 2, (y + y1) / 2, zc - esp / 2, w / 1.15, 1)
@@ -960,54 +1098,95 @@ function janelas(g) {
  * abandonada, e a primeira missao do tutorial ("entre e conheca seu primeiro
  * estabelecimento") ganha um gesto em vez de ser so andar pra frente.
  */
+/**
+ * A PORTA, DE CORRER, DUAS FOLHAS, NUM TRILHO POR FORA DA FACHADA.
+ *
+ * Ela era de girar e entrava PRA DENTRO. Medido: pivo em (42,20 ; 12,15),
+ * folha de 1,57 m, abertura de 110 graus — a ponta parava a 1,47 m dentro da
+ * sala e o arco varria 2,37 m², bem na quina onde vai o balcao. Numa sala que
+ * tinha 4,10 m de fundura, isso era 36% da fundura. O dono do projeto mandou
+ * resolver ("a porta n pode abrir pra dentro, se quiser mudar o formato dela
+ * pode mudar").
+ *
+ * ABRIR PRA FORA NAO RESOLVIA: a ponta cairia em z = 10,67, dentro do estrado
+ * da varanda, varrendo justamente o ponto onde o jogador fica pra apertar E
+ * (z = 11,65) e batendo no esteio.
+ *
+ * De correr custa ZERO dos dois lados. Cada folha desliza 1,03 m pela fachada,
+ * por fora: a oeste sobra 0,67 m ate a janela (JAN_L termina em 40,30) e a
+ * leste 0,47 m (JAN_R comeca em 45,50). E o colisor deixa de precisar de conta
+ * de arco: vira uma caixa que liga e desliga.
+ *
+ * De quebra e mais tematico que a original — porta de celeiro num trilho
+ * enferrujado e exatamente o que uma casa velha virando casa de jogos teria.
+ *
+ * Devolve as DUAS folhas. Elas levam userData.dynamic: sem isso o forno de
+ * world/bake.js as funde na parede e a porta vira desenho.
+ */
 function porta(g) {
-  const pivo = new THREE.Group()
-  pivo.position.set(DL + 0.05, 0, B.z0 + T / 2)
-  pivo.rotation.y = 0                   // fechada; negativo abre pro salao (+Z)
-  pivo.userData.dynamic = true          // o forno de bake.js nao encosta nela
+  // 3 cm de sobreposicao no meio: duas folhas de metade exata do vao deixariam
+  // uma fresta de luz na juncao quando fechadas.
+  const fw = B.door.width / 2 + 0.03
+  const lh = DH - 0.04
+  // 8 cm a frente da tabua mais saliente da fachada (as soltas adiantam 2 cm) e
+  // a frente do plano de umidade (z = zc - 0.11): sem isso as superficies
+  // piscam uma dentro da outra.
+  const zf = B.z0 - 0.20
+  const folhas = []
 
-  const lw = B.door.width - 0.13, lh = DH - 0.06
-  const folha = new THREE.Group()
-  folha.rotation.z = -0.042             // a ponta livre cai ~7 cm
-  pivo.add(folha)
+  for (const lado of [-1, 1]) {
+    const pivo = new THREE.Group()
+    // fechada: a folha oeste ocupa DL..centro, a leste centro..DR
+    pivo.position.set(B.door.center + lado * fw / 2, 0, zf)
+    pivo.userData.dynamic = true
+    pivo.userData.correr = lado          // pra que lado esta folha corre
 
-  folha.add(caixaUV(lw, lh, 0.055, M.tabua, lw / 2, lh / 2, 0, lw / 0.9, lh / 1.6))
-  // travessas e almofada: porta lisa nao parece porta de casa velha
-  for (const y of [0.34, lh * 0.52, lh - 0.30]) {
-    folha.add(caixaUV(lw - 0.06, 0.11, 0.022, M.tabua, lw / 2, y, -0.04, lw / 0.9, 1))
-  }
-  for (const s of [-1, 1]) {
-    folha.add(caixaUV(0.10, lh - 0.1, 0.022, M.tabua, lw / 2 + s * (lw / 2 - 0.07), lh / 2, -0.04, 1, lh / 1.2))
-  }
-  // macaneta e espelho da fechadura
-  const mac = cyl(0.032, 0.032, 0.10, M.metal, 10)
-  mac.rotation.x = Math.PI / 2
-  mac.position.set(lw - 0.17, lh * 0.47, -0.07)
-  folha.add(mac)
-  folha.add(box(0.09, 0.15, 0.02, M.metal, lw - 0.17, lh * 0.47, -0.038))
-  // dobradicas: a de cima no lugar, a de baixo pendurada e torta
-  const dob = (y, tortura) => {
-    const d = box(0.045, 0.16, 0.09, M.ferro, 0.03, y, -0.02)
-    d.rotation.z = tortura
-    folha.add(d)
-  }
-  dob(lh - 0.28, 0)
-  dob(0.26, 0.38)
+    pivo.add(caixaUV(fw, lh, 0.05, M.tabua, 0, lh / 2, 0, fw / 0.9, lh / 1.6))
+    // travessas e diagonal de celeiro: folha lisa nao parece porta de madeira
+    for (const y of [0.30, lh - 0.26]) {
+      pivo.add(caixaUV(fw - 0.04, 0.11, 0.02, M.tabua, 0, y, -0.036, fw / 0.9, 1))
+    }
+    const diag = caixaUV(Math.hypot(fw - 0.1, lh - 0.66), 0.10, 0.02, M.tabua, 0, lh / 2, -0.036, 2, 1)
+    diag.rotation.z = lado * Math.atan2(lh - 0.66, fw - 0.1)
+    pivo.add(diag)
 
-  // NUMERO 42 torto. Fica na folha e nao na parede: e a porta que carrega o
-  // numero desta casa, e torto porque so um prego dos dois aguentou.
+    // ferragem: duas roldanas por folha, penduradas no trilho
+    for (const s of [-1, 1]) {
+      const braco = box(0.035, 0.16, 0.03, M.ferro, s * (fw / 2 - 0.14), lh + 0.06, -0.01)
+      pivo.add(braco)
+      const rol = cyl(0.055, 0.055, 0.026, M.ferro, 10)
+      rol.rotation.z = Math.PI / 2
+      rol.position.set(s * (fw / 2 - 0.14), lh + 0.14, -0.01)
+      pivo.add(rol)
+    }
+    // puxador de barra chata, do lado de fora
+    const pux = cyl(0.018, 0.018, 0.28, M.metal, 8)
+    pux.position.set(-lado * (fw / 2 - 0.16), lh * 0.47, -0.055)
+    pivo.add(pux)
+
+    sombras(pivo)
+    g.add(pivo)
+    folhas.push(pivo)
+  }
+
+  // O 42 vai na folha LESTE, virado pra rua.
   const num = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.24), textPlaneMat('42', {
     w: 256, h: 180, color: '#c9bda0', font: 'bold 150px "Trebuchet MS", sans-serif',
     stroke: '#3a3128', emissiveIntensity: 0.05,
   }))
-  num.position.set(lw * 0.5, lh - 0.42, -0.032)
+  num.position.set(0.10, lh - 0.40, -0.031)
   num.rotation.z = 0.21
   num.rotation.y = Math.PI
   num.castShadow = false
-  folha.add(num)
+  folhas[1].add(num)
 
-  sombras(pivo)
-  g.add(pivo)
+  // TRILHO: um U de ferro correndo a fachada acima do vao, com dois suportes.
+  // Ele nao e dinamico — quem corre e a folha.
+  const trilhoW = B.door.width + 2.4
+  g.add(box(trilhoW, 0.07, 0.05, M.ferro, B.door.center, DH + 0.19, zf + 0.02))
+  for (const s of [-1, 1]) {
+    g.add(box(0.06, 0.16, 0.10, M.ferro, B.door.center + s * (trilhoW / 2 - 0.12), DH + 0.12, zf + 0.06))
+  }
 
   // batente + soleira gasta
   for (const s of [-1, 1]) {
@@ -1020,7 +1199,7 @@ function porta(g) {
   sol.castShadow = false
   g.add(sol)
 
-  // teia na quina de cima do vao (do lado que a porta nao varre)
+  // teia na quina de cima do vao
   const tw = 0.5
   const teia = new THREE.Mesh(new THREE.PlaneGeometry(tw, tw), M.teia('esq'))
   teia.position.set(DR - tw / 2, DH - tw / 2 - 0.02, B.z0 - 0.09)
@@ -1028,7 +1207,7 @@ function porta(g) {
   teia.castShadow = false
   g.add(teia)
 
-  return pivo
+  return folhas
 }
 
 /**
@@ -1174,7 +1353,7 @@ function calha(g) {
   const pivo = new THREE.Group()
   pivo.position.set(B.x1 - 0.1, Y_BEI - 0.06, zc)
   pivo.rotation.z = 0.052                 // ~3 graus: 47 cm de queda em 9 m
-  const L = 9.0
+  const L = 11.0
   // Perfil em U com a aba da RUA mais alta: e a unica face da calha que a
   // camera pega de baixo, e uma tira de 3 cm sumia na sombra do beiral.
   pivo.add(caixaUV(L, 0.04, 0.20, M.ferro, -L / 2, -0.08, 0, L / 0.9, 1))
@@ -1305,7 +1484,7 @@ function frenteAbandonada(g, colliders) {
   // ninguem, mato na altura do joelho atrapalha.
   const tufos = [
     [38.9, 11.4], [39.8, 10.8], [40.4, 11.6], [46.6, 11.5], [47.4, 10.9],
-    [48.6, 11.4], [49.6, 10.9], [37.6, 15.2], [37.5, 19.4],
+    [48.6, 11.4], [49.6, 10.9], [36.5, 15.2], [36.4, 19.4],
   ]
   for (let i = 0; i < tufos.length; i++) {
     const tx = tufos[i][0], tz = tufos[i][1]
@@ -1395,7 +1574,10 @@ function piso(g) {
   // e sem duas falhas na mesma faixa (as tres estao a metros uma da outra).
   // (O forro fazia o mesmo recorte quando tinha um pedaco caido; hoje ele e uma
   // laje inteira e este e o unico lugar da casa que ainda contorna vao.)
-  const falhas = [[41.2, 13.6, 0.9, 0.28], [45.8, 15.6, 0.7, 0.26], [48.4, 18.9, 0.8, 0.3]]
+  // Ordenada em Z e sem duas falhas na mesma faixa (o algoritmo de faixas
+  // depende disso). A terceira mudou de 48.4/18.9 pra 49.2/21.4: com a
+  // divisoria do braco em XA=47.55 e ZA=17.70, a antiga caia dentro de parede.
+  const falhas = [[40.6, 13.9, 0.9, 0.28], [45.8, 15.6, 0.7, 0.26], [49.2, 21.4, 0.8, 0.3]]
 
   // A UV de cada faixa sai deslocada pela POSICAO dela no comodo: sem isso o
   // tabuado recomeca do zero a cada corte e as juntas dao um degrau
@@ -1435,7 +1617,8 @@ function piso(g) {
   faixa(IN.x0, IN.x1, zAtual, IN.z1)
 
   // rodape solto: falta pedaco, e onde falta ve-se o vao escuro
-  const rod = [[IN.x0, 41.4], [41.9, DL], [DR, 46.2], [47.4, IN.x1]]
+  // Os cortes acompanham o vao novo (DL=42.0, DR=44.0) e a fachada de 14 m.
+  const rod = [[IN.x0, 40.6], [41.1, DL], [DR, 46.4], [47.6, IN.x1]]
   for (let i = 0; i < rod.length; i++) {
     if (rod[i][1] - rod[i][0] < 0.1) continue
     g.add(caixaUV(rod[i][1] - rod[i][0], 0.14, 0.05, M.tabua,
@@ -1446,24 +1629,51 @@ function piso(g) {
 /** As duas divisorias que fazem o L, com o vao de porta tapado com tabuas. */
 function paredesInternas(g, colliders, occluders) {
   const alt = CEIL
-  const wa = (XA + TI) - IN.x0
-  g.add(caixaUV(wa, alt, TI, M.papel, IN.x0 + wa / 2, alt / 2, ZA + TI / 2, wa / 1.15, alt / 1.15))
-  const db = IN.z1 - (ZA + TI)
-  g.add(caixaUV(TI, alt, db, M.papel, XA + TI / 2, alt / 2, ZA + TI + db / 2, db / 1.15, alt / 1.15))
 
-  // VAO TAPADO: o comodo fechado tinha porta, e alguem pregou tabuas por cima.
-  // E o que impede a parede cega de parecer erro de modelagem.
-  const px = 41.9, pw = 0.95, ph = 2.05
-  g.add(box(pw + 0.14, ph + 0.08, 0.03, M.escuro, px, ph / 2, ZA - 0.015))
+  // O COMODO DOS FUNDOS ABRIU.
+  //
+  // Ele existia como parede cega com um vao pregado com tabuas: 44 m² de casa
+  // que ninguem podia usar, e a maior parte do chao do lote. O dono do projeto
+  // pediu "aumentar o estabelecimento inicial, ta muito pequeno" — e metade do
+  // aumento estava aqui dentro, sem custar um metro de terreno. As tabuas nao
+  // sumiram: elas estao ARRANCADAS, encostadas na parede ao lado do vao, e
+  // contam que alguem abriu o lugar de proposito.
+  //
+  // O vao tem 1,40 m de largura. Nao e numero redondo por acaso: a mesa de
+  // sinuca tem 1,27 m de lado curto e precisa passar por aqui carregada.
+  const PVX = 41.90                 // centro do vao interno
+  const PVW = 1.40                  // largura util
+  const PVH = 2.25                  // altura util
+  const pv0 = PVX - PVW / 2, pv1 = PVX + PVW / 2
+
+  // a divisoria transversal, agora em DOIS trechos e uma verga
+  const seg = [[IN.x0, pv0], [pv1, XA + TI]]
+  for (let i = 0; i < seg.length; i++) {
+    const w = seg[i][1] - seg[i][0]
+    if (w < 0.02) continue
+    g.add(caixaUV(w, alt, TI, M.papel, (seg[i][0] + seg[i][1]) / 2, alt / 2, ZA + TI / 2, w / 1.15, alt / 1.15))
+    colliders.push({ minX: seg[i][0], maxX: seg[i][1], minZ: ZA, maxZ: ZA + TI, tag: 'casa-divisoria' })
+    occluders.push({ minX: seg[i][0], minY: BASE, minZ: ZA, maxX: seg[i][1], maxY: BASE + alt, maxZ: ZA + TI, tag: 'casa-divisoria' })
+  }
+  // verga por cima do vao
+  g.add(caixaUV(PVW, alt - PVH, TI, M.papel, PVX, PVH + (alt - PVH) / 2, ZA + TI / 2, PVW / 1.15, (alt - PVH) / 1.15))
+  occluders.push({ minX: pv0, minY: BASE + PVH, minZ: ZA, maxX: pv1, maxY: BASE + alt, maxZ: ZA + TI, tag: 'casa-verga-interna' })
+  // batente cru: o vao foi aberto na marra, entao a madeira do quadro aparece
+  for (const x of [pv0, pv1]) g.add(caixaUV(0.06, PVH, TI + 0.02, M.tabua, x, PVH / 2, ZA + TI / 2, 1, PVH / 1.15))
+
+  // AS TABUAS ARRANCADAS, encostadas na parede a leste do vao. Sao as mesmas
+  // seis que tapavam o vao, agora de pe e tortas.
   for (let i = 0; i < 6; i++) {
-    const t = caixaUV(pw + 0.34, 0.19, 0.04, M.tabua, px, 0.22 + i * 0.36, ZA - 0.05, 1.2, 1)
-    t.rotation.z = (i % 2 ? 1 : -1) * (0.015 + i * 0.006)
+    const t = caixaUV(0.19, 1.62 + (i % 3) * 0.14, 0.04, M.tabua,
+      pv1 + 0.34 + i * 0.11, 0.81 + (i % 3) * 0.07, ZA - 0.16 - (i % 2) * 0.05, 1, 1.4)
+    t.rotation.z = 0.10 + (i % 4) * 0.035
+    t.rotation.x = -0.06
     g.add(t)
   }
 
-  colliders.push({ minX: IN.x0, maxX: XA + TI, minZ: ZA, maxZ: ZA + TI, tag: 'casa-divisoria' })
+  const db = IN.z1 - (ZA + TI)
+  g.add(caixaUV(TI, alt, db, M.papel, XA + TI / 2, alt / 2, ZA + TI + db / 2, db / 1.15, alt / 1.15))
   colliders.push({ minX: XA, maxX: XA + TI, minZ: ZA + TI, maxZ: IN.z1, tag: 'casa-divisoria' })
-  occluders.push({ minX: IN.x0, minY: BASE, minZ: ZA, maxX: XA + TI, maxY: BASE + alt, maxZ: ZA + TI, tag: 'casa-divisoria' })
   occluders.push({ minX: XA, minY: BASE, minZ: ZA + TI, maxX: XA + TI, maxY: BASE + alt, maxZ: IN.z1, tag: 'casa-divisoria' })
 }
 
@@ -1487,10 +1697,18 @@ function revestimento(g) {
         (b[0] + b[1]) / 2, IN.z0 + 0.02, 0, w / 1.15, (b[1] - b[0]) / 1.15, r * 0.3, i * 0.2))
     }
   }
-  // laterais e o lado sul da divisoria (so o pedaco da sala da frente)
+  // As laterais correm a casa INTEIRA agora, e nao so ate a divisoria: com o
+  // comodo dos fundos aberto, quem atravessa o vao continua vendo parede de
+  // casa. A leste ela para em ZA + TI, onde comeca o braco do L (que tem
+  // tabuado cru, ver la embaixo).
   const dz = ZA - IN.z0
-  g.add(planoUV(dz, alt, M.papel, IN.x0 + 0.02, alt / 2, (IN.z0 + ZA) / 2, Math.PI / 2, dz / 1.15, alt / 1.15, 0.6, 0))
+  const dzo = IN.z1 - IN.z0
+  g.add(planoUV(dzo, alt, M.papel, IN.x0 + 0.02, alt / 2, (IN.z0 + IN.z1) / 2, Math.PI / 2, dzo / 1.15, alt / 1.15, 0.6, 0))
   g.add(planoUV(dz, alt, M.papel, IN.x1 - 0.02, alt / 2, (IN.z0 + ZA) / 2, -Math.PI / 2, dz / 1.15, alt / 1.15, 1.3, 0))
+  // parede do fundo do comodo novo, e o lado NORTE da divisoria
+  const wf = XA - IN.x0
+  g.add(planoUV(wf, alt, M.papel, IN.x0 + wf / 2, alt / 2, IN.z1 - 0.02, Math.PI, wf / 1.15, alt / 1.15, 0.2, 0))
+  g.add(planoUV(wf, alt, M.papel, IN.x0 + wf / 2, alt / 2, ZA + TI + 0.02, 0, wf / 1.15, alt / 1.15, 0.9, 0))
 
   // PAPEL DESCOLANDO. O giro TEM que sair da borda de cima, nao do centro do
   // plano: girando pelo centro a aba se afasta da parede pelos dois lados e
@@ -1503,7 +1721,9 @@ function revestimento(g) {
   const verso = stdMat('casa-verso', {
     map: papelTex(), color: 0x9d947e, roughness: 0.99, side: THREE.DoubleSide,
   })
-  const abas = [[39.4, IN.z0 + 0.03, 0, 0.62, 0.9, 0.5], [46.9, IN.z0 + 0.03, 0, 0.5, 0.7, 0.34],
+  // Ancoradas em IN e nao em numero absoluto: elas moravam em 39.4 e 46.9, que
+  // com o lote novo caem uma fora da parede e outra em cima da janela.
+  const abas = [[IN.x0 + 2.2, IN.z0 + 0.03, 0, 0.62, 0.9, 0.5], [IN.x1 - 3.7, IN.z0 + 0.03, 0, 0.5, 0.7, 0.34],
     [IN.x0 + 0.03, 14.6, Math.PI / 2, 0.55, 0.8, 0.62]]
   for (let i = 0; i < abas.length; i++) {
     const a = abas[i]
@@ -1584,7 +1804,9 @@ function forro(g) {
   g.add(laje)
 
   // vigas aparentes: 3 travessas correndo em X
-  for (const z of [13.4, 18.2, 20.6]) {
+  // Quatro travessas e nao tres: com 11,9 m de fundura, tres deixariam 4 m
+  // entre uma e outra e o ritmo do teto sumiria.
+  for (const z of [13.6, 17.0, 20.6, 23.4]) {
     const v = caixaUV(IN.w, 0.12, 0.16, M.ripa, IN.cx, CEIL - 0.06, z, IN.w / 1.3, 1)
     v.castShadow = false
     g.add(v)
@@ -1617,7 +1839,9 @@ function forro(g) {
  */
 function lampada(g) {
   const pivo = new THREE.Group()
-  pivo.position.set(43.5, CEIL - 0.02, 14.5)
+  // Foi de (43.5, 14.5) pra (43.9, 16.5): com o comodo dos fundos aberto, o
+  // bulbo tem que ficar na PASSAGEM entre as duas salas pra alcancar as duas.
+  pivo.position.set(43.9, CEIL - 0.02, 16.5)
   pivo.userData.dynamic = true          // o forno nao pode fundir o que balanca
   const L = 0.72
   const fio = cyl(0.008, 0.008, L, M.fio, 6)
@@ -1631,7 +1855,17 @@ function lampada(g) {
   b.position.y = -L - 0.13
   b.castShadow = false
   pivo.add(b)
-  const luz = new THREE.PointLight(0xffdca8, 15, 9.5, 2)
+  // 24 / 13 e nao 15 / 9.5. Com o comodo dos fundos aberto, o canto mais
+  // distante do piso util fica a 10,2 m do bulbo: com alcance 9.5 ele nascia
+  // preto. Posto na passagem entre as duas salas, UM bulbo cobre as duas —
+  // 24/10.2^2 = 0.23 no pior canto de agora, contra 15/8.6^2 = 0.20 no pior
+  // canto de antes.
+  //
+  // NAO entra um segundo ponto de luz: tools/smoke.mjs reprova acima de 22 e a
+  // cena esta em 22 exatas. Se o fundo ainda ler preto na foto, o caminho
+  // honesto e subir o teto pra 23 e escrever o motivo la, como ja foi feito na
+  // subida de 21 pra 22 por causa desta mesma casa.
+  const luz = new THREE.PointLight(0xffdca8, 24, 13, 2)
   luz.position.y = -L - 0.13
   luz.castShadow = false
   pivo.add(luz)
@@ -1674,9 +1908,9 @@ function moveis(g, colliders) {
     g.add(m)
   }
   // onde ficava o sofa: a madeira por baixo nao desbotou
-  marca(40.4, 15.82, 2.30, 1.02, -0.05, M.marcaClara)
+  marca(39.6, 16.42, 2.30, 1.02, -0.05, M.marcaClara)
   // onde ficavam as pilhas: poeira que nao foi varrida
-  for (const c of [[49.1, 13.4, 0.74], [46.4, 12.85, 0.70], [49.15, 19.6, 0.68], [38.9, 13.2, 0.66]]) {
+  for (const c of [[49.9, 13.4, 0.74], [46.4, 12.85, 0.70], [49.9, 22.4, 0.68], [37.8, 13.2, 0.66]]) {
     marca(c[0], c[1], c[2], c[2] * 0.86, 0.3, M.marcaPoeira)
   }
 
@@ -1695,14 +1929,15 @@ function moveis(g, colliders) {
 }
 
 /** Teias nas quinas de dentro e poeira parada no ar. */
-function teiasEPoeira(g) {
+function teiasEPoeira(g, balanco) {
   const mt = M.teia('topo')
   // duas quinas do fundo da sala e a quina interna do L: sao as tres que o
   // jogador enquadra ao entrar e ao virar pro corredor
-  teiaDeCanto(g, IN.x0, ZA, 1, -1, 1.15, CEIL - 0.03, mt)
-  teiaDeCanto(g, IN.x1, IN.z0, -1, 1, 0.92, CEIL - 0.03, mt)
-  teiaDeCanto(g, BRACO_X0, ZA + TI, 1, 1, 0.85, CEIL - 0.03, mt)
-  teiaDeCanto(g, IN.x1, IN.z1, -1, -1, 0.95, CEIL - 0.03, mt)
+  // Duas com aranha, duas sem (ver teiaDeCanto).
+  balanco.push(teiaDeCanto(g, IN.x0, ZA, 1, -1, 1.15, CEIL - 0.03, mt, true))
+  balanco.push(teiaDeCanto(g, IN.x1, IN.z0, -1, 1, 0.92, CEIL - 0.03, mt, false))
+  balanco.push(teiaDeCanto(g, BRACO_X0, ZA + TI, 1, 1, 0.85, CEIL - 0.03, mt, false))
+  balanco.push(teiaDeCanto(g, IN.x1, IN.z1, -1, -1, 0.95, CEIL - 0.03, mt, true))
 
   // POEIRA: planos soltos onde bate luz. Ficam parados de proposito -- poeira
   // animada exigiria mais um no dinamico e a unica coisa que se move nesta casa
@@ -1712,7 +1947,9 @@ function teiasEPoeira(g) {
   // fechado a terceira perdeu o motivo, e foi pro lugar onde AGORA ha luz: sob
   // o bulbo (43.5, 14.5). Poeira so le como poeira quando alguma coisa a
   // atravessa.
-  const pos = [[46.6, 1.5, 13.4, 0.2], [44.9, 1.4, 15.3, -0.9], [40.2, 1.5, 13.2, 0.5]]
+  // Sob as janelas novas e sob o bulbo novo: poeira so le como poeira onde
+  // alguma coisa a atravessa.
+  const pos = [[46.8, 1.5, 13.4, 0.2], [44.3, 1.4, 17.2, -0.9], [39.3, 1.5, 13.2, 0.5]]
   for (let i = 0; i < pos.length; i++) {
     const p = pos[i]
     const m = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.9), M.poeira)
@@ -1740,7 +1977,10 @@ export function buildCasaVelha(game) {
   paredes(casca, colliders, occluders)
   tabuasDaFachada(casca)
   janelas(casca)
-  const pivoPorta = porta(casca)
+  const folhasPorta = porta(casca)
+  // A posicao de fechada de cada folha, guardada UMA vez: o update soma o curso
+  // a ela em vez de acumular, entao um quadro perdido nao desalinha a porta.
+  for (const f of folhasPorta) f.userData.baseX = f.position.x
   telhado(casca)
   calha(casca)
   varanda(casca, colliders)
@@ -1756,7 +1996,9 @@ export function buildCasaVelha(game) {
   revestimento(dentro)
   forro(dentro)
   moveis(dentro, colliders)
-  teiasEPoeira(dentro)
+  // As teias balancam: o update as encontra por esta lista.
+  const teiasQueBalancam = []
+  teiasEPoeira(dentro, teiasQueBalancam)
   const lamp = lampada(dentro)
   group.add(dentro)
 
@@ -1769,9 +2011,9 @@ export function buildCasaVelha(game) {
   // fechada (ver o update). Ligar e desligar em vez de criar e destruir porque
   // a grade de colisao guarda o indice da caixa por celula: mover ou remover
   // uma caixa depois de registrada deixaria a celula apontando pra outra coisa.
-  // Fica no MEIO da espessura da parede e nao ocupa o batente inteiro: a folha
-  // e 13 cm mais estreita que o vao, e o jogador tem que caber pelo lado dela
-  // quando ela abre.
+  // Fica no MEIO da espessura da parede e ocupa o vao INTEIRO: com porta de
+  // correr as duas folhas fecham o vao todo, e nao ha mais o caso da folha
+  // girada deixando passagem pelo lado.
   // Este vai DIRETO pro mundo de colisao, e nao pela lista devolvida: o
   // collision.add() copia o que recebe pra dentro da grade, entao mexer no
   // objeto que a gente empurrou nao mexeria em nada. Registrando aqui a gente
@@ -1791,7 +2033,23 @@ export function buildCasaVelha(game) {
     position: new THREE.Vector3(B.door.center, BASE + 1.1, B.z0 - 0.35),
     radius: 2.2,
     label: 'Abrir a porta',
-    onInteract: () => { abertaAlvo = !abertaAlvo },
+    // PEDIDO quando ha servidor; ordem quando nao ha.
+    //
+    // Sem isto a porta abre so na tela de quem apertou E: `abertaAlvo` e o
+    // colisor sao variaveis de fechamento desta funcao, uma copia por maquina.
+    // No coop, o jogador A abria, atravessava, e na tela de B a porta continuava
+    // fechada E barrando — B via A atravessando madeira. Era o defeito relatado.
+    //
+    // Manda o VALOR desejado e nao um "inverte": dois jogadores apertando E no
+    // mesmo tique com toggle se anulariam.
+    onInteract: (gm2) => {
+      const r = gm2 && gm2.rede
+      if (r && r.conectado && typeof r.usarPorta === 'function') {
+        r.usarPorta(PORTA_ID, !abertaAlvo)
+        return
+      }
+      abertaAlvo = !abertaAlvo
+    },
   }
   interactables.push(pontoPorta)
 
@@ -1807,13 +2065,14 @@ export function buildCasaVelha(game) {
   // UPDATE — nada de 'new' daqui pra baixo
   // -------------------------------------------------------------------------
   // --- estado da porta ------------------------------------------------------
-  // ABERTA e negativo porque a folha entra pro salao (+Z). 1.92 rad sao ~110
-  // graus: o suficiente pra a folha sair inteira do vao e encostar quase na
-  // parede de dentro, sem atravessar ela.
-  const PORTA_ABERTA = -1.92
+  // Quanto cada folha corre pro lado. 1.03 m e o que a fachada comporta: a
+  // oeste sobram 0.67 m ate JAN_L, a leste 0.47 ate JAN_R.
+  const PORTA_CURSO = 1.03
+  // O id que viaja na rede (ver PORTAS em servidor/sala.js).
+  const PORTA_ID = 1
   let abertaAlvo = false
-  let anguloPorta = 0
-  let rangido = 0          // fase do tranco; e o que faz a dobradica parecer velha
+  let corrida = 0          // 0 fechada, PORTA_CURSO aberta
+  let rangido = 0          // fase do tranco; e o que faz a roldana parecer velha
   let itemPorta = null     // o interactable JA registrado (ver o comentario abaixo)
 
   let t = 0
@@ -1821,26 +2080,48 @@ export function buildCasaVelha(game) {
     t += Math.min(dt || 0, 0.1)
     const d = Math.min(dt || 0, 0.1)
 
-    // --- a porta ------------------------------------------------------------
-    const alvo = abertaAlvo ? PORTA_ABERTA : 0
-    if (Math.abs(anguloPorta - alvo) > 0.0005) {
-      rangido += d
-      // Velocidade que ENGASGA. Uma porta velha nao gira com velocidade
-      // constante: ela sai dura, solta, e trava de novo perto do fim. O seno
-      // rapido por cima da velocidade base e o que se ve como tranco de
-      // dobradica enferrujada; sem ele o movimento fica de porta automatica.
-      const vel = 2.05 * (0.62 + 0.38 * Math.abs(Math.sin(rangido * 7.3)))
-      const passo = vel * d
-      const falta = alvo - anguloPorta
-      anguloPorta += Math.abs(falta) <= passo ? falta : Math.sign(falta) * passo
-      pivoPorta.rotation.y = anguloPorta
-      // A folha PENDE mais quanto mais aberta: a dobradica de baixo esta solta
-      // (ela e desenhada torta), entao o peso da folha cai na ponta livre.
-      pivoPorta.children[0].rotation.z = -0.042 - Math.abs(anguloPorta) * 0.021
+    // --- as teias no vento ---------------------------------------------------
+    // Uma casa fechada nao tem vento de verdade; o que ha e a corrente que entra
+    // pelas frestas, e ela e LENTA. 0.42 rad/s com amplitude de 0.9 grau: se der
+    // pra ver a teia se mexer parada olhando, ja passou do ponto — o que se
+    // quer e que ela nao esteja igual quando o olho volta.
+    //
+    // Cada teia tem a fase presa ao INDICE, e nao a um sorteio: no coop as
+    // quatro teias tem que balancar iguais nas quatro telas.
+    for (let i = 0; i < teiasQueBalancam.length; i++) {
+      const p = teiasQueBalancam[i]
+      const f = i * 1.7
+      p.rotation.z = Math.sin(t * 0.42 + f) * 0.016 + Math.sin(t * 0.97 + f * 2) * 0.006
+      p.rotation.x = Math.sin(t * 0.31 + f * 1.3) * 0.010
     }
-    // O vao so e barrado enquanto a folha ainda esta na frente dele. 0.55 rad
-    // sao ~31 graus: dai pra frente ja cabe gente pelo lado.
-    colPorta.ativo = Math.abs(anguloPorta) < 0.55
+
+    // --- a porta ------------------------------------------------------------
+    const alvo = abertaAlvo ? PORTA_CURSO : 0
+    if (Math.abs(corrida - alvo) > 0.0005) {
+      rangido += d
+      // Velocidade que ENGASGA. Uma porta velha nao corre com velocidade
+      // constante: ela sai dura, solta, e trava de novo perto do fim. O seno
+      // rapido por cima da velocidade base e o que se ve como chiado de roldana
+      // enferrujada; sem ele o movimento fica de porta automatica de shopping.
+      const vel = 1.12 * (0.62 + 0.38 * Math.abs(Math.sin(rangido * 7.3)))
+      const passo = vel * d
+      const falta = alvo - corrida
+      corrida += Math.abs(falta) <= passo ? falta : Math.sign(falta) * passo
+      for (let i = 0; i < folhasPorta.length; i++) {
+        const f = folhasPorta[i]
+        f.position.x = f.userData.baseX + f.userData.correr * corrida
+        // A folha BALANCA no trilho enquanto corre: roldana velha em trilho
+        // torto nao anda reta. Para quando ela para.
+        f.rotation.z = Math.sin(rangido * 9.1 + i) * 0.008 * (alvo > 0 ? 1 : 1)
+      }
+    }
+    // BARRA enquanto as duas folhas nao abriram meia bitola de jogador (0.38 de
+    // raio, entao 0.76 de vao livre; os 0.04 de margem evitam ele raspar).
+    // Com a folha de GIRAR isto era uma conta de angulo, e estava errada: o
+    // limiar era 0.55 rad, e em 0.55 rad a folha ainda tapava 1.34 dos 1.70 do
+    // vao — sobravam 0.31 de passagem pra 0.76 de jogador, e ele atravessava a
+    // madeira ate 1.00 rad. Com curso linear nao ha essa faixa cinzenta.
+    colPorta.ativo = corrida * 2 < 0.80
 
     // O rotulo do E acompanha o estado. O sistema de interacao COPIA o objeto
     // no add(), entao o que a gente empurrou nao e o que ele consulta — a
@@ -1898,8 +2179,21 @@ export function buildCasaVelha(game) {
      * o que deixa ver a fila E a porta por cima dos ombros.
      */
     poseDaCutscene: {
-      x: 43.1, y: 2.30, z: 4.6,
-      olharX: 43.0, olharY: 1.78, olharZ: 12.0,
+      // Recuou de z=4.6 pra 3.4 e subiu de 2.30 pra 2.42 porque a casa cresceu:
+      // o telhado novo mede 15,0 m de ponta a ponta (era 13,0) e, com a lente
+      // de 58 graus do jogo, cabem 0,96 m de largura por metro de distancia.
+      // Olhando pro centro do lote novo (43,9), o lado pior mede 7,5 m — sao
+      // precisos 7,8 m de recuo, e de z=3.4 ate a fachada sao 8,6.
+      x: 43.6, y: 2.42, z: 3.4,
+      olharX: 43.9, olharY: 1.85, olharZ: 12.0,
     },
+    /**
+     * Quem manda no estado da porta e o SERVIDOR. main.js liga o evento
+     * 'porta-estado' aqui; no solo ninguem chama isto e o onInteract aplica
+     * direto. Sao duas portas de entrada pro mesmo estado, e so uma delas roda
+     * em cada modo.
+     */
+    portaId: 1,
+    setPortaAberta(v) { abertaAlvo = !!v },
   }
 }

@@ -1499,27 +1499,45 @@ function atualizarAtor(a, d, ctx) {
 //       'pensa' ninguem fala, o grupo pensa
 //       null   silencio
 // ---------------------------------------------------------------------------
+// O TEMPO DESTA CENA E O TEMPO DE LER EM VOZ ALTA.
+//
+// A primeira versao rodava a 29,9 s e o dono do projeto nao conseguia
+// acompanhar ("eles estao falando mujito rapido e n ta dand otempo de ler").
+// Agora cada passo tem, no minimo, o tempo de ler o texto dele em voz alta com
+// calma — ~13 caracteres por segundo — mais um segundo de respiro no fim. A
+// parte 1 passou de 29,9 s pra 46,0 s e a parte 2 de 7,6 s pra 12,1 s.
+//
+// O "NAOOO" tambem mudou de natureza. Era um grito com tranco de camera; virou
+// um "Naooo..." arrastado, sem tranco, do jeito que o dono pediu: "n quero algo
+// que eles vibram e tremem com impacto, quero algo mais como um nao puxando pro
+// lado pensativo". Por isso o `tranco` dos dois passos de recusa caiu de 1.0 e
+// 1.15 pra 0.18 — o suficiente pra camera respirar, longe do soco de antes.
 const ROTEIRO = [
-  { d: 2.6, quem: null },
-  { d: 2.0, quem: 'anf', txt: { grupo: 'Gente. Serio agora. Baixa esse volume.', so: 'Ta. Serio agora.' } },
-  { d: 3.2, quem: 'anf', txt: 'A gente vive de energetico morno e pizza de ontem.' },
-  { d: 3.0, quem: 'anf', txt: { grupo: 'Eu quero um negocio nosso. Dinheiro de verdade.', so: 'Eu quero um negocio meu. Dinheiro de verdade.' } },
-  { d: 2.6, quem: 'anf', txt: 'E se a gente abrir um restaurante?' },
-  { d: 1.8, quem: 'coro', txt: { grupo: 'NAOOO', so: 'Nao. Nao mesmo.' }, tranco: 1.0 },
-  { d: 2.0, quem: 'anf', txt: 'Ta bom, ta bom. Calma.' },
-  { d: 3.2, quem: 'anf', txt: 'E se a gente abrir uma distribuidora de bebidas?' },
-  { d: 1.2, quem: 'pensa' },
-  { d: 1.8, quem: 'coro', txt: { grupo: 'NAOOO', so: 'Nao. De jeito nenhum.' }, tranco: 1.15 },
-  { d: 2.2, quem: 'anf', txt: { grupo: 'Entao me ajuda, porque eu to sem ideia.', so: 'Entao pensa, porque eu to sem ideia.' } },
-  { d: 3.0, quem: 'todos', tranco: 0.55, animado: true,
-    txt: { grupo: 'E SE A GENTE ABRIR UM CASSINO?', so: 'E SE EU ABRIR UM CASSINO?' } },
-  { d: 1.4, quem: null, animado: true },
-  { d: 1.9, quem: null, animado: true, fade: [0, 1] },
+  { d: 3.0, quem: null },
+  { d: 3.6, quem: 'anf', txt: { grupo: 'Gente. Serio agora. Baixa esse volume.', so: 'Ta. Serio agora.' } },
+  { d: 4.6, quem: 'anf', txt: 'A gente vive de energetico morno e pizza de ontem.' },
+  { d: 4.4, quem: 'anf', txt: { grupo: 'Eu quero um negocio nosso. Dinheiro de verdade.', so: 'Eu quero um negocio meu. Dinheiro de verdade.' } },
+  { d: 3.8, quem: 'anf', txt: 'E se a gente abrir um restaurante?' },
+  { d: 3.2, quem: 'coro', txt: { grupo: 'Naooo...', so: 'Naooo... nao.' }, tranco: 0.18 },
+  { d: 2.8, quem: 'anf', txt: 'Ta bom, ta bom. Calma.' },
+  { d: 4.4, quem: 'anf', txt: 'E se a gente abrir uma distribuidora de bebidas?' },
+  { d: 1.8, quem: 'pensa' },
+  { d: 3.2, quem: 'coro', txt: { grupo: 'Naooo...', so: 'Naooo... essa nao.' }, tranco: 0.18 },
+  { d: 3.4, quem: 'anf', txt: { grupo: 'Entao me ajuda, porque eu to sem ideia.', so: 'Entao pensa, porque eu to sem ideia.' } },
+  { d: 4.2, quem: 'todos', tranco: 0.55, animado: true,
+    txt: { grupo: 'JA SEI, VAMOS ABRIR UM CASSINO!', so: 'JA SEI, VOU ABRIR UM CASSINO!' } },
+  { d: 1.6, quem: null, animado: true },
+  { d: 2.0, quem: null, animado: true, fade: [0, 1] },
   // --- parte 2: a rua ------------------------------------------------------
-  { d: 1.0, parte: 2, quem: null, fade: [1, 1] },
-  { d: 1.5, parte: 2, quem: null, fade: [1, 0] },
-  { d: 3.6, parte: 2, quem: 'anf', txt: 'Nao era bem isso que eu imaginei... mas e um comeco.' },
-  { d: 1.5, parte: 2, quem: null },
+  // Ela dura mais que o corte de antes a pedido do dono ("PRECISA DURAR MAIS"):
+  // e o primeiro plano da casa que eles acabaram de comprar com uma ideia, e
+  // vale ficar nele. 12,1 s no total, com 2,4 s de silencio depois da fala pro
+  // jogador olhar a fachada antes de ganhar o controle.
+  { d: 1.2, parte: 2, quem: null, fade: [1, 1] },
+  { d: 2.0, parte: 2, quem: null, fade: [1, 0] },
+  { d: 2.2, parte: 2, quem: null },
+  { d: 4.3, parte: 2, quem: 'anf', txt: 'Nao era bem isso que eu imaginei... mas e um comeco.' },
+  { d: 2.4, parte: 2, quem: null },
 ]
 
 const DUR_PORAO = ROTEIRO.reduce((s, p) => s + (p.parte === 2 ? 0 : p.d), 0)
@@ -1532,53 +1550,31 @@ function textoDo(passo, n) {
 }
 
 // ---------------------------------------------------------------------------
-// H. A CAMADA DOM — baloes, legenda e o preto
+// H. A CAMADA DOM — a legenda e o preto
 //
-// Os baloes seguem a cabeca de quem fala por projecao, igual ao src/ui/dialogo.js
-// (_v.set(x,y,z).project(camera)). A legenda no rodape existe porque balao que
-// segue cabeca some quando a camera fecha demais, e a fala nao pode sumir junto.
+// UM lugar so pro texto: o rodape. Houve uma epoca de baloes seguindo a cabeca
+// de quem fala (por projecao, igual ao src/ui/dialogo.js) e eles sairam a
+// pedido do dono do projeto. Com quatro pessoas juntas o balao cobria os rostos
+// que a cena estava tentando mostrar, na rua ele tapava a casa, e a mesma frase
+// aparecia duas vezes na tela — no balao e na legenda.
 // ---------------------------------------------------------------------------
 const CSS_ABERTURA =
   '.mcrp-ab{position:fixed;inset:0;z-index:60;pointer-events:none;' +
   'font:14px/1.5 "Trebuchet MS",system-ui,sans-serif;color:#e8edf6}' +
   '.mcrp-ab .preto{position:absolute;inset:0;background:#000;opacity:0}' +
-  '.mcrp-ab .bal{position:absolute;left:0;top:0;transform:translate(-50%,-100%);' +
-  'transition:opacity .16s;opacity:0}' +
-  '.mcrp-ab .bal.on{opacity:1}' +
-  '.mcrp-ab .cx{position:relative;min-width:150px;max-width:min(46vw,430px);' +
-  'padding:10px 14px;background:rgba(13,15,20,.90);backdrop-filter:blur(8px);' +
-  'border:1px solid rgba(255,255,255,.14);border-radius:12px;' +
-  'box-shadow:0 12px 34px rgba(0,0,0,.55)}' +
-  '.mcrp-ab .cx:after{content:"";position:absolute;left:50%;bottom:-7px;' +
-  'width:14px;height:14px;margin-left:-7px;transform:rotate(45deg);' +
-  'background:rgba(13,15,20,.90);border-right:1px solid rgba(255,255,255,.14);' +
-  'border-bottom:1px solid rgba(255,255,255,.14)}' +
-  '.mcrp-ab .quem{font-size:11px;letter-spacing:.14em;text-transform:uppercase;' +
-  'color:#8fd6a8;margin-bottom:4px}' +
-  '.mcrp-ab .fala{font-size:15px}' +
-  '.mcrp-ab .bal.coro .cx{background:rgba(24,10,10,.92);border-color:rgba(255,120,110,.42);' +
-  'box-shadow:0 14px 40px rgba(0,0,0,.6)}' +
-  '.mcrp-ab .bal.coro .cx:after{background:rgba(24,10,10,.92);' +
-  'border-right-color:rgba(255,120,110,.42);border-bottom-color:rgba(255,120,110,.42)}' +
-  '.mcrp-ab .bal.coro .quem{color:#ff9d92}' +
-  '.mcrp-ab .bal.coro .fala{font-size:34px;font-weight:bold;letter-spacing:.05em;' +
-  'text-align:center;line-height:1.1}' +
-  '.mcrp-ab .bal.bom .cx{background:rgba(10,24,16,.92);border-color:rgba(143,214,168,.45)}' +
-  '.mcrp-ab .bal.bom .cx:after{background:rgba(10,24,16,.92);' +
-  'border-right-color:rgba(143,214,168,.45);border-bottom-color:rgba(143,214,168,.45)}' +
-  '.mcrp-ab .bal.bom .fala{color:#b7f0c6}' +
-  '.mcrp-ab .bal.fixo{left:50%;top:76%}' +
   '.mcrp-ab .leg{position:absolute;left:50%;bottom:7vh;transform:translateX(-50%);' +
-  'max-width:min(78vw,900px);text-align:center;font-size:17px;color:#f2f5fa;' +
+  // 20.4px = 17 + 20%, a pedido do dono ("AUMENTE O TEXTO EM 20% O TAMANHO PARA
+  // FICAR MAIS LEGIVERL"). O rotulo de quem fala subiu na mesma proporcao.
+  'max-width:min(78vw,900px);text-align:center;font-size:20.4px;color:#f2f5fa;' +
   'text-shadow:0 2px 10px rgba(0,0,0,.95),0 0 3px rgba(0,0,0,.9);opacity:0;' +
   'transition:opacity .16s}' +
   '.mcrp-ab .leg.on{opacity:1}' +
   '.mcrp-ab .leg b{color:#8fd6a8;font-weight:normal;letter-spacing:.1em;' +
-  'text-transform:uppercase;font-size:12px;display:block;margin-bottom:3px}' +
+  'text-transform:uppercase;font-size:14.4px;display:block;margin-bottom:4px}' +
   '.mcrp-ab .dica{position:absolute;right:18px;bottom:16px;font-size:11px;' +
   'letter-spacing:.14em;text-transform:uppercase;color:rgba(232,237,246,.42)}'
 
-function criarCamada(nBaloes) {
+function criarCamada() {
   const raiz = document.createElement('div')
   raiz.className = 'mcrp-ab'
   const estilo = document.createElement('style')
@@ -1589,19 +1585,17 @@ function criarCamada(nBaloes) {
   preto.className = 'preto'
   raiz.appendChild(preto)
 
-  const baloes = []
-  for (let i = 0; i <= nBaloes; i++) {
-    const b = document.createElement('div')
-    b.className = 'bal'
-    b.innerHTML = '<div class="cx"><div class="quem"></div><div class="fala"></div></div>'
-    b.dataset.quem = ''
-    raiz.appendChild(b)
-    baloes.push({ el: b, quem: b.querySelector('.quem'), fala: b.querySelector('.fala') })
-  }
-  // o ultimo e o balao do CORO: um so, grande, pra todo mundo
-  const coro = baloes.pop()
-  coro.el.classList.add('coro')
-
+  // NAO HA MAIS BALAO SOBRE A CABECA.
+  //
+  // Existiam dois: um por cima de quem fala e um grande pro coro, os dois
+  // seguindo a projecao da cabeca na tela. O dono do projeto mandou tirar
+  // ("mantenha o texto do dialogo na parte de baixo apenas, o texto em cima do
+  // personagem pode apagar") e a cena melhorou por um motivo que nao e so
+  // gosto: com quatro pessoas juntas o balao cobria justamente os rostos que a
+  // cena estava tentando mostrar, e na rua ele tapava a casa.
+  //
+  // Ficou a LEGENDA, que ja existia, no rodape. Um lugar so pro texto tambem
+  // acaba com o problema de ler a mesma frase duas vezes na mesma tela.
   const leg = document.createElement('div')
   leg.className = 'leg'
   leg.innerHTML = '<b></b><span></span>'
@@ -1615,7 +1609,7 @@ function criarCamada(nBaloes) {
   document.body.appendChild(raiz)
 
   return {
-    raiz, estilo, preto, baloes, coro, leg,
+    raiz, estilo, preto, leg,
     legQuem: leg.querySelector('b'),
     legTxt: leg.querySelector('span'),
     dispose() { raiz.remove(); estilo.remove() },
@@ -1657,9 +1651,8 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
   // Estado de camera do jogo, pra devolver como estava se a parte 2 nem rodar.
   const camSalva = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, tem: false }
 
-  // Rascunhos reusados: projetar balao e temperar a luz da TV acontecem TODO
-  // quadro, e um Vector3/Color novo por quadro por ator e lixo de graca.
-  const _v = new THREE.Vector3()
+  // Rascunhos reusados: temperar a luz da TV acontece TODO quadro, e uma Color
+  // nova por quadro e lixo de graca.
   const _corTV = new THREE.Color(0xbcd2ff)
   const _corAlvo = new THREE.Color(0xbcd2ff)
   const _saidaTV = { cor: 0xbcd2ff, forca: 2.4 }
@@ -1789,9 +1782,14 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
       a.cabecaSent = base + a.personagem.headCenterY
       a.cabecaPe = a.cabecaSent
       a.cabecaY = a.cabecaSent
-      a.rotY = f.yaw
+      // f.yaw e o yaw da CAMERA (ver filaDaCasa). O corpo fica em yaw + PI, que
+      // e a mesma conta que player/controller.js faz no teleport — assim o
+      // boneco da cutscene e o jogador que nasce no lugar dele apontam pro
+      // mesmo lado, e o corte entre os dois nao gira ninguem.
+      const corpoY = f.yaw + Math.PI
+      a.rotY = corpoY
       a.personagem.root.position.set(f.x, base, f.z)
-      a.personagem.root.rotation.y = f.yaw
+      a.personagem.root.rotation.y = corpoY
       // A lata e o controle ficam no porao (na historia, nao na cena): o corte
       // pro preto e uma elipse, eles andaram ate aqui. Chegar na calcada com um
       // controle de video game na mao le como objeto esquecido pelo programador.
@@ -1815,16 +1813,14 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
     for (const a of atores) atualizarAtor(a, d, _ctxRua)
   }
 
+  /**
+   * Poe a fala do passo na LEGENDA do rodape. Nao ha mais nada pra pintar: os
+   * baloes sobre a cabeca sairam (ver criarCamada), entao esta funcao deixou de
+   * escolher entre dois lugares e passou a so decidir QUEM esta falando.
+   */
   function mostrarFala(p) {
     if (!camada) return
-    for (const b of camada.baloes) b.el.classList.remove('on')
-    camada.coro.el.classList.remove('on', 'bom')
     camada.leg.classList.remove('on')
-
-    // Estilo inline de balao projetado nao pode sobreviver a troca de parte: na
-    // rua o balao mora no rodape por CSS, e um left/top de pixel deixado pela
-    // parte 1 ganha da folha de estilo e prega o balao onde estava a cabeca.
-    for (const b of camada.baloes) { b.el.style.left = ''; b.el.style.top = '' }
 
     const txt = textoDo(p, nJog)
     if (!txt) {
@@ -1837,38 +1833,14 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
       return
     }
 
-    if (p.quem === 'anf') {
-      const b = camada.baloes[0]
-      b.quem.textContent = nomeAnf
-      b.fala.textContent = txt
-      b.el.classList.add('on')
-      b.el.classList.toggle('fixo', parte === 2)
-      camada.legQuem.textContent = nomeAnf
-      camada.legTxt.textContent = txt
-    } else {
-      // COROS: um balao unico e grande.
-      //
-      // QUEM RESPONDE SAO OS OUTROS JOGADORES. Havia aqui uma piada de plateia
-      // de TV: sozinho na sala, o "NAOOO" vinha da televisao, com flash de
-      // risada enlatada na tela. O dono do projeto cortou ("n e a plateia como
-      // vc colocou") e ele tem razao pelo motivo certo: a cena e sobre quatro
-      // amigos decidindo um negocio, e por uma piada ela passava a ser sobre um
-      // sujeito sendo ridicularizado por um aparelho.
-      //
-      // Sozinho, quem diz "NAOOO" e o PROPRIO jogador — a cena vira alguem
-      // discutindo consigo mesmo num porao, que e mais honesto e continua tendo
-      // graca. Sem plateia nenhuma.
-      const c = camada.coro
-      let quem
-      if (nJog <= 1) quem = nomeAnf
-      else quem = p.quem === 'todos' ? 'Todos' : 'Todos os outros'
-      c.quem.textContent = quem
-      c.fala.textContent = txt
-      c.el.classList.add('on')
-      if (p.animado) c.el.classList.add('bom')
-      camada.legQuem.textContent = quem
-      camada.legTxt.textContent = txt
-    }
+    // QUEM RESPONDE SAO OS OUTROS JOGADORES. Havia aqui uma piada de plateia de
+    // TV: sozinho na sala, o "NAOOO" vinha da televisao. O dono do projeto
+    // cortou ("n e a plateia como vc colocou"). Sozinho, quem responde e o
+    // PROPRIO jogador — alguem discutindo consigo mesmo num porao.
+    let quem = nomeAnf
+    if (p.quem !== 'anf' && nJog > 1) quem = p.quem === 'todos' ? 'Todos' : 'Todos os outros'
+    camada.legQuem.textContent = quem
+    camada.legTxt.textContent = txt
     camada.leg.classList.add('on')
   }
 
@@ -1981,102 +1953,14 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
     tv.matTela.emissiveIntensity = 1.15 + Math.min(1.2, _forcaTV * 0.14)
   }
 
-  // --- baloes ----------------------------------------------------------------
-  // Folga minima entre o balao e a borda da tela. O balao e ancorado pelo bico
-  // (translate -50%,-100%), entao ele ocupa espaco PRA CIMA e pros dois lados
-  // do ponto projetado.
-  const MARG_X = 190
-  const MARG_TOPO = 130
-  const MARG_BASE = 120
-
-  /**
-   * Segue um ponto 3D na tela, mas NUNCA deixa o balao sair do quadro.
-   *
-   * Sem o grampo a fala simplesmente sumia em dois casos reais: a TV
-   * respondendo o jogador sozinho (a ancora dela fica quase embaixo da lente
-   * quando a camera ja avancou) e o balao do coro no plano mais fechado. O
-   * texto continua no rodape nesses casos, mas balao que pisca pra fora da
-   * tela parece bug, nao direcao.
-   */
-  function projetar(el, x, y, z, cam, sacode) {
-    _v.set(x, y, z).project(cam)
-    const L = window.innerWidth
-    const A = window.innerHeight
-    let px, py
-    if (_v.z > 1) {
-      // atras da camera a projecao vem espelhada: nao da pra confiar nela,
-      // entao o balao vai pro rodape, onde o olho ja procura fala
-      px = L * 0.5
-      py = A * 0.78
-    } else {
-      // em janela estreita a folga fixa passaria do meio da tela e o grampo
-      // inverteria (min < max), entao ela cede antes disso
-      const mx = Math.min(MARG_X, L * 0.28)
-      px = Math.min(Math.max((_v.x * 0.5 + 0.5) * L, mx), L - mx)
-      py = Math.min(Math.max((-_v.y * 0.5 + 0.5) * A, MARG_TOPO), A - MARG_BASE)
-    }
-    el.classList.add('on')
-    el.style.left = px + 'px'
-    el.style.top = py + 'px'
-    el.style.transform = sacode
-      ? 'translate(-50%,-100%) translate(' + sacode.x.toFixed(1) + 'px,' + sacode.y.toFixed(1) + 'px)'
-      : 'translate(-50%,-100%)'
-  }
-
-  const _sacode = { x: 0, y: 0 }
-
-  function atualizarBaloes(passo) {
-    if (!camada) return
-    if (parte === 2) {
-      // A parte 2 deixou de ser primeira pessoa: o anfitriao esta na fila, de
-      // costas, e o balao pode sair da cabeca dele como sai no porao. So cai
-      // pro rodape se, por algum motivo, nao houver corpo (cutscene chamada sem
-      // elenco).
-      const b = camada.baloes[0]
-      if (!b.el.classList.contains('on')) return
-      const anf2 = anfitriao()
-      if (anf2 && camera) {
-        b.el.classList.remove('fixo')
-        projetar(b.el, anf2.x, anf2.cabecaY + 0.42, anf2.z, camera, null)
-      } else {
-        b.el.classList.add('fixo')
-        b.el.style.transform = 'translate(-50%,-100%)'
-      }
-      return
-    }
-    if (!camPorao) return
-    // sem fala neste passo nao ha o que seguir, e projetar aqui reacenderia um
-    // balao que mostrarFala acabou de apagar
-    if (!textoDo(passo, nJog)) return
-    const anf = anfitriao()
-    if (passo.quem === 'anf' && anf) {
-      const b = camada.baloes[0]
-      projetar(b.el, anf.x, anf.cabecaY + 0.36, anf.z, camPorao, null)
-    } else if (passo.quem === 'coro' || passo.quem === 'todos') {
-      // O balao do coro sacode: e uma unica batida decaindo, igual a da camera,
-      // pro grito na tela e o tranco da imagem baterem no mesmo instante.
-      const tf = tPasso
-      const e = batida(tf, 0.55)
-      _sacode.x = Math.sin(tf * 44) * 9 * e
-      _sacode.y = Math.sin(tf * 37 + 0.8) * 7 * e
-      // O balao do coro sai de cima do GRUPO, sempre — inclusive quando ha um
-      // jogador so, que agora responde a si mesmo (ver mostrarFala). Antes ele
-      // saia da TV no caso solo, o que era a piada de plateia que caiu.
-      // O z tambem e a media: quando o grupo levanta, todo mundo anda meio metro
-      // pra frente e um balao ancorado no sofa vazio ficaria pra tras deles.
-      let ax = 0, az = 0, ay = 0
-      for (const a of atores) { ax += a.x; ay += a.cabecaY; az += a.z }
-      ax /= atores.length
-      az /= atores.length
-      ay = ay / atores.length + 0.62
-      projetar(camada.coro.el, ax, ay, az, camPorao, _sacode)
-    }
-  }
+  // A funcao projetar() e os limites de margem de balao moravam aqui. Sairam
+  // junto com os baloes: sem nada seguindo a cabeca na tela, nao ha o que
+  // projetar e nao ha o que segurar dentro do quadro.
 
   // --- laco ------------------------------------------------------------------
   // Os dois rascunhos abaixo sao preenchidos e lidos a cada quadro. Objeto
   // literal aqui dentro seria um descarte por quadro (ou quatro, um por ator)
-  // pelos 36 segundos da cutscene inteira.
+  // pelos 46 segundos da parte 1.
   const _cena = { quem: '', animado: false, pensando: false, coro: false, reacaoBase: 0 }
   const _ctxAtor = {
     falando: false, reacao: 0, animado: false, pensando: false, levantar: 0,
@@ -2108,8 +1992,8 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
     _ctxAtor.levantar = levantar * levantar * (3 - 2 * levantar)
     c.pensando = passo.quem === 'pensa'
     c.coro = passo.quem === 'coro' || passo.quem === 'todos'
-    // A reacao dura o COMECO do passo, nao o passo inteiro: berro segurado por
-    // 3 s deixa de ser berro e vira careta parada.
+    // A reacao dura o COMECO do passo, nao o passo inteiro: um "nao" segurado
+    // por 3 s deixa de ser resposta e vira careta parada.
     c.reacaoBase = c.coro ? Math.max(0, 1 - tPasso / 1.1) : 0
     const anf = anfitriao()
     for (const a of atores) {
@@ -2132,17 +2016,13 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
       // Pra onde cada um olha: quem fala olha pro grupo, o grupo olha pra quem
       // fala, e sem ninguem falando todo mundo volta pra TV — que e exatamente
       // o que quatro pessoas num porao fazem.
-      // A IDEIA DE MILHAO se olha PRA CIMA, nunca pra TV.
       //
-      // Sem este ramo o alvo caia no `else` la embaixo, que e a televisao — e a
-      // televisao esta em z = 2.06, y = 0.94, ou seja ATRAS e ABAIXO de quem
-      // acabou de levantar. Os quatro comemoravam de bracos erguidos encarando
-      // o chao. Pior: o anfitriao, no passo 'todos', mirava um ponto do sofa
-      // que agora esta atras dele, e o LOOK_LIMIT de 0.6 rad travava a cabeca
-      // dele torta no plano mais importante da cena.
-      //
-      // O alvo e um ponto alto e a frente: eles olham pra ideia, nao um pro
-      // outro.
+      // A IDEIA DE MILHAO e a excecao: se olha PRA CIMA, nunca pra TV. Sem este
+      // primeiro ramo o alvo caia no `else` la embaixo, e a televisao esta em
+      // z = 2.06, y = 0.94 — ATRAS e ABAIXO de quem acabou de levantar. Os
+      // quatro comemoravam de bracos erguidos encarando o chao, e o anfitriao
+      // mirava um ponto do sofa que agora esta as costas dele, com o LOOK_LIMIT
+      // de 0.6 rad travando a cabeca torta no plano mais importante da cena.
       if (c.animado) {
         _ctxAtor.olharX = a.x * 0.35
         _ctxAtor.olharY = 2.30
@@ -2194,7 +2074,6 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
       atualizarAtoresRua(d)
       atualizarCameraRua()
     }
-    atualizarBaloes(passo)
     return true
   }
 
@@ -2302,7 +2181,7 @@ export function criarAbertura({ renderer, cena, camera, jogadores, casa, chao } 
     if (rodando || terminado) return
     aoTerminar = typeof cb === 'function' ? cb : null
     montarPorao()
-    camada = criarCamada(2)
+    camada = criarCamada()
     rodando = true
     iPasso = 0
     tPasso = 0

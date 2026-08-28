@@ -674,6 +674,13 @@ export function criarRede({ url, nome, aparencia } = {}) {
       return
     }
 
+    if (tipo === P.PORTA_ESTADO) {
+      const pe = Proto.lerPortaEstado(v)
+      if (!pe) return
+      emitir({ tipo: 'porta-estado', portaId: pe.portaId | 0, aberta: pe.aberta })
+      return
+    }
+
     if (tipo === P.SALA_ESTADO) {
       const m = Proto.lerSalaEstado(v)
       if (!m) return
@@ -970,6 +977,16 @@ export function criarRede({ url, nome, aparencia } = {}) {
    * `est.perfis`, ao contrario, e escrito na hora em que o pacote chega (o
    * callback do transporte), entao ja esta cheio desde o lobby.
    */
+  /**
+   * Pede pra abrir/fechar uma porta. E PEDIDO, como entrarVeiculo: quem abre a
+   * porta nao e esta linha, e o 'porta-estado' que voltar. No SOLO isto nao e
+   * chamado — quem constroi a porta aplica direto (ver casa-velha.js).
+   */
+  rede.usarPorta = function usarPorta(portaId, querAberta) {
+    if (!rede.conectado) return
+    mandar(Proto.escreverUsarPorta(portaId | 0, !!querAberta), true)
+  }
+
   rede.perfilDe = function perfilDe(id) {
     return est.perfis.get(id | 0) || null
   }

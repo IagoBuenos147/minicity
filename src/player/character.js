@@ -943,6 +943,11 @@ export function createCharacter(opts = {}) {
   const _mNeck = new THREE.Matrix4()
   const _malhasRoupa = []
   const _malhasColar = []
+  const _malhasChapeu = []
+  const _malhasSobr = []
+  const _rDirNeg = new THREE.Vector3()
+  const _dirPior = new THREE.Vector3()
+  const _mFaceInv = new THREE.Matrix4()
   const _pa = new THREE.Vector3()
   const _pb = new THREE.Vector3()
 
@@ -973,6 +978,122 @@ export function createCharacter(opts = {}) {
    * pelas costas. Abrir o anel e o que uma corrente faz de verdade quando se
    * veste um casaco por baixo dela.
    */
+  /**
+   * A SOBRANCELHA NAO PODE ATRAVESSAR O CHAPEU.
+   *
+   * A sobrancelha e uma barra curva extrudada 2,4 cm PRA FORA do cranio, e o
+   * chapeu e uma calota com folga fixa sobre o mesmo cranio. Nas cabecas
+   * redondas os dois nao se encontram; nas altas e largas, sim. Varrendo os
+   * 1040 pares (13 cabecas x 10 sobrancelhas x 8 chapeus de copa), 235 tinham a
+   * sobrancelha PRA FORA do pano — em 42 mm no pior caso, com o bone vermelho
+   * na cabeca 12: duas barras pretas desenhadas por cima da copa, flutuando.
+   *
+   * A correcao e um EMPURRAO, e nao uma escala. Escalar o slot em volta do
+   * centro do cranio resolveria o raio, mas encolheria a sobrancelha e a
+   * arrastaria 3 cm PRA BAIXO junto — ela ia parar em cima da palpebra.
+   *
+   * E o empurrao segue a DIRECAO RADIAL do pior ponto, nao um -Z fixo. A
+   * primeira versao empurrava so pra tras e resolveu 144 dos 235 pares; os 91
+   * que sobraram eram sobrancelha alta com chapeu de aba, onde a barra fura a
+   * COPA por cima e nao a aba pela frente — empurrar pra tras nao tira nada de
+   * cima. Seguindo o raio, o mesmo codigo empurra pra tras quem fura pela
+   * frente e pra baixo-e-pra-tras quem fura por cima.
+   *
+   * A conta faz sozinha as duas coisas certas:
+   *   sobra de 2 mm  -> empurrao de 2 mm: some a briga de z-buffer e a
+   *                     sobrancelha continua a vista sob a aba;
+   *   sobra de 4 cm  -> empurrao de 4 cm: a barra entra no cranio e desaparece,
+   *                     que e exatamente o que se ve quando alguem enfia o bone
+   *                     ate a sobrancelha.
+   *
+   * O teto de 6 cm existe pro caso degenerado (chapeu que envolve a cara toda):
+   * empurrar mais que isso levaria a sobrancelha pra fora da nuca.
+   */
+  function acomodarSobrancelhaSobOChapeu() {
+    const so = slots.sobrancelha
+    if (!so) return
+    so.position.set(0, 0, 0)              // sempre do zero: a conta e idempotente
+    const cha = slots.chapeu
+    if (!cha || !cha.children.length || !so.children.length) return
+
+    _malhasChapeu.length = 0
+    for (const o of pecasDe('chapeu')) {
+      o.traverse((x) => { if (x.isMesh && x.visible) _malhasChapeu.push(x) })
+    }
+    if (!_malhasChapeu.length) return
+
+    _malhasSobr.length = 0
+    so.traverse((o) => {
+      if (o.isMesh && o.geometry && o.geometry.attributes.position) _malhasSobr.push(o)
+    })
+    if (!_malhasSobr.length) return
+
+    root.updateWorldMatrix(true, true)
+    head.getWorldPosition(_pontoJunta)    // a junta da cabeca E o centro do cranio
+
+    let falta = 0
+    for (let mi = 0; mi < _malhasSobr.length; mi++) {
+      const m = _malhasSobr[mi]
+      const pos = m.geometry.attributes.position
+      // QUAIS VERTICES TESTAR.
+      //
+      // Nao da pra jogar um raio de cada um dos ~1070 vertices de cada barra: no
+      // customizer isso roda a cada clique, e 3 mil raios contra a malha do
+      // chapeu travariam a interface. E nao da pra pegar de N em N: o ponto que
+      // fura e UM canto, e passo largo pula justamente ele — medido, com passo
+      // de 66 a unibrow na cartola dava "0 de sobra" e com passo de 53 dava
+      // 36,4 mm. Amostra que depende de sorte nao e medida.
+      //
+      // Entao o teste vai so nos vertices MAIS EXTERNOS. O furo e um excesso de
+      // RAIO em volta do cranio, e a casca do chapeu e lisa: onde o raio do
+      // vertice e maximo e onde a sobra e maxima. Uma passada barata (so
+      // distancia, sem raio nenhum) acha o raio maximo; a segunda so lanca raio
+      // nos que estao a menos de 12 mm dele.
+      let rMax = 0
+      for (let i = 0; i < pos.count; i++) {
+        _pv.fromBufferAttribute(pos, i)
+        m.localToWorld(_pv)
+        const rr = _pv.distanceTo(_pontoJunta)
+        if (rr > rMax) rMax = rr
+      }
+      const corte = rMax - 0.012
+      for (let i = 0; i < pos.count; i++) {
+        _pv.fromBufferAttribute(pos, i)
+        m.localToWorld(_pv)
+        _rDir.copy(_pv).sub(_pontoJunta)
+        const r = _rDir.length()
+        if (r < corte || r < 0.02) continue
+        _rDir.divideScalar(r)
+        // De FORA pra dentro: o pano do chapeu e de uma face so, e um raio
+        // saindo do cranio atravessaria ele sem ver nada.
+        _rOrig.copy(_pontoJunta).addScaledVector(_rDir, 0.9)
+        _rDirNeg.copy(_rDir).negate()
+        _raio.set(_rOrig, _rDirNeg)
+        _raio.far = 1.4
+        const toques = _raio.intersectObjects(_malhasChapeu, false)
+        if (!toques.length) continue      // aqui o chapeu nao cobre: nada a fazer
+        // O toque tem que estar do MESMO LADO da cabeca que a sobrancelha. O
+        // raio entra pela frente e sai pela nuca, e se nao houver pano na frente
+        // ele vai encontrar o capuz do moletom LA ATRAS — com raio menor que o
+        // da sobrancelha, o que a conta leria como "a sobrancelha furou o
+        // capuz". Foram 46 falsos positivos so por causa disso.
+        _pv.copy(toques[0].point).sub(_pontoJunta)
+        if (_pv.dot(_rDir) <= 0) continue
+        const R = _pv.length()
+        // 3 mm por dentro do pano, pela mesma razao do colar: encostar exato
+        // deixa as duas superficies brigando e piscando com a camera.
+        const d = r - R + 0.003
+        if (d > falta) { falta = d; _dirPior.copy(_rDir) }
+      }
+    }
+    if (falta > 0) {
+      // A direcao vem do MUNDO e o slot mora no espaco da face: sem converter,
+      // um personagem virado de costas teria a sobrancelha empurrada pra frente.
+      _dirPior.transformDirection(_mFaceInv.copy(face.matrixWorld).invert())
+      so.position.copy(_dirPior).multiplyScalar(-Math.min(0.06, falta))
+    }
+  }
+
   function acomodarColarSobreARoupa() {
     const col = slots.colar
     if (!col || !col.children.length) return
@@ -1093,6 +1214,7 @@ export function createCharacter(opts = {}) {
     // (ou o contrario) muda a relacao entre os dois, e o slot que nao foi
     // reconstruido ainda esta com o achatamento do chapeu ANTERIOR.
     acomodarCabeloSobOChapeu()
+    acomodarSobrancelhaSobOChapeu()
     acomodarColarSobreARoupa()
     return app
   }
@@ -1103,6 +1225,7 @@ export function createCharacter(opts = {}) {
   for (const kind of ORDEM) rebuild(kind)
   aplicarCobertura()
   acomodarCabeloSobOChapeu()
+  acomodarSobrancelhaSobOChapeu()
   acomodarColarSobreARoupa()
 
   // --- API ------------------------------------------------------------------
@@ -1180,15 +1303,22 @@ const ALIAS_PT = {
  * A rede e o contrato falam PT (20 campos); o codigo antigo (NPCs da cidade,
  * avatares) fala EN. Os dois chegam aqui, entao os dois nomes andam juntos.
  *
- * Pele tem DOIS campos: 'pele' e indice de catalogo e 'skin' e cor crua. Quando
- * o patch traz os dois — e traz, porque main.js guarda um objeto so e manda ele
- * inteiro — vale o que MUDOU. Sem essa regra, trocar de tom no barbeiro nao
- * fazia nada: o 'skin' velho do mesmo objeto repintava a cor anterior logo
- * depois do 'pele' novo.
+ * Pele tem DOIS campos: 'pele' e indice de catalogo e 'skin' e cor crua, e o
+ * patch quase sempre traz os DOIS (main.js guarda um objeto so e manda ele
+ * inteiro). A regra e: QUEM MANDA E O INDICE. Cor crua so vale quando nao ha
+ * indice nenhum no patch, que e como os NPCs da cidade pedem a pele deles.
+ *
+ * A regra ja foi "vale o que MUDOU", comparando o 'pele' do patch com o do
+ * alvo, e isso tinha um buraco que o dono do projeto encontrou: o tom mudava
+ * quando ele clicava no tom, e VOLTAVA ao anterior no clique seguinte em
+ * qualquer outra coisa. Motivo: a tela de criacao trabalha sobre uma COPIA da
+ * aparencia, e nessa copia o 'skin' cru nunca era atualizado. Trocando a
+ * blusa, o patch chegava com o 'pele' novo (igual ao do alvo, entao "nao
+ * mudou") e o 'skin' velho — e o skin velho ganhava. Foi medido: pele 4
+ * pintava 0x6f4526, e o clique seguinte devolvia 0xf7c6a4.
  */
 function aplicar(alvo, patch) {
   if (!patch) return alvo
-  const peleMudou = patch.pele !== undefined && (patch.pele | 0) !== (alvo.pele | 0)
   for (const k in patch) {
     const v = patch[k]
     if (v === undefined) continue
@@ -1198,9 +1328,8 @@ function aplicar(alvo, patch) {
     const en = ALIAS_PT[k]
     if (en) alvo[en] = v
   }
-  if (peleMudou) alvo.skin = corPele(patch.pele)
+  if (patch.pele !== undefined) alvo.skin = corPele(patch.pele)
   else if (patch.skin !== undefined) alvo.skin = corPele(patch.skin)
-  else if (patch.pele !== undefined) alvo.skin = corPele(patch.pele)
   return alvo
 }
 

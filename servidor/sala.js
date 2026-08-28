@@ -52,8 +52,25 @@ const {
   PEGAR, SOLTAR, ARREMESSAR, OBJ_POS, DESTRUIU,
   ABRIR_PORTAL, PEGAR_ITEM,
   ENTRAR_VEICULO, SAIR_VEICULO, VEICULO_POS, CRIAR_HELI,
-  REINICIAR, PRONTO, COMECAR, MEU_NOME,
+  REINICIAR, PRONTO, COMECAR, MEU_NOME, USAR_PORTA,
 } = Proto.P
+
+/**
+ * As portas do mundo que TEM estado compartilhado.
+ *
+ * Ate aqui a porta da casa velha era 100% local: a variavel que guarda o
+ * angulo e o colisor que barra viviam DENTRO de buildCasaVelha, um par por
+ * maquina. No coop isso significa que o jogador A abre a porta, atravessa, e
+ * na tela de B a porta continua fechada — e continua BARRANDO. B ve A
+ * atravessando madeira. Era o defeito relatado.
+ *
+ * A lista mora aqui, e nao no cliente, porque quem decide o estado do mundo e o
+ * servidor. O x/z e so pra checagem de alcance. Ela cresce quando a loja de
+ * jogos ganhar porta.
+ */
+const PORTAS = [
+  { id: 1, x: 43, z: 12 },   // casa velha
+]
 
 const TIPOS = { ...Proto.P }
 
@@ -233,6 +250,12 @@ export function criarSala(opcoes = {}) {
      id, conta o tempo e fecha. Portal NAO entra no snapshot — sao poucos, nao
      se mexem e nascem/morrem por evento confiavel. */
   const portais = new Map()
+
+  /* PORTAS abertas, por id (ver PORTAS la em cima). Mesma regra do portal: sao
+     poucas, mudam raramente e nao entram no snapshot — viajam por PORTA_ESTADO
+     no canal confiavel, e quem chega atrasado recebe uma de cada porta logo
+     depois do BEMVINDO. Ausente no mapa = fechada. */
+  const portas = new Map()
 
   /* NPCs: um por entrada de NPCS. Posicao e estado sao SEMPRE do servidor. */
   const npcs = new Map()
@@ -546,6 +569,11 @@ export function criarSala(opcoes = {}) {
        BEMVINDO) deixa o cliente com UM caminho so para "portal apareceu". */
     for (const p of portais.values()) con.enviar(pacotePortalAberto(p), true)
 
+    /* E o estado de cada porta, pelo mesmo motivo e pelo mesmo caminho: um
+       PORTA_ESTADO por porta, e o cliente tem UM caminho so para "a porta esta
+       assim". Manda ate as fechadas — o pacote e idempotente e sao 3 bytes. */
+    for (const d of PORTAS) con.enviar(Proto.escreverPortaEstado(d.id, !!portas.get(d.id)), true)
+
     /* Veiculo tambem nao entra no snapshot, pelo motivo oposto ao do portal
        (ver a regra 7 do protocolo). Entao quem chega agora precisa de:
        - um HELI_CRIADO por helicoptero vivo, senao os que foram montados antes
@@ -652,6 +680,15 @@ export function criarSala(opcoes = {}) {
 
      Nao ha pacote novo por peca: quem reinicia avisa o MUNDO_REINICIADO e cada
      cliente se recarrega inteiro (ver o comentario em src/main.js). */
+  /* As portas voltam pro estado de casa vazia junto com o resto do mundo. */
+  function fecharTodasAsPortas() {
+    for (const d of PORTAS) {
+      if (!portas.get(d.id)) continue
+      portas.set(d.id, false)
+      paraTodos(Proto.escreverPortaEstado(d.id, false), true)
+    }
+  }
+
   function reiniciarMundo(quem) {
     for (const npc of npcs.values()) {
       const base = NPCS.find((n) => n.id === npc.id)
@@ -675,6 +712,7 @@ export function criarSala(opcoes = {}) {
       v.dono = 0
     }
     for (const id of [...portais.keys()]) portais.delete(id)
+    fecharTodasAsPortas()
     itensPorNome.clear()
     for (const j of jogadores.values()) {
       j.npcEmDialogo = 0
@@ -919,6 +957,24 @@ export function criarSala(opcoes = {}) {
          mirou; QUEM DA O ID, QUEM CONTA O TEMPO E QUEM AVISA TODO MUNDO E O
          SERVIDOR. Se o cliente desenhasse o portal sozinho ao clicar, o
          portal existiria por um instante so na tela dele. */
+      /* USAR_PORTA e PEDIDO, como ABRIR_PORTAL. Manda um VALOR ("quero
+         aberta") e nao um "inverte": dois jogadores apertando E no mesmo tique
+         com toggle se anulariam. Alcance de 6 m pela mesma sanidade do SOLTAR:
+         nao e anti-trapaca (ninguem disputa porta), e so nao deixar um cliente
+         estragado abrir a casa do outro lado da cidade. E idempotente — pedir o
+         estado que ja vale nao gera pacote nenhum. */
+      case USAR_PORTA: {
+        const m = Proto.lerUsarPorta(dv)
+        if (!m) return
+        const pt = PORTAS.find((d) => d.id === m.portaId)
+        if (!pt) return
+        if (distXZ(pt.x, pt.z, jogador.x, jogador.z) > 6) return
+        if (!!portas.get(pt.id) === !!m.querAberta) return
+        portas.set(pt.id, !!m.querAberta)
+        paraTodos(Proto.escreverPortaEstado(pt.id, m.querAberta), true)
+        return
+      }
+
       case ABRIR_PORTAL: {
         const m = Proto.lerAbrirPortal(dv)
         if (!m) return
@@ -1270,12 +1326,12 @@ const REDE_MD = {
   ESCOLHA: 6, PEGAR: 7, SOLTAR: 8, ARREMESSAR: 9, OBJ_POS: 10, DESTRUIU: 11,
   ABRIR_PORTAL: 12, PEGAR_ITEM: 13,
   ENTRAR_VEICULO: 14, SAIR_VEICULO: 15, VEICULO_POS: 16, CRIAR_HELI: 17,
-  REINICIAR: 19, PRONTO: 20, COMECAR: 21, MEU_NOME: 22,
+  REINICIAR: 19, PRONTO: 20, COMECAR: 21, MEU_NOME: 22, USAR_PORTA: 23,
   BEMVINDO: 128, RECUSA: 129, SNAPSHOT: 130, ENTROU: 131, SAIU: 132,
   APARENCIA: 133, DIALOGO: 134, DIALOGO_FIM: 135, OBJ_DONO: 136,
   OBJ_DESTRUIDO: 137, NEGADO: 138, PORTAL_ABERTO: 139, PORTAL_FECHADO: 140,
   VEICULO_DONO: 141, HELI_CRIADO: 142, MUNDO_REINICIADO: 143,
-  SALA_ESTADO: 144,
+  SALA_ESTADO: 144, PORTA_ESTADO: 145,
 }
 
 /* Assincrona porque servidor.js ja chama assim (e chamava um import()

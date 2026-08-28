@@ -91,6 +91,12 @@ export const P = {
   PRONTO: 20,
   COMECAR: 21,
   MEU_NOME: 22,
+  // 23 USAR_PORTA. A porta e ESTADO DO MUNDO, nao enfeite local. Ate aqui ela
+  // abria so na tela de quem apertou E — a variavel e o colisor eram os DA
+  // MAQUINA —, e no coop o outro via gente atravessando madeira.
+  // Manda um VALOR e nao um "inverte": dois jogadores apertando E no mesmo
+  // tique com toggle se anulariam.
+  USAR_PORTA: 23,
 
   BEMVINDO: 128,
   RECUSA: 129,
@@ -109,6 +115,9 @@ export const P = {
   HELI_CRIADO: 142,
   MUNDO_REINICIADO: 143,
   SALA_ESTADO: 144,
+  // 145 PORTA_ESTADO. Volta pra TODOS, inclusive pra quem pediu: quem pede nao
+  // desenha nada ate isto chegar, pelo mesmo motivo do PORTAL_ABERTO.
+  PORTA_ESTADO: 145,
 }
 
 // Nome legivel do tipo, so pro painel F3 e pra depurar. Nao entra na rede.
@@ -169,6 +178,45 @@ export const NINGUEM = 0
 // --- portal -----------------------------------------------------------------
 // Faixa propria e estavel, dada pelo servidor. Ver a regra 5 do cabecalho:
 // nao encosta em nenhuma outra faixa e nao e reaproveitada com o portal vivo.
+/**
+ * 23 USAR_PORTA (confiavel): u8 portaId, u8 querAberta. 3 bytes com o tipo.
+ * E PEDIDO: quem decide e o servidor, e a resposta e o PORTA_ESTADO.
+ */
+export function escreverUsarPorta(portaId, querAberta) {
+  const { buf, dv } = novo(P.USAR_PORTA, 3)
+  dv.setUint8(1, portaId & 0xff)
+  dv.setUint8(2, querAberta ? 1 : 0)
+  return buf
+}
+
+export function lerUsarPorta(dvBruto) {
+  const dv = cabe(dvBruto, P.USAR_PORTA, 3)
+  if (!dv) return null
+  return { portaId: dv.getUint8(1), querAberta: dv.getUint8(2) === 1 }
+}
+
+/**
+ * 145 PORTA_ESTADO (confiavel): u8 portaId, u8 aberta. 3 bytes com o tipo.
+ *
+ * IDEMPOTENTE de proposito: receber o mesmo estado duas vezes nao faz nada. E
+ * por isso que quem entra atrasado pode receber um destes por porta logo depois
+ * do BEMVINDO sem que o cliente precise de um caminho separado pra "a porta ja
+ * estava aberta quando eu cheguei" — a mesma regra 6 do cabecalho deste
+ * arquivo, escrita na epoca do portal.
+ */
+export function escreverPortaEstado(portaId, aberta) {
+  const { buf, dv } = novo(P.PORTA_ESTADO, 3)
+  dv.setUint8(1, portaId & 0xff)
+  dv.setUint8(2, aberta ? 1 : 0)
+  return buf
+}
+
+export function lerPortaEstado(dvBruto) {
+  const dv = cabe(dvBruto, P.PORTA_ESTADO, 3)
+  if (!dv) return null
+  return { portaId: dv.getUint8(1), aberta: dv.getUint8(2) === 1 }
+}
+
 export const PORTAL_ID_MIN = 3000
 export const PORTAL_ID_MAX = 3999
 

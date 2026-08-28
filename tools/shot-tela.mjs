@@ -93,7 +93,7 @@ export const GRUPOS = {
     {
       nome: 'tela-08-casa-dentro',
       antes: `const c = G.camera
-        c.position.set(43, 1.7, 13.4); c.lookAt(43, 1.5, 21)
+        c.position.set(39.6, 1.75, 13.2); c.lookAt(45.6, 1.35, 20.5)
         c.fov = 74; c.updateProjectionMatrix()
         G.lighting.setTarget(c.position); G.lighting.update(0.0001)
         G.engine.render()`,
@@ -102,7 +102,7 @@ export const GRUPOS = {
     {
       nome: 'tela-09-casa-corredor',
       antes: `const c = G.camera
-        c.position.set(46.5, 1.7, 15.5); c.lookAt(46.5, 1.4, 21.5)
+        c.position.set(49.0, 1.75, 19.0); c.lookAt(43.0, 1.30, 22.6)
         c.fov = 74; c.updateProjectionMatrix()
         G.lighting.setTarget(c.position); G.lighting.update(0.0001)
         G.engine.render()`,
@@ -223,20 +223,43 @@ export const GRUPOS = {
       antes: `G.fluxo.foto(true)
         const d = document.createElement('div')
         d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
-        for (const ch of [0, 1, 2, 4, 6, 8]) {
-          for (const cab of [1, 7]) {
+        for (const ch of [8, 2, 10]) {
+          for (const cb of [12, 4, 0]) {
             const w = document.createElement('div')
-            const lb = document.createElement('div'); lb.textContent = 'chapeu '+ch+' cabelo '+cab
-            G.provador.setAparencia(Object.assign({}, G.appearance, {chapeu:ch, cabelo:cab}))
+            const lb = document.createElement('div'); lb.textContent = 'chapeu '+ch+' cabeca '+cb
+            G.provador.setAparencia(Object.assign({}, G.appearance, {chapeu:ch, cabelo:0, sobrancelha:3, cabeca:cb}))
             G.provador.focar('rosto', true)
             G.provador.atualizar(0.5); G.provador.render()
             const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-            im.style.cssText = 'width:300px;height:190px;object-fit:contain;background:#222;border:1px solid #444'
+            im.style.cssText = 'width:400px;height:300px;object-fit:contain;background:#222;border:1px solid #444'
             w.appendChild(lb); w.appendChild(im); d.appendChild(w)
           }
         }
         document.body.appendChild(d)`,
       espera: 900, semQuadro: true,
+    },
+  ],
+  // As teias de perto: silhueta rasgada, aranha e o balanco de vento.
+  teia: [
+    {
+      nome: 'teia-1-canto',
+      antes: `G.fluxo.foto(true)
+        const c = G.camera
+        c.position.set(38.6, 2.15, 17.0); c.lookAt(37.4, 2.75, 17.4)
+        c.fov = 46; c.updateProjectionMatrix()
+        G.lighting.setTimeOfDay(0.28); G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        for (let i=0;i<60;i++) G.casa.update(1/60, G)
+        G.engine.render()`,
+      espera: 400, semQuadro: true,
+    },
+    {
+      nome: 'teia-2-fachada',
+      antes: `const c = G.camera
+        c.position.set(41.4, 2.05, 10.9); c.lookAt(40.2, 2.45, 12.1)
+        c.fov = 48; c.updateProjectionMatrix()
+        G.lighting.setTarget(c.position); G.lighting.update(0.0001)
+        G.engine.render()`,
+      espera: 300, semQuadro: true,
     },
   ],
   // Dentro da casa velha, de dia e de noite. E o par que mostra se a luz
@@ -318,20 +341,31 @@ export const GRUPOS = {
     },
     {
       nome: 'tela-11-porao-fala',
-      antes: 'for (let i=0;i<300;i++) G.abertura.atualizar(1/60)',
+      antes: 'for (let i=0;i<450;i++) G.abertura.atualizar(1/60)',
       quadros: 3, espera: 400,
     },
     {
       // o instante do CASSINO: e onde todos falam e (agora) levantam juntos
       nome: 'tela-12-porao-cassino',
-      antes: 'for (let i=0;i<1250;i++) G.abertura.atualizar(1/60)',
+      antes: 'for (let i=0;i<1890;i++) G.abertura.atualizar(1/60)',
       quadros: 3, espera: 400,
     },
     {
       // a parte 2: a fila em frente a casa
       nome: 'tela-13-rua-fila',
-      antes: 'for (let i=0;i<340;i++) G.abertura.atualizar(1/60)',
+      antes: 'for (let i=0;i<780;i++) G.abertura.atualizar(1/60)',
       quadros: 3, espera: 400,
+    },
+    {
+      // O PRIMEIRO QUADRO DE JOGO, logo depois da cutscene. E a foto que prova
+      // que o jogador nasce em 3a pessoa OLHANDO PRA CASA: com o yaw errado a
+      // camera ia parar dentro da porta e a tela virava uma tabua.
+      nome: 'tela-15-jogo-comeco',
+      antes: `G.abertura.pular()
+        for (let i=0;i<40;i++) G.player.update(1/60)
+        G.player.mode = 'third'
+        for (let i=0;i<40;i++) G.player.update(1/60)`,
+      quadros: 8, espera: 600,
     },
     {
       // SOLO: um jogador so no sofa de quatro. E o caso que o dono nao ve, mas
@@ -340,7 +374,7 @@ export const GRUPOS = {
       antes: `G.fluxo.foto(false)
         G.fluxo.menu()
         G.fluxo.comecar([{ id:1, nome:'Iago', aparencia:G.appearance, anfitriao:true }])
-        for (let i=0;i<1638;i++) G.abertura.atualizar(1/60)`,
+        for (let i=0;i<2430;i++) G.abertura.atualizar(1/60)`,
       quadros: 3, espera: 500,
     },
   ],

@@ -75,18 +75,24 @@ function dampV(v, tx, ty, tz, lambda, dt) {
 //              do personagem). Um pouco de tres-quartos da volume ao rosto
 //   giro       para onde o PEDESTAL vira sozinho neste foco (radianos). E o
 //              que poe a mao do anel virada pra camera sem o jogador arrastar
-//   deriva     giro lento do pedestal, rad/s. Perto do rosto quase zero: um
-//              rosto girando enquanto se escolhe o olho e nauseante
+//   deriva     giro lento do pedestal, rad/s. HOJE E ZERO EM TODOS OS FOCOS.
+//              A ideia era um giro de vitrine, lento, pra mostrar a peca de
+//              varios angulos sozinho. Na pratica o dono do projeto pediu pra
+//              tirar, e com razao: escolher um olho ou um colar e uma tarefa de
+//              MIRA, e o alvo saia do lugar sozinho enquanto ele decidia. O
+//              campo fica na tabela porque o arraste do mouse usa a mesma
+//              variavel de giro; zera-lo e a forma de dizer "so gira quem
+//              arrasta".
 //   sobe       ajuste fino em metros sobre a altura da junta
 // ---------------------------------------------------------------------------
 const FOCOS = {
   corpo: {
     junta: null, quadro: null, folga: 1.12, larguraMin: 1.15, fov: 34,
-    orbY: 0.24, orbP: 0.055, giro: 0.20, deriva: 0.085, sobe: 0,
+    orbY: 0.24, orbP: 0.055, giro: 0.20, deriva: 0, sobe: 0,
   },
   rosto: {
     junta: 'head', quadro: 0.72, larguraMin: 0.58, fov: 30,
-    orbY: 0.20, orbP: 0.030, giro: 0.10, deriva: 0.016, sobe: 0.005,
+    orbY: 0.20, orbP: 0.030, giro: 0.10, deriva: 0, sobe: 0.005,
   },
   // Pescoco e tronco sobem o alvo pra CABECA INTEIRA entrar no quadro. Com o
   // enquadramento apertado na junta, a borda de cima cortava o boneco na altura
@@ -94,15 +100,15 @@ const FOCOS = {
   // "close no colar", le como camera quebrada, que e o que estamos consertando.
   pescoco: {
     junta: 'neck', quadro: 0.98, larguraMin: 0.66, fov: 32,
-    orbY: 0.16, orbP: 0.060, giro: 0.06, deriva: 0.018, sobe: 0.13,
+    orbY: 0.16, orbP: 0.060, giro: 0.06, deriva: 0, sobe: 0.13,
   },
   tronco: {
     junta: 'chest', quadro: 1.38, larguraMin: 1.00, fov: 34,
-    orbY: 0.28, orbP: 0.040, giro: 0.22, deriva: 0.030, sobe: 0.10,
+    orbY: 0.28, orbP: 0.040, giro: 0.22, deriva: 0, sobe: 0.10,
   },
   pernas: {
     junta: 'legLLower', quadro: 1.10, larguraMin: 0.72, fov: 34,
-    orbY: 0.24, orbP: 0.050, giro: 0.18, deriva: 0.030, sobe: 0.02,
+    orbY: 0.24, orbP: 0.050, giro: 0.18, deriva: 0, sobe: 0.02,
   },
   // PES: a camera olha DE CIMA, e nao de lado.
   //
@@ -116,13 +122,13 @@ const FOCOS = {
   // alto e bota nao cabiam nos 52 cm de antes.
   pes: {
     junta: 'footL', quadro: 0.62, larguraMin: 0.70, fov: 34,
-    orbY: 0.30, orbP: 0.850, giro: 0.34, deriva: 0.024, sobe: 0.06,
+    orbY: 0.30, orbP: 0.850, giro: 0.34, deriva: 0, sobe: 0.06,
   },
   // A mao esquerda (anel e relogio) fica no lado -X. Sem esse orbY negativo a
   // camera olhava a mao POR CIMA da perna e o anel sumia contra a calca.
   maos: {
     junta: 'handL', quadro: 0.46, larguraMin: 0.40, fov: 32,
-    orbY: -0.78, orbP: 0.220, giro: 0.55, deriva: 0.014, sobe: 0.01,
+    orbY: -0.78, orbP: 0.220, giro: 0.55, deriva: 0, sobe: 0.01,
   },
 }
 
