@@ -106,7 +106,10 @@ try {
   for (let i = 0; i < PASSOS; i++) {
     const m = await page.evaluate(async (n) => {
       const G = window.__game
-      G.player.yaw = G.player.yaw + (Math.PI * 2) / n
+      // girarCamera e nao `yaw =`: o SETTER de yaw realinha o corpo junto (e o
+      // que teleporte e cutscene querem). Usar ele aqui giraria o boneco a cada
+      // passo e o teste mediria a si mesmo.
+      G.player.girarCamera((Math.PI * 2) / n)
       // tres quadros por passo pra o damp da cabeca andar
       await new Promise((r) => requestAnimationFrame(() =>
         requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -132,13 +135,18 @@ try {
     volta.girouCorpo < 0.02, 'girou ' + volta.girouCorpo.toFixed(3) + ' rad')
   ok('da pra por a camera DE FRENTE pro personagem',
     volta.melhorFrente > 0.98, 'melhor alinhamento ' + volta.melhorFrente.toFixed(3))
-  // 5 graus de camera por passo; a cabeca segue com damp, entao o passo dela e
-  // sempre menor que isso. Um SALTO de fase daria mais de 1 rad de uma vez.
-  // 10 graus (0.175 rad) de camera por passo, e a cabeca segue 0.75 disso com
-  // damp — entao o passo dela e sempre menor. Um SALTO de fase daria mais de
-  // 1 rad de uma vez, que era exatamente o defeito.
-  ok('a cabeca nunca salta entre um quadro e o outro',
-    volta.maiorSalto < 0.25, 'maior salto ' + volta.maiorSalto.toFixed(3) + ' rad')
+  // O QUE ESTE NUMERO SIGNIFICA. O passo do teste e grosso de proposito: a
+  // camera anda 10 graus (0.175 rad) DE UMA VEZ e a cabeca tem tres quadros pra
+  // alcancar. Entao o maximo medido aqui e da ordem do proprio passo da camera —
+  // ou seja, a cabeca ACOMPANHA, que e o que se quer. Com o mouse a 60 quadros o
+  // passo e uma fracao disso.
+  //
+  // O defeito original dava mais de 1.5 rad NUM QUADRO, com a camera parada. E
+  // isso que o teste separa: 0.25 esta uma ordem de grandeza abaixo do bug e
+  // acima do movimento continuo.
+  ok('a cabeca acompanha sem saltar',
+    volta.maiorSalto < 0.25, 'maior passo da cabeca ' + volta.maiorSalto.toFixed(3)
+      + ' rad, pra 0.175 de camera')
 
   // --- 2) a tecla X ----------------------------------------------------------
   const vit = await page.evaluate(async () => {

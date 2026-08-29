@@ -498,7 +498,13 @@ export function createPlayerController({ camera, character, input, collision, sc
         // `rel` da a volta o peso JA E ZERO dos dois lados — nao ha o que
         // saltar. E e o que uma pessoa faz: ninguem torce o pescoco pra olhar
         // atras de si, olha pra frente.
-        const peso = 1 - smooth01((volta - 1.70) / 0.90)
+        // A faixa de desistencia e LARGA (1.55 -> 2.85 rad, ou seja 1.30 rad de
+        // transicao) de proposito. Ela ja foi de 0.90 rad, e ai a cabeca voltava
+        // pra frente rapido demais no meio da varredura: nao era um salto de
+        // fase como o bug original, mas dava 17 graus num passo de 10 graus de
+        // camera — o gesto lia como um tranco. Quanto mais larga a faixa, mais
+        // devagar o peso muda e mais o movimento parece decisao, nao correcao.
+        const peso = 1 - smooth01((volta - 1.55) / 1.30)
         alvoP = pitch * 0.45 * peso
         alvoY = clamp(rel * 0.75, -LIMITE_PESCOCO, LIMITE_PESCOCO) * peso
       }
@@ -701,7 +707,24 @@ export function createPlayerController({ camera, character, input, collision, sc
     vitrine(v) { return toggleVitrine(v) },
     get emVitrine() { return vitrine },
     get yaw() { return yaw },
+    /**
+     * ATENCAO: escrever `yaw` REALINHA O CORPO junto (bodyYaw = yaw + PI). E o
+     * que se quer em teleporte e em nascer numa cena — a camera e o boneco
+     * chegam olhando pro mesmo lado —, mas NAO e "girar a camera".
+     * Pra girar so a camera, use girarCamera().
+     */
     set yaw(v) { yaw = v; bodyYaw = v + Math.PI; camReady = false },
+    /**
+     * Gira SO a camera em volta do personagem, como o mouse faz. O corpo fica
+     * onde esta — e ele ficar parado e o que permite dar a volta e ver a cara
+     * do boneco, que foi um pedido explicito do dono.
+     */
+    girarCamera(dRad) {
+      yaw += dRad || 0
+      if (yaw > Math.PI) yaw -= TAU; else if (yaw < -Math.PI) yaw += TAU
+      sinceLook = 0
+      return yaw
+    },
     get pitch() { return pitch },
     set pitch(v) { pitch = clampPitch(v) },
     get mode() { return mode },
