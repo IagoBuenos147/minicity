@@ -823,7 +823,11 @@ function buildClerk(g, colliders) {
       shirt: 0x2f9e57,
       pants: 0x2b3540,
       shoes: 0xf0f0ee,
-      appearance: { hair: 2, hairColor: 0, eyes: 2, brows: 1, mouth: 0 },
+      appearance: {
+        cabeca: 4, olhos: 2, nariz: 1, boca: 0, barba: 3,
+        cabelo: 2, pele: 3, corCabelo: 0, corBarba: 6, sobrancelha: 1,
+        chapeu: 0, calcado: 1, blusa: 3, calca: 0,
+      },
     })
   } catch (e) { npc = null }
   if (!npc) return null

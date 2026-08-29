@@ -2530,10 +2530,12 @@ export function buildBarbershop(game) {
     // comprida, olhos semicerrados e barba por fazer: e o freguês do meio da
     // tarde, e nao se parece com nenhum dos outros dois.
     appearance: {
-      cabeca: 2, olhos: 1, pupila: 2, nariz: 3, boca: 3, barba: 4,
-      cabelo: 0, pele: 1, corCabelo: 1, sobrancelha: 2,
+      // Reindexado na reforma dos catalogos: cabeca 2 = quadrada, barba 1 = a
+      // curta da referencia, colar 2 = cordao com cruz.
+      cabeca: 2, olhos: 1, nariz: 2, boca: 2, barba: 1,
+      cabelo: 0, pele: 1, corCabelo: 1, corBarba: 0, sobrancelha: 2,
       chapeu: 0, calcado: 1, blusa: 1, calca: 0, colar: 2,
-      anelAcess: 0, tatuagem: 0, relogio: 1, jaqueta: 0,
+      anelAcess: 0, tatuagem: 0, relogio: 1,
     },
   }, M)
   group.add(client.root)
@@ -2564,10 +2566,12 @@ export function buildBarbershop(game) {
     // seria + barba de bigode). Cabeca quadrada de maxilar largo, cabelo
     // raspado, grisalho, pele escura e roupa social escura: o dono da loja.
     appearance: {
-      cabeca: 3, olhos: 4, pupila: 0, nariz: 1, boca: 2, barba: 2,
-      cabelo: 3, pele: 4, corCabelo: 4, sobrancelha: 0,
+      // O dono da loja: cabeca 5 (mandibula larga), bigode (barba 2), cabelo
+      // raspado (2), grisalho e pele escura. calcado 3 = coturno.
+      cabeca: 5, olhos: 4, nariz: 1, boca: 2, barba: 2,
+      cabelo: 2, pele: 4, corCabelo: 4, corBarba: 7, sobrancelha: 0,
       chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 0,
-      anelAcess: 3, tatuagem: 1, relogio: 2, jaqueta: 0,
+      anelAcess: 3, tatuagem: 1, relogio: 2,
     },
   }, M)
   group.add(barber.root)
@@ -2611,10 +2615,11 @@ export function buildBarbershop(game) {
     pants: 0x2c3140,      // calca social escura
     shoes: 0x241c17,
     appearance: {
-      cabeca: 1, olhos: 0, pupila: 3, nariz: 4, boca: 0, barba: 0,
-      cabelo: 2, pele: 2, corCabelo: 2, sobrancelha: 1,
-      chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 5,
-      anelAcess: 2, tatuagem: 0, relogio: 3, jaqueta: 5,
+      // A Rosa do provador: cabeca comprida, sem barba, colar 3 (bandana).
+      cabeca: 1, olhos: 0, nariz: 3, boca: 0, barba: 0,
+      cabelo: 2, pele: 2, corCabelo: 2, corBarba: 0, sobrancelha: 1,
+      chapeu: 0, calcado: 4, blusa: 2, calca: 2, colar: 3,
+      anelAcess: 2, tatuagem: 0, relogio: 3,
     },
   }, M)
   group.add(rosa.root)

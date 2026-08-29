@@ -2057,8 +2057,8 @@ function buildNPCs(g, colliders) {
       rotY: Math.PI,                     // olha para -Z, o lado dos jogadores
       shirt: 0xf2ece0, pants: 0x22262d, shoes: 0x17191d,
       appearance: {
-        cabeca: 1, olhos: 2, pupila: 1, nariz: 1, boca: 1, barba: 0,
-        cabelo: 2, pele: 0, corCabelo: 0, sobrancelha: 1,
+        cabeca: 1, olhos: 2, nariz: 1, boca: 1, barba: 0,
+        cabelo: 2, pele: 0, corCabelo: 0, corBarba: 0, sobrancelha: 1,
         chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 0,
         anelAcess: 0, tatuagem: 0, relogio: 1, jaqueta: 0,
       },
@@ -2074,10 +2074,10 @@ function buildNPCs(g, colliders) {
       rotY: Math.PI,                     // encara a cadeira vazia do jogador
       shirt: 0xd8c9a8, pants: 0x2b2b33, shoes: 0x241a12,
       appearance: {
-        cabeca: 3, olhos: 1, pupila: 0, nariz: 2, boca: 2, barba: 3,
-        cabelo: 3, pele: 1, corCabelo: 4, sobrancelha: 2,
-        chapeu: 1,                       // CHAPEUS[1] = chapeu de aba
-        calcado: 3,                      // CALCADOS[3] = social
+        cabeca: 3, olhos: 1, nariz: 2, boca: 2, barba: 3,
+        cabelo: 1, pele: 1, corCabelo: 4, corBarba: 6, sobrancelha: 2,
+        chapeu: 1,                       // CHAPEUS[1] = chapeu de aba (fedora)
+        calcado: 3,                      // CALCADOS[3] = coturno (a lista encolheu)
         blusa: 2,                        // BLUSAS[2] = camisa social
         calca: 2,                        // CALCAS[2] = calca social
         colar: 1,                        // COLARES[1] = corrente de ouro
@@ -2096,8 +2096,9 @@ function buildNPCs(g, colliders) {
       rotY: Math.PI,
       shirt: 0xe8e4d8, pants: 0x2a2f38, shoes: 0x1c1f24,
       appearance: {
-        cabeca: 0, olhos: 0, pupila: 2, nariz: 0, boca: 0, barba: 0,
-        cabelo: 2, pele: 2, corCabelo: 2, sobrancelha: 0,
+        // nariz 0 e "sem nariz": aqui vale 1, o modelado na pele.
+        cabeca: 0, olhos: 0, nariz: 1, boca: 0, barba: 0,
+        cabelo: 2, pele: 2, corCabelo: 2, corBarba: 0, sobrancelha: 0,
         chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 2,
         anelAcess: 0, tatuagem: 0, relogio: 0, jaqueta: 0,
       },

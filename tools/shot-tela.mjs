@@ -358,6 +358,22 @@ export const GRUPOS = {
       espera: 1800, semQuadro: true,
     },
   ],
+  // A VISTA QUE O JOGADOR TEM O TEMPO TODO: 3a pessoa, no meio da rua.
+  jogo: [
+    {
+      nome: 'p11-terceira-pessoa',
+      antes: `G.fluxo.jogar()
+        G.player.teleport(43, 4, Math.PI)
+        for (let i = 0; i < 90; i++) G.player.update(1/60)`,
+      quadros: 40, espera: 700,
+    },
+    {
+      nome: 'p12-primeira-pessoa',
+      antes: `G.player.setMode ? G.player.setMode('first') : G.player.toggleMode()
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 30, espera: 500,
+    },
+  ],
   // AS ROUPAS: uma folha por aba, com a camera do jogo apontada na parte certa.
   // O provador enquadra largo demais pra ver acabamento de costura e de sola.
   roupa: [
@@ -424,7 +440,13 @@ export const GRUPOS = {
         for (let i = 1; i < 5; i++) {
           G.setAppearance({ calcado: i })
           tira('calcado ' + i, 0.11, 0.9, 1.05, 32, 330, 330)
+          tira('calcado ' + i + ' de tras', 0.11, 3.6, 1.05, 32, 330, 330)
         }
+        for (let i = 1; i < 4; i++) {
+          G.setAppearance({ calcado: 1, blusa: i })
+          tira('camisa ' + i + ' costas', 1.15, 3.14, 2.6, 38, 300, 420)
+        }
+        G.setAppearance({ blusa: 1 })
         document.body.appendChild(d)`,
       espera: 1800, semQuadro: true,
     },

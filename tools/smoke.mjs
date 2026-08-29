@@ -483,17 +483,34 @@ try {
       R.TATUAGENS, R.RELOGIOS].map((c) => (Array.isArray(c) ? c.length : -1))
     const ruins = []
     for (let i = 0; i < reais.length; i++) {
-      if (reais[i] !== P.APARENCIA_OPCOES[i]) {
+      // CATALOGO VAZIO E UM CAMPO MORTO, e o certo pra ele na tabela e 1.
+      // Sao dois hoje: 'pupila' (a iris virou parte do olho e a aba sumiu) e
+      // 'jaqueta' (virou camisa). Os dois seguem ocupando um byte do pacote,
+      // valendo sempre 0 — e 1 opcao e exatamente "so o zero e valido".
+      // Sem esta linha o teste exigiria tabela=0, que faria o clamp da rede
+      // dividir por zero na fronteira.
+      const esperado = reais[i] === 0 ? 1 : reais[i]
+      if (esperado !== P.APARENCIA_OPCOES[i]) {
         ruins.push(P.CAMPOS_APARENCIA[i] + ' catalogo=' + reais[i] + ' tabela=' + P.APARENCIA_OPCOES[i])
       }
     }
-    return { ruins, jaqueta: P.APARENCIA_OPCOES[18], nJaquetas: R.JAQUETAS.length }
+    return {
+      ruins,
+      jaqueta: P.APARENCIA_OPCOES[18], nJaquetas: R.JAQUETAS.length,
+      pupila: P.APARENCIA_OPCOES[2], nPupilas: A.PUPILAS.length,
+    }
   })
   check('APARENCIA_OPCOES bate com os catalogos', tabela.ruins.length === 0,
     tabela.ruins.join(' | ') || 'os 18 campos batem')
   check('blusa e jaqueta viraram UMA aba',
     tabela.nJaquetas === 0 && tabela.jaqueta === 1,
     'JAQUETAS=' + tabela.nJaquetas + ' opcoes[jaqueta]=' + tabela.jaqueta)
+  // A aba de pupila foi apagada: a iris passou a fazer parte de cada olho, com
+  // um metodo proprio em cada um dos cinco. Catalogo vazio e o que faz o
+  // customizador esconder a aba sozinho.
+  check('a pupila virou parte do olho (a aba sumiu)',
+    tabela.nPupilas === 0 && tabela.pupila === 1,
+    'PUPILAS=' + tabela.nPupilas + ' opcoes[pupila]=' + tabela.pupila)
 
   // 7e) o fluxo de entrada: menu -> criacao -> cutscene -> jogo ---------------
   // O caminho que o jogador percorre de verdade, do jeito que ele o percorre:

@@ -870,8 +870,16 @@ export const CAMISAS = [
         // pescoco e o erro numero 1 do CONTRATO. 71 mm da 54 mm em z (4,3 mm de
         // folga, sobrando ate no vale do canelado) e continua abaixo dos 85 mm
         // de FOLGA_LARGA nessa altura.
+        // O ponto de 0.200 e o TOPO EM 0.206 (e nao 0.202) tem o mesmo dono: o
+        // perfil do peito so acaba em 0.205, e como esta peca APAGA a pele do
+        // peito, tudo o que a gola nao cobrir ate la vira vazio — sem o degrau
+        // do meio a corda de 0.192 direto pro topo passava rente demais (0,3 mm
+        // em z, menos que o vale do canelado) e 4 raios de camera atravessavam
+        // o boneco na base do pescoco. Com o degrau sobra 3,5 a 6 mm em todo o
+        // trecho e a gola engole a borda de cima do torax inteira.
         [[rg(0.156, 1.062, 0.0012), 0.156], [rg(0.178, 1.062, 0.0012), 0.178],
-          [rg(0.192, 1.030, 0.0010), 0.192], [0.0710, 0.202]],
+          [rg(0.192, 1.045, 0.0010), 0.192], [rg(0.200, 1.045, 0.0010), 0.200],
+          [0.0710, 0.206]],
         // Parede de DENTRO, descendo: e ela que fecha o decote, indo do
         // pescoco ate POR DENTRO da casca interna. Sem esse funil o buraco da
         // gola dava vista pro miolo do boneco. 0,995 do perfil na ponta de
@@ -879,7 +887,7 @@ export const CAMISAS = [
         // 66 mm no topo (50,2 mm em z) mantem a espessura de 5 mm da dobra e
         // ainda passa por FORA do pescoco: assim o funil inteiro fica visivel
         // por dentro da gola em vez de ser cortado pela pele.
-        [[0.0660, 0.202], [0.0800, 0.190], [0.1030, 0.176], [rg(0.156, 0.995, 0), 0.156]],
+        [[0.0660, 0.206], [0.0800, 0.190], [0.1030, 0.176], [rg(0.156, 0.995, 0), 0.156]],
         0.9,
       ), 32, c.medida.FLAT_Z)
       noPeito.add(N.sh(new THREE.Mesh(canelar(gola, 8, 0.0016, c.medida.FLAT_Z), mRib)))
@@ -901,6 +909,39 @@ export const CAMISAS = [
       // abrem uma fresta quando o braco dobra, e por ela aparecia a bola de
       // PELE do cotovelo, que nenhum 'esconde' apaga.
       N.mangaLonga(c, m, { r: 0.058 })
+
+      // CABECA DE OMBRO — sem ela esta peca tem um BURACO no ombro.
+      //
+      // mangaLonga tapa o ombro com a lathe de MANGA em escala 1.0 — e o ombro
+      // NU nao cabe embaixo dela. Sao duas pecas ali: o deltoide (elipsoide de
+      // 5,2 x 5,8 x 5,0 cm empurrado 8 mm pra dentro) e a CUPULA do proprio
+      // braco, que membroGeo levanta acima da junta (elipsoide de 4,55 cm de
+      // raio por 3,28 cm de altura, centrado no ombro). A lathe de MANGA vale
+      // 4,4 cm em y = 0.008 e ja fecha em bico em 0.026, enquanto a cupula
+      // ainda tem 3,94 cm em 0.0164 e so morre em 0.0328: acima de y = 0.008 o
+      // ombro nu esta POR FORA da manga do nucleo.
+      //
+      // Nas outras duas camisas isso nao aparece: elas nao escondem 'braco',
+      // entao a pele do ombro preenche o vao. Esta esconde, e o que sobrava era
+      // uma FRESTA ABERTA entre a cabeca da manga e a casca do peito, bem na
+      // quina do ombro — 28 raios de camera atravessaram o boneco por ali, nos
+      // dois ombros, e o que se via pelo buraco era o cenario.
+      //
+      // A tampa e um elipsoide que ENGOLE OS DOIS volumes com 1,5 a 3 mm de
+      // sobra, e nao um deles: cobrir so o deltoide deixava a cupula do braco
+      // de fora (foi medido). Embaixo ela morre por dentro da manga (4,8 cm
+      // contra os 5,5 cm da lathe na altura da axila), entao so a cabeca do
+      // ombro aparece — e ela aparece como ombro ACOLCHOADO, que e exatamente o
+      // que um moletom tem e o que nenhuma das outras duas camisas tem.
+      for (const s of ['R', 'L']) {
+        const cap = N.bola(1, m, 12)
+        cap.scale.set(0.056, 0.055, 0.057)
+        // acompanha o deslocamento do deltoide do corpo (-sgn*0.008, sgn = +1
+        // no lado direito), so que pela metade: a cupula do braco e centrada na
+        // junta e puxa a tampa de volta pro eixo
+        cap.position.set((s === 'R' ? -1 : 1) * 0.004, -0.013, 0)
+        c.montar(cap, 'arm' + s + 'Upper')
+      }
 
       // PUNHO CANELADO: a mesma dupla parede, agora no espaco do antebraco (sem
       // achatamento — o braco e redondo).

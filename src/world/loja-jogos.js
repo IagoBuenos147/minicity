@@ -248,7 +248,11 @@ function criarWanda(g, colliders) {
       shirt: 0xe8e2d2,
       pants: 0x23282f,
       shoes: 0x1a1d22,
-      appearance: { hair: 2, hairColor: 3, eyes: 4, brows: 1, mouth: 2 },
+      appearance: {
+        cabeca: 2, olhos: 4, nariz: 2, boca: 2, barba: 0,
+        cabelo: 1, pele: 0, corCabelo: 3, corBarba: 0, sobrancelha: 1,
+        chapeu: 2, calcado: 1, blusa: 2, calca: 1,
+      },
     })
   } catch (err) { void err; npc = null }
   if (!npc) return null

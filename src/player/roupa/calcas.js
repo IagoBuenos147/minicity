@@ -378,15 +378,33 @@ export const CALCAS = [
 
       g.add(N.cos(c, liso, { y0: -0.042, y1: 0.058 }))
 
-      // Cordao: fica na frente do cos, no Z DA SUPERFICIE (frenteZ). Com z
-      // escrito na mao ele boiava no ar de um lado e sumia dentro do pano do
-      // outro, porque a secao do quadril e uma elipse e nao um circulo.
+      // Cordao: sai do Z DA SUPERFICIE (frenteXZ), nunca de um z escrito na
+      // mao — a secao do quadril e uma elipse, entao no x do cordao a
+      // superficie ja recuou e um z do meio da barriga poe o cordao no ar.
+      //
+      // E ele DESCE ACOMPANHANDO A SUPERFICIE. A primeira versao era um tubo
+      // vertical de 6 cm num z so: entre o no (y = -0.004) e a ponta o quadril
+      // recua 3,4 cm em Z (a barriga vira braguilha) e a ponta de baixo ficava
+      // BOIANDO — medido com um raio pra tras, 4,7 cm de vazio ate qualquer
+      // pano, no meio do buraco entre as duas coxas. E o mesmo defeito da alca
+      // de regata que nascia no ar em vez de nascer no ombro.
+      // As duas pontas saem de frenteXZ no x de cada uma e o tubo e orientado
+      // pela reta entre elas, entao o cordao pousa na calca de ponta a ponta.
       const yC = -0.004
       const zC = N.frenteZ(c, c.perfil.PELVIS, yC, N.FOLGA_CALCA, 0.004)
+      const CIMA = new THREE.Vector3(0, 1, 0)
       for (const sgn of [1, -1]) {
-        const p = N.tubo(0.0045, 0.0038, 0.060, cordaoM, 6)
-        p.position.set(sgn * 0.020, yC - 0.026, zC)
-        p.rotation.z = sgn * 0.18
+        const a = new THREE.Vector3(sgn * 0.020, yC,
+          N.frenteXZ(c, c.perfil.PELVIS, sgn * 0.020, yC, N.FOLGA_CALCA, 0.004))
+        // a ponta abre 1 cm pra fora ao cair: dois cordoes paralelos leem como
+        // um so, e o cos acaba em -0.042 — parar em -0.038 mantem o pe do
+        // cordao em cima do pano
+        const b = new THREE.Vector3(sgn * 0.030, -0.038,
+          N.frenteXZ(c, c.perfil.PELVIS, sgn * 0.030, -0.038, N.FOLGA_CALCA, 0.004))
+        const d = new THREE.Vector3().subVectors(a, b)
+        const p = N.tubo(0.0045, 0.0038, d.length(), cordaoM, 6)
+        p.position.copy(a).add(b).multiplyScalar(0.5)
+        p.quaternion.setFromUnitVectors(CIMA, d.normalize())
         g.add(p)
       }
       const no = N.bola(0.0085, cordaoM, 8)
@@ -451,11 +469,23 @@ export const CALCAS = [
     id: 'cargo',
     nome: 'Bermuda cargo',
     metodo: 'camadas: base fina de cilindros abertos + paineis aplicados (bolsao com aba, faixa refletiva, barra dobrada pra fora, costura lateral revolvida)',
-    // So 'coxa'. A canela fica de fora e a bola do joelho — que e pele e NAO
-    // esta na lista de 'esconde' — junto com a capsula da canela tapa a boca da
-    // bermuda por dentro. Apagar 'canela' aqui abriria um vao com vista pro
-    // chao entre a barra e o pe.
-    esconde: ['coxa'],
+    // NAO ESCONDE NADA — e isso e a peca inteira, nao um esquecimento.
+    //
+    // A primeira versao apagava 'coxa'. So que 'esconde' apaga a COXA INTEIRA, e
+    // a barra desta bermuda morre 3,2 cm ACIMA da junta do joelho: os ultimos
+    // 3,2 cm de coxa ficam DE FORA do pano e apagados. O que sobrava ali era a
+    // cupula da canela, que membroGeo levanta acima da junta — e ela nao e um
+    // cilindro, e uma meia elipse de 3,24 cm de altura que fecha em BICO
+    // exatamente na altura da barra. Medido, com raio de camera: logo abaixo da
+    // barra a perna vestida tinha 2,5 cm de raio contra os 4,1 cm da perna nua,
+    // e ia a zero na linha da barra. Le como uma bermuda pendurada num palito,
+    // com 4 cm de vao ate o pano.
+    // Com a coxa no lugar ela preenche a boca da barra (4,1 cm de perna dentro
+    // de 8,3 cm de bainha) e continua por dentro do tubo em TODA a altura — o
+    // tubo tem de 5 a 25 mm de folga sobre ela —, entao nao ha pele atravessando
+    // pano em lugar nenhum. E o mesmo motivo pelo qual a camisa de botao nao
+    // esconde nada: peca de borda aberta mostra a pele que esta debaixo dela.
+    esconde: [],
     build(c) {
       const cor = c.cor.calca
       // A base e DoubleSide de proposito: ela e um cilindro ABERTO em cima e
