@@ -1210,3 +1210,96 @@ export function pontoNaPele(theta, az, fora = 0, outP, outN) {
 }
 
 export { mats }
+
+// ---------------------------------------------------------------------------
+// 10. A PALPEBRA COMO CONTROLE CONTINUO
+//
+// O pedido: "crie um sistema na propria customizacao onde eu fecho os olhos com
+// uma barra ate fechar os olhos completamente, eu controlo essa parte".
+//
+// Entao a abertura do olho deixou de ser uma caracteristica do MODELO de olho e
+// virou um campo proprio da aparencia, `palpebra`, com 11 degraus. Ele viaja
+// pela rede no byte que era do catalogo de pupila — que morreu quando a iris
+// passou a fazer parte de cada olho. Byte reaproveitado, pacote do mesmo
+// tamanho, e o 0 que um cliente velho manda quer dizer "olho aberto", que e
+// exatamente o que ele desenhava antes.
+// ---------------------------------------------------------------------------
+
+/** Quantos degraus a barra tem. 11 e fino o bastante pra parecer continuo. */
+export const PALPEBRA_NIVEIS = 11
+
+/**
+ * Catalogo so pra a UI saber o tamanho da barra e o nome de cada degrau.
+ * `build` devolve null: quem desenha a palpebra e o proprio olho.
+ */
+export const PALPEBRAS = Array.from({ length: PALPEBRA_NIVEIS }, (_, i) => {
+  const pct = Math.round((i / (PALPEBRA_NIVEIS - 1)) * 100)
+  const nome = i === 0 ? 'Aberto' : i === PALPEBRA_NIVEIS - 1 ? 'Fechado' : pct + '% fechado'
+  return { id: 'palpebra' + i, nome, name: nome, build: () => null }
+})
+
+/** Quanto o olho esta FECHADO, de 0 (aberto) a 1 (fechado), lido do ctx. */
+export function fechamentoOlho(ctx) {
+  if (!ctx) return 0
+  const v = ctx.palpebra !== undefined ? ctx.palpebra : ctx.lid
+  return clamp((v | 0) / (PALPEBRA_NIVEIS - 1), 0, 1)
+}
+
+/**
+ * PERSIANA — a palpebra generica, pra os olhos que nao desenham a sua.
+ *
+ * Ela existe pra a barra nao ser um controle morto em quatro dos seis olhos. Os
+ * cinco olhos que ja existiam foram escritos cada um com a propria palpebra, em
+ * geometrias completamente diferentes (calota tombada, rolo de tubo, moldura
+ * extrudada, leque); mexer na abertura de cada um por dentro seria cinco
+ * reformas, e cada uma com o proprio jeito de quebrar.
+ *
+ * A persiana e uma casca de PELE que desce por cima do olho inteiro, seguindo a
+ * curvatura do proprio globo (por isso ela precisa das medidas dele, que
+ * olhos.js publica em OLHO_GLOBO). Ela nao substitui a palpebra do olho — passa
+ * por cima dela. Com fechamento 0 nao existe malha nenhuma.
+ *
+ * `globo` = { rx, ry, rz, x, y, sink }. `k` = 0..1.
+ */
+export function persianaOlho(globo, k, skin) {
+  if (!(k > 0.001) || !globo) return null
+  const g = new THREE.Group()
+  const spread = faceSpread()
+  // A borda da calota cruza o meio do olho na altura cos(tilt + arc) do globo,
+  // em raios. Queremos ir de +1.06 (acima do globo, sem cobrir nada) ate -1.0
+  // (embaixo, cobrindo tudo), entao tilt varre de -arc ate PI - arc.
+  const arc = 0.95
+  const tilt = mix(-arc + 0.06, Math.PI - arc, k)
+  const peleM = solid(shade(skin, 0.985), 0.72, 0.0, { side: THREE.DoubleSide })
+  // O fio escuro da borda: MESMA calota, arco um pouco maior e escala um pouco
+  // menor. Fica escondida sob a pele e so a faixa alem da borda aparece — um
+  // tracinho de espessura constante, sem textura nenhuma.
+  const fioM = solid(shade(skin, 0.22), 0.6, 0.0, { side: THREE.DoubleSide })
+
+  for (const sgn of [1, -1]) {
+    const olho = new THREE.Group()
+    const x = globo.x * spread
+    const y = globo.y
+    olho.position.set(sgn * x, y, surfaceZ(sgn * x, y) - globo.rz * (globo.sink || 0.7))
+    const casca = new THREE.Group()
+    // 1.045: por fora de tudo que os olhos deste projeto desenham (a camada mais
+    // alta usada por eles e 1.036) e por dentro do que seria uma casca solta.
+    casca.scale.set(globo.rx * 1.045, globo.ry * 1.045, globo.rz * 1.045)
+
+    const fio = flatPiece(new THREE.Mesh(
+      new THREE.SphereGeometry(1, 26, 12, 0, Math.PI * 2, 0, arc + 0.055), fioM))
+    fio.scale.setScalar(0.995)
+    fio.rotation.x = tilt
+    casca.add(fio)
+
+    const pele = flatPiece(new THREE.Mesh(
+      new THREE.SphereGeometry(1, 26, 14, 0, Math.PI * 2, 0, arc), peleM))
+    fio.renderOrder = 0
+    pele.rotation.x = tilt
+    casca.add(pele)
+
+    olho.add(casca)
+    g.add(olho)
+  }
+  return g
+}

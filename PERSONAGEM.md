@@ -14,9 +14,9 @@ desta tabela **é** o protocolo.
 | # | campo | opções | observação |
 |---|---|---|---|
 | 0 | `cabeca` | 6 | formatos de crânio |
-| 1 | `olhos` | 5 | cada um traz a própria íris |
-| 2 | `pupila` | 1 | **campo morto**: a aba foi apagada, viaja sempre 0 |
-| 3 | `nariz` | 4 | 0 = sem nariz |
+| 1 | `olhos` | 6 | cada um traz a própria íris |
+| 2 | `palpebra` | 11 | **barra**: 0 = aberto, 10 = fechado. Ocupa o byte que era da pupila |
+| 3 | `nariz` | 5 | 0 = sem nariz |
 | 4 | `boca` | 3 | |
 | 5 | `barba` | 4 | 0 = sem barba |
 | 6 | `cabelo` | 3 | |
@@ -34,11 +34,15 @@ desta tabela **é** o protocolo.
 | 18 | `jaqueta` | 1 | **campo morto**: jaqueta virou camisa, viaja sempre 0 |
 | 19 | `corBarba` | 9 | **novo**. 0 = igual ao cabelo. Gastou o byte de reserva |
 
-**A versão do protocolo NÃO subiu** por causa do `corBarba`, e é de propósito: o
-pacote continua com 20 bytes, a posição de todos os outros campos é a mesma, e o
-valor que um cliente velho manda nesse byte é 0 — que no catálogo novo quer dizer
-exatamente "igual ao cabelo", o comportamento que ele tinha antes. O cliente
-velho continua certo sem saber.
+**A versão do protocolo NÃO subiu** por causa do `corBarba` nem do `palpebra`, e é
+de propósito: o pacote continua com 20 bytes, a posição de todos os outros campos
+é a mesma, e o valor que um cliente velho manda nesses bytes é 0 — que quer dizer
+"igual ao cabelo" e "olho aberto", exatamente o que ele desenhava antes. O
+cliente velho continua certo sem saber.
+
+O byte 2 já trocou de dono uma vez: era `pupila`, o catálogo morreu quando a íris
+virou parte de cada olho, e ele ficou viajando zero até a barra da pálpebra
+precisar de um lugar.
 
 `APARENCIA_OPCOES` (em `src/comum/protocolo.js`) **tem que acompanhar o tamanho
 real dos catálogos**. Quando ficou para trás, o efeito foi invisível e cruel: o
@@ -102,7 +106,7 @@ ali. Daí a separação:
 
 ## 4. Os olhos
 
-Cinco olhos, **cinco métodos**, e a íris faz parte de cada um — **não existe mais
+Seis olhos, **seis métodos**, e a íris faz parte de cada um — **não existe mais
 catálogo de pupila**.
 
 O que todo olho tem que ter: pálpebra de **geometria** (nunca textura), esclera
@@ -112,6 +116,48 @@ globo **dentro** da órbita.
 
 A **piscada** achata em Y o grupo inteiro que o `build` devolve
 (`animation.js`); então nada entra nesse grupo que não deva fechar junto.
+
+### O olho da referência (`rosto/olho-cartoon.js`)
+
+O sexto é uma **cópia** das fotos de *Rick & Morty* que o dono mandou, e não um
+estilo a mais. Cinco leituras das fotos, e as cinco mudam o resultado:
+
+1. **O branco é enorme e salta da cara.** Os dois ovais passam do contorno do
+   rosto pelos lados — não há órbita, são bolas apoiadas na frente da cabeça.
+   Daí `AFUNDA = 0.40` (nos outros olhos do jogo isso fica entre 0.62 e 0.84).
+2. **Tem contorno preto**, feito por **casca invertida** (uma cópia 5% maior
+   desenhada só pelas faces de trás). Como a bola é convexa, só a beirada
+   aparece, e a linha tem espessura constante em qualquer ângulo — que é o que
+   um traço de desenho é. Um torus mudaria de espessura quando a cabeça gira.
+3. **A pupila é minúscula e preta chapada.** Qualquer íris colorida destrói a
+   semelhança na hora.
+4. **Não há esclera rosada, veia nem canto.**
+5. **A pálpebra é uma linha que desce**, com pele acima dela e um fio escuro na
+   borda. Sem volume e sem cílio: é o mesmo traço preto.
+
+### A barra de abrir e fechar
+
+O campo `palpebra` (11 degraus) é um **controle contínuo na própria aba de
+olhos**, renderizado como slider e não como grade — onze cards de "10% fechado"
+seriam uma grade inútil para uma coisa que se arrasta.
+
+Três coisas que o render pegou e que não são óbvias:
+
+- **O fio escuro fica POR DENTRO da pele.** A calota escura tem arco maior e raio
+  menor, então some sob a pele e só a faixa além da borda aparece. Invertido, ela
+  deixa de ser um fio e vira uma cúpula escura cobrindo o olho inteiro.
+- **A pálpebra de baixo é `acos(altura) + arco`, não `PI − tilt`.** Com a segunda
+  fórmula o polo dela aponta para a FRENTE e ela cobre o olho todo.
+- **As duas pálpebras vão para o MEIO, e o arco cresce ao fechar.** Mandar só a
+  de cima até a base não fecha: uma calota tem meio-ângulo fixo, então quando o
+  polo aponta para baixo-frente ela já descobriu o topo da bola. E a borda de uma
+  calota é um círculo na esfera — de lado ela para em `cos(β)·cos(arco)`, que com
+  arco 0.95 é 42% acima de onde para na frente, deixando uma **cunha branca** nos
+  cantos. Por isso o arco vai de 0.95 a 1.52 ao longo do curso.
+
+Os outros cinco olhos ganham a **persiana** (`rosto/nucleo.js`): uma casca de
+pele que desce por cima do olho inteiro, seguindo a curvatura do próprio globo
+(daí `OLHO_GLOBO`). Com a barra em zero ela não cria malha nenhuma.
 
 ---
 
@@ -187,6 +233,24 @@ Duas regras que o teste pegou e que não podem ser desfeitas:
 A troca andar→correr começa em **2 m/s** e não em 3.4: o `WALK_SPEED` do config é
 3.1 m/s (11 km/h), e ninguém *caminha* nessa velocidade.
 
+### `RITMO` — por que a cadência não é a exata
+
+A cadência exata (velocidade ÷ passo) é a única que faz o pé não patinar. Só que
+a velocidade do jogo é alta e a perna é curta: o passo máximo que a geometria
+permite sem o quadril agachar fica em ~68 cm andando e ~79 cm correndo, e cobrir
+3.1 m/s com 68 cm dá **4.5 passos por segundo** (7.8 correndo). Na tela isso lê
+como o boneco tremendo as pernas — foi a queixa *"a animação está muito rápida,
+muito mesmo"*.
+
+Não dá para alongar mais o passo (geometria) nem para baixar a velocidade (ela
+está certa). Sobra desacelerar e aceitar escorregão, que é o que praticamente
+todo jogo de terceira pessoa faz. `RITMO = 0.66` põe a caminhada padrão em ~3.0
+passos/s e a corrida em ~5.2 — números de gente — ao preço de ~34% de deslize,
+invisível a 3 m de câmera.
+
+**Se um dia a velocidade do jogo baixar, suba `RITMO` de volta para 1**: todo o
+resto da conta já é exato, só esse fator não é.
+
 Ferramentas: `node tools/teste-passada.mjs` (altura do tornozelo, balanço do
 quadril, cadência, e se a velocidade que a animação entrega bate com a real).
 
@@ -215,6 +279,33 @@ A correção não é suavizar o salto: é **não deixar o ângulo chegar lá**.
   funcionava para o jogador (o animador roda antes e reescreve do zero) mas
   **acumulava** nos NPCs, que não têm animador nenhum.
 
+### A correção que teve que ser desfeita
+
+A primeira tentativa foi fazer o **corpo** girar atrás da câmera quando o pescoço
+chegava no limite. Resolvia o salto e causava outra queixa na hora: *"a câmera em
+terceira pessoa, eu não consigo olhar pra tela com o personagem"*. Como o corpo
+fugia junto com a câmera, o jogador orbitava 360° e continuava vendo as costas.
+
+A correção boa é a cabeça **desistir**: de 1.70 rad (97°) em diante o peso do
+head look cai a zero em 0.90 rad e ela volta para a frente sozinha. No ângulo em
+que a volta acontece o peso já é zero dos dois lados — não há o que saltar. E é
+o que uma pessoa faz: ninguém torce o pescoço para olhar atrás de si.
+
+**O corpo, parado, não gira.** Ele fica onde a última caminhada deixou.
+
+### Modo vitrine (tecla X)
+
+*"quero uma tecla específica, pode ser X, pra mostrar o player de frente e de
+corpo todo pra tela, pra gente ver ele e o cenário, como se fosse tirar uma foto,
+porém sem a foto."*
+
+Não há arquivo nenhum: é só um enquadramento. Ele reaproveita o caminho da câmera
+de 3ª pessoa inteiro (oclusão de parede, piso, suavização); o que muda são três
+números — o alvo sobe para o meio do corpo (0.95 m), o desvio de ombro vai a zero
+e o braço cresce para 3.6 m. O `yaw` vai para `bodyYaw` (não `bodyYaw + PI`, que
+é onde a câmera já fica). O jogador continua girando a câmera com o mouse — é o
+que deixa olhar o cenário atrás — mas não anda, senão a pose desmancha.
+
 ---
 
 ## 9. Bugs de contrato que já custaram caro
@@ -240,4 +331,6 @@ sempre) e **apaga** o apelido do alvo.
 | `node tools/teste-aparencia.mjs` | os 20 bytes indo e voltando nos cinco pacotes e dentro da sala |
 | `node tools/teste-normais.mjs` | malha virada do avesso, por volume assinado |
 | `node tools/teste-passada.mjs` | altura do tornozelo, balanço do quadril, cadência e patinação |
+| `node tools/teste-camera.mjs` | o corpo não gira atrás da câmera, dá para ver a cara, a cabeça não salta, e a tecla X |
+| `node tools/teste-customizador.mjs` | clicar num card (e arrastar a barra) equipa a peça de verdade |
 | `node tools/shot-tela.mjs cranio olhos traco corpo passada` | as folhas de contato da reforma, em `shots/` |

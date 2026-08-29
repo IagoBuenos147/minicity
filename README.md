@@ -161,8 +161,8 @@ sozinha do que você está mexendo.
 | Aba | Opções |
 |---|---|
 | Cabeça | 6 formatos, cada um construído por um método diferente |
-| Olhos | 5 — e a íris faz parte de cada olho (não há mais aba de pupila) |
-| Nariz | 3 + "sem nariz" |
+| Olhos | 6 — a íris faz parte de cada olho (não há mais aba de pupila), e um deles é uma cópia do olho de *Rick & Morty*. **Uma barra na mesma aba fecha a pálpebra**, de aberto a fechado |
+| Nariz | 4 + "sem nariz" (um deles também copiado da referência) |
 | Boca | 3 |
 | Barba | 3 + "sem barba" — com pelo visível |
 | Cabelo | 3 |

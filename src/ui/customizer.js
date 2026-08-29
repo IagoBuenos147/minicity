@@ -88,7 +88,17 @@ export function catalogo(field) {
  */
 export const TAB_DEFS = [
   { field: 'cabeca', label: 'CABECA', title: 'Formato da cabeca', glyph: 'cabeca', grupo: 'rosto', foco: 'rosto' },
-  { field: 'olhos', label: 'OLHOS', title: 'Olhos', glyph: 'olhos', grupo: 'rosto', foco: 'rosto' },
+  {
+    // A aba de OLHOS tem duas listas: o modelo do olho e a BARRA que fecha a
+    // palpebra. O pedido foi "crie um sistema na propria customizacao onde eu
+    // fecho os olhos com uma barra ate fechar os olhos completamente".
+    field: 'olhos', label: 'OLHOS', title: 'Olhos', glyph: 'olhos',
+    grupo: 'rosto', foco: 'rosto',
+    campos: [
+      { field: 'olhos', title: 'Olhos' },
+      { field: 'palpebra', title: 'Abrir e fechar', tipo: 'barra' },
+    ],
+  },
   { field: 'nariz', label: 'NARIZ', title: 'Nariz', glyph: 'nariz', grupo: 'rosto', foco: 'rosto' },
   { field: 'boca', label: 'BOCA', title: 'Boca', glyph: 'boca', grupo: 'rosto', foco: 'rosto' },
   { field: 'barba', label: 'BARBA', title: 'Barba', glyph: 'barba', grupo: 'rosto', foco: 'rosto' },
@@ -341,6 +351,37 @@ const CSS = `
 }
 .mcrp-cz .cz-multi .cz-bloco.is-foco{ border-left-color:rgba(255,184,77,.55); }
 .mcrp-cz .cz-multi .cz-legenda{ margin-bottom:0; }
+
+/* --- barra (a palpebra) --------------------------------------------------
+   Um input[type=range] repintado. O preenchimento ate o polegar vem de uma
+   variavel --p que o JS escreve: nenhum navegador da isso de graca, e sem ele
+   a barra nao mostra QUANTO esta escolhido. */
+.mcrp-cz .cz-barralinha{ display:flex; align-items:center; gap:10px; margin:2px 0 8px; }
+.mcrp-cz .cz-barralinha i{
+  font-style:normal; font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:#8b93a4; flex:0 0 auto; white-space:nowrap;
+}
+.mcrp-cz .cz-range{
+  appearance:none; -webkit-appearance:none; flex:1; min-width:0; height:22px;
+  background:none; outline:none; cursor:pointer;
+}
+.mcrp-cz .cz-range::-webkit-slider-runnable-track{
+  height:6px; border-radius:6px;
+  background:linear-gradient(90deg,#ffb84d 0 var(--p,0%),rgba(255,255,255,.12) var(--p,0%) 100%);
+}
+.mcrp-cz .cz-range::-moz-range-track{ height:6px; border-radius:6px; background:rgba(255,255,255,.12); }
+.mcrp-cz .cz-range::-moz-range-progress{ height:6px; border-radius:6px; background:#ffb84d; }
+.mcrp-cz .cz-range::-webkit-slider-thumb{
+  appearance:none; -webkit-appearance:none; margin-top:-7px;
+  width:20px; height:20px; border-radius:50%;
+  background:radial-gradient(circle at 34% 30%,#fff3dc,#f0b455);
+  border:1px solid rgba(0,0,0,.35); box-shadow:0 2px 8px rgba(0,0,0,.45);
+}
+.mcrp-cz .cz-range::-moz-range-thumb{
+  width:20px; height:20px; border-radius:50%; border:1px solid rgba(0,0,0,.35);
+  background:radial-gradient(circle at 34% 30%,#fff3dc,#f0b455);
+}
+.mcrp-cz .cz-range:active::-webkit-slider-thumb{ transform:scale(1.08); }
 
 .mcrp-cz .cz-secbar{ display:flex; align-items:center; gap:9px; margin:2px 0 11px; }
 .mcrp-cz .cz-seclabel{
@@ -839,6 +880,107 @@ export function criarSecao(idAba, opcoes = {}) {
 }
 
 /**
+ * BARRA (slider) — uma lista mostrada como controle continuo, e nao como grade.
+ *
+ * Ela existe pra a palpebra: o valor tem onze degraus, e onze cards de "10%
+ * fechado" seria uma grade inutil pra uma coisa que o jogador quer ARRASTAR. O
+ * catalogo por tras continua sendo uma lista de indices — o que muda e so como
+ * se escolhe, entao nada mais no caminho (aparencia, rede, provador) precisa
+ * saber que existe barra.
+ *
+ * A API que ela devolve e a MESMA de um bloco de cards, de proposito: quem usa
+ * (criacao.js, o painel do jogo) nao trata barra como caso especial.
+ */
+function criarBarra(spec, list, opcoes, aoFocar) {
+  const campo = spec.field
+  const root = el('div', 'cz-bloco cz-barra')
+
+  const bar = el('div', 'cz-secbar')
+  const prev = el('button', 'cz-arrow', '‹')
+  const next = el('button', 'cz-arrow', '›')
+  prev.type = 'button'; next.type = 'button'
+  prev.setAttribute('aria-label', 'Menos')
+  next.setAttribute('aria-label', 'Mais')
+  prev.addEventListener('click', () => { aoFocar(); passoItem(-1) })
+  next.addEventListener('click', () => { aoFocar(); passoItem(+1) })
+  const label = el('span', 'cz-seclabel', spec.title || campo)
+  const contador = el('span', 'cz-count', '0/0')
+  bar.append(prev, next, label, contador)
+  root.appendChild(bar)
+
+  const linha = el('div', 'cz-barralinha')
+  const fim = el('i', null, nomeDe(list[list.length - 1], list.length - 1))
+  const inicio = el('i', null, nomeDe(list[0], 0))
+  const range = document.createElement('input')
+  range.className = 'cz-range'
+  range.type = 'range'
+  range.min = '0'
+  range.max = String(list.length - 1)
+  range.step = '1'
+  range.value = '0'
+  range.setAttribute('aria-label', spec.title || campo)
+  linha.append(inicio, range, fim)
+  root.appendChild(linha)
+
+  const legenda = el('div', 'cz-legenda')
+  const legNome = el('b', null, '')
+  const legInfo = el('span', null, '')
+  legenda.append(legNome, legInfo)
+  root.appendChild(legenda)
+
+  let indice = 0
+
+  function pintar() {
+    const n = list.length
+    contador.textContent = (indice + 1) + '/' + n
+    legNome.textContent = nomeDe(list[indice], indice)
+    legInfo.textContent = 'arraste a barra'
+    prev.disabled = indice <= 0
+    next.disabled = indice >= n - 1
+    // preenchimento colorido ate o polegar: input[type=range] nao tem isso
+    // sozinho em nenhum navegador, e uma barra sem preenchimento nao mostra
+    // QUANTO esta escolhido, que e a unica coisa que ela precisa mostrar.
+    range.style.setProperty('--p', ((indice / Math.max(1, n - 1)) * 100).toFixed(1) + '%')
+  }
+
+  function setIndice(i) {
+    const n = list.length
+    // A barra GRAMPEIA nas pontas em vez de dar a volta. Card pode circular
+    // (ir do ultimo pro primeiro e um atalho); barra que circula e um controle
+    // que pula de "fechado" pra "aberto" quando se arrasta um passo demais.
+    indice = Math.max(0, Math.min(n - 1, i | 0))
+    range.value = String(indice)
+    pintar()
+  }
+
+  function escolher(i) {
+    const antes = indice
+    setIndice(i)
+    if (indice !== antes) callSafe(opcoes, 'aoEscolher', campo, indice)
+  }
+
+  function passoItem(dir) { escolher(indice + dir) }
+
+  range.addEventListener('input', () => { aoFocar(); escolher(Number(range.value)) })
+
+  setIndice(0)
+
+  return {
+    campo,
+    list,
+    root,
+    cards: [],
+    setIndice,
+    indice() { return indice },
+    passoItem,
+    entrar() {},
+    sair() {},
+    esquecerFotos() {},
+    destruir() { if (root.parentNode) root.parentNode.removeChild(root) },
+  }
+}
+
+/**
  * Uma LISTA dentro de uma aba: barra, grade de cards (ou roda de cores) e o
  * nome da peca embaixo. E o corpo do antigo criarSecao, inteiro.
  *
@@ -855,6 +997,7 @@ function criarBloco(spec, def, opcoes, aoFocar) {
   const campo = spec.field
   const list = catalogo(campo)
   if (list.length === 0) return null
+  if (spec.tipo === 'barra') return criarBarra(spec, list, opcoes, aoFocar)
   const amostra = ehAmostra(list)
   const temFoto = !amostra && typeof opcoes.miniatura === 'function'
 

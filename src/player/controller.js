@@ -49,6 +49,7 @@ function dampAngle(cur, tgt, lambda, dt) {
 }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v }
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v }
+function smooth01(v) { const t = clamp01(v); return t * t * (3 - 2 * t) }
 function mix(a, b, t) { return a + (b - a) * t }
 
 // --- 1a pessoa: bob pequeno e FILTRADO ---------------------------------------
@@ -67,6 +68,16 @@ const FP = {
   ROLL_STRAFE: 0.006, // era 0.028
   ROLL_STEP: 0.0015,  // era 0.008
   RAMP: 3.2,          // lambda da rampa andar<->correr
+}
+
+// Numeros do modo vitrine (tecla X). Foram escolhidos pra o boneco de 1.82 m
+// caber inteiro com folga na lente de 3a pessoa: com o foco em 0.95 (o meio do
+// corpo) e 3.6 m de braco, sobra cerca de meio metro acima da cabeca e outro
+// tanto abaixo dos pes — o bastante pra o cenario atras aparecer, que era metade
+// do pedido.
+const VITRINE = {
+  ALTURA: 0.95,
+  DISTANCIA: 3.6,
 }
 
 export function createPlayerController({ camera, character, input, collision, scene }) {
@@ -90,6 +101,21 @@ export function createPlayerController({ camera, character, input, collision, sc
   // cabeca: alvo perseguido com damp, nunca escrito cru (ver o passo 9)
   let lookYaw = 0
   let lookPitch = 0
+
+  // MODO VITRINE (tecla X): o personagem de frente e de corpo inteiro.
+  //
+  // O pedido foi "mostrar o player de frente e de corpo todo pra tela, pra
+  // gente ver ele e o cenario, como se fosse tirar uma foto, porem sem a foto".
+  // Entao nao ha arquivo nenhum: e so um enquadramento. O jogador continua
+  // podendo GIRAR a camera em volta de si com o mouse — e o que deixa olhar o
+  // cenario atras — mas nao anda, senao a pose desmancha no primeiro passo.
+  //
+  // Ele reaproveita o caminho da camera de 3a pessoa inteiro (oclusao de
+  // parede, piso, suavizacao); o que muda sao tres numeros: o alvo sobe pro
+  // MEIO do corpo em vez do peito, o desvio de ombro vai a zero (centralizado)
+  // e o braco cresce pra caber o boneco todo.
+  let vitrine = false
+  let vitrineK = 0        // 0..1, a transicao suave entre os dois enquadramentos
   // velocidade "real" (depois da colisao) usada pela animacao
   let animSpeed = 0
 
@@ -195,7 +221,37 @@ export function createPlayerController({ camera, character, input, collision, sc
     if (character && character.setVisibleBody) character.setVisibleBody(mode !== 'first')
   }
 
-  function toggleMode() { setMode(mode === 'first' ? 'third' : 'first') }
+  /**
+   * Liga/desliga a vitrine. Ao LIGAR, a camera vai pra FRENTE do personagem.
+   *
+   * O offset da orbita e (sin(yaw), 0, cos(yaw)) e a frente do personagem e
+   * (sin(bodyYaw), 0, cos(bodyYaw)) — logo `yaw = bodyYaw` poe a camera
+   * exatamente de frente pra ele. (Nao e `bodyYaw + PI`: aquilo poria a camera
+   * nas costas, que e onde ela ja fica.)
+   *
+   * O pitch vai a zero: um pouco de contra-plongee ja deforma o boneco na lente
+   * de 3a pessoa, e a graca aqui e ver ele direito.
+   */
+  function toggleVitrine(v) {
+    const alvo = v === undefined ? !vitrine : !!v
+    if (alvo === vitrine) return vitrine
+    vitrine = alvo
+    if (vitrine) {
+      if (mode === 'first') setMode('third')
+      yaw = bodyYaw
+      if (yaw > Math.PI) yaw -= TAU; else if (yaw < -Math.PI) yaw += TAU
+      pitch = 0
+      sinceLook = 0
+    }
+    return vitrine
+  }
+
+  function toggleMode() {
+    // Trocar pra 1a pessoa desliga a vitrine: nao existe "de frente e de corpo
+    // inteiro" quando a camera esta dentro da cabeca.
+    if (vitrine) toggleVitrine(false)
+    setMode(mode === 'first' ? 'third' : 'first')
+  }
 
   function setLocked(b) {
     locked = !!b
@@ -255,11 +311,16 @@ export function createPlayerController({ camera, character, input, collision, sc
     if (!locked && input) {
       const pressed = input.wasPressed ? input.wasPressed('KeyV') : false
       if (pressed) toggleMode()
+      if (input.wasPressed && input.wasPressed('KeyX')) toggleVitrine()
     }
+    // A transicao entre os dois enquadramentos e uma rampa e nao um corte: o
+    // ponto focal sobe e o braco cresce ao longo dela, entao a camera VIAJA ate
+    // a frente do personagem em vez de aparecer la.
+    vitrineK = damp(vitrineK, vitrine ? 1 : 0, 6, dt)
 
     // 3) entrada de movimento, relativa a camera
     let ax = 0, az = 0, wantRun = false, wantJump = false
-    if (!locked && !seat && input && input.isDown) {
+    if (!locked && !vitrine && !seat && input && input.isDown) {
       if (input.isDown('KeyW')) az += 1
       if (input.isDown('KeyS')) az -= 1
       if (input.isDown('KeyD')) ax += 1
@@ -376,30 +437,19 @@ export function createPlayerController({ camera, character, input, collision, sc
       // personagem olha pra onde anda, com giro suave
       const moveYaw = Math.atan2(velocity.x, velocity.z)
       bodyYaw = dampAngle(bodyYaw, moveYaw, 11, dt)
-    } else {
-      // PARADO, COM A CAMERA GIRANDO EM VOLTA DELE.
-      //
-      // Era aqui que a cabeca "teleportava de um lado para o outro". O corpo
-      // ficava travado no ultimo yaw de caminhada e so a cabeca acompanhava a
-      // camera, limitada a +-0.7 rad. Quando o jogador passava de 180 graus, o
-      // angulo relativo dava a volta (+PI vira -PI) e a cabeca saltava de olhar
-      // TODO pra esquerda pra olhar TODO pra direita, num quadro.
-      //
-      // A correcao nao e suavizar o salto: e nao deixar o angulo chegar la. O
-      // pescoco so alcanca ~60 graus; passou disso, quem vira e o CORPO, como
-      // acontece com uma pessoa de verdade que olha por cima do ombro e, se a
-      // coisa continua, gira o tronco. Assim o angulo relativo nunca se
-      // aproxima de 180 e nunca ha volta pra dar.
-      //
-      // O corpo persegue devagar (lambda 6): rapido demais e o personagem vira
-      // um girassol seguindo a camera e o gesto perde a leitura de "olhar".
-      const rel = anguloCurto((yaw + Math.PI) - bodyYaw)
-      const excesso = Math.abs(rel) - LIMITE_PESCOCO
-      if (excesso > 0) {
-        const alvo = bodyYaw + Math.sign(rel) * excesso
-        bodyYaw = dampAngle(bodyYaw, alvo, 6, dt)
-      }
     }
+    // PARADO, O CORPO NAO GIRA. Ele fica onde a ultima caminhada deixou.
+    //
+    // Houve aqui uma versao em que o corpo PERSEGUIA a camera assim que o
+    // jogador passava dos 60 graus de pescoco. A ideia era boa no papel — e o
+    // que uma pessoa faz ao olhar por cima do ombro — e destruia uma coisa de
+    // que o jogo precisa: DAR A VOLTA NO PERSONAGEM PRA VER A CARA DELE. Como o
+    // corpo fugia junto com a camera, o jogador orbitava 360 graus e continuava
+    // vendo as costas. Foi a primeira coisa que o dono do projeto notou.
+    //
+    // O salto da cabeca que aquilo tentava resolver esta resolvido no passo 9,
+    // onde ele nasceu: a cabeca DESISTE de acompanhar quando a camera passa pro
+    // lado de tras, em vez de acompanhar ate o angulo dar a volta.
 
     if (character && character.root) {
       character.root.position.copy(position)
@@ -433,11 +483,24 @@ export function createPlayerController({ camera, character, input, collision, sc
         alvoP = pitch
       } else {
         const rel = anguloCurto((yaw + Math.PI) - bodyYaw)
-        alvoP = pitch * 0.45
-        // 0.75 do angulo relativo, limitado ao alcance do pescoco. Como o corpo
-        // ja gira quando passa de LIMITE_PESCOCO, este clamp quase nunca corta —
-        // ele e a rede de seguranca pro quadro em que o corpo ainda esta girando.
-        alvoY = clamp(rel * 0.75, -LIMITE_PESCOCO, LIMITE_PESCOCO)
+        const volta = Math.abs(rel)
+        // A CABECA DESISTE QUANDO A CAMERA PASSA PRO LADO DE TRAS.
+        //
+        // Era daqui que vinha o "teleporta a cabeca de um lado para o outro":
+        // `rel` e o angulo mais curto, entao ele salta de +PI pra -PI quando o
+        // jogador passa dos 180 graus, e o alvo da cabeca pulava de
+        // todo-a-esquerda pra todo-a-direita num quadro.
+        //
+        // A saida nao e girar o corpo (isso impedia ver a cara do personagem) e
+        // nem so amortecer (amortecer um salto de 2 rad ainda le como chicote).
+        // E PARAR DE OLHAR: de 1.70 rad (97 graus) em diante o peso cai a zero
+        // em 0.90 rad, e a cabeca volta pra frente sozinha. No angulo em que
+        // `rel` da a volta o peso JA E ZERO dos dois lados — nao ha o que
+        // saltar. E e o que uma pessoa faz: ninguem torce o pescoco pra olhar
+        // atras de si, olha pra frente.
+        const peso = 1 - smooth01((volta - 1.70) / 0.90)
+        alvoP = pitch * 0.45 * peso
+        alvoY = clamp(rel * 0.75, -LIMITE_PESCOCO, LIMITE_PESCOCO) * peso
       }
       lookPitch = damp(lookPitch, alvoP, 12, dt)
       lookYaw = dampAngle(lookYaw, alvoY, 12, dt)
@@ -508,10 +571,14 @@ export function createPlayerController({ camera, character, input, collision, sc
 
   function updateThirdPerson(dt) {
     // --- 1) ponto focal: peito do personagem, com deslocamento de ombro -----
+    // Na VITRINE o alvo desce pro meio do corpo e o ombro vai a zero: quem
+    // quer ver o boneco inteiro precisa dele CENTRADO, e o desvio de ombro
+    // existe pra deixar a mira livre, que ali nao interessa.
     _right.set(Math.cos(yaw), 0, -Math.sin(yaw))
-    const focusY = seat ? seat.y + 0.62 : position.y + CAMERA.TP_HEIGHT
+    const alturaFoco = mix(CAMERA.TP_HEIGHT, VITRINE.ALTURA, vitrineK)
+    const focusY = seat ? seat.y + 0.62 : position.y + alturaFoco
     camGoal.set(position.x, focusY, position.z)
-    camGoal.addScaledVector(_right, CAMERA.TP_SHOULDER)
+    camGoal.addScaledVector(_right, CAMERA.TP_SHOULDER * (1 - vitrineK))
     if (!camReady) camTarget.copy(camGoal)
     else camTarget.lerp(camGoal, 1 - Math.exp(-CAMERA.TP_TARGET_SMOOTH * dt))
 
@@ -520,7 +587,7 @@ export function createPlayerController({ camera, character, input, collision, sc
     // camera nao gira, senao o personagem (que anda relativo a ela) ficaria
     // fazendo curva sozinho.
     sinceLook += dt
-    if (!seat && animSpeed > 1.2 && sinceLook > CAMERA.TP_FOLLOW_DELAY) {
+    if (!seat && !vitrine && animSpeed > 1.2 && sinceLook > CAMERA.TP_FOLLOW_DELAY) {
       const moveYaw = Math.atan2(velocity.x, velocity.z)
       // yaw da camera aponta pras costas: o "atras" do personagem e moveYaw + PI
       const wantYaw = moveYaw + Math.PI
@@ -546,14 +613,15 @@ export function createPlayerController({ camera, character, input, collision, sc
     const oy = -Math.sin(pitch)
     const oz = Math.cos(yaw) * cp
 
+    const braco = mix(CAMERA.TP_DISTANCE, VITRINE.DISTANCIA, vitrineK)
     _desired.set(
-      camTarget.x + ox * CAMERA.TP_DISTANCE,
-      camTarget.y + oy * CAMERA.TP_DISTANCE,
-      camTarget.z + oz * CAMERA.TP_DISTANCE,
+      camTarget.x + ox * braco,
+      camTarget.y + oy * braco,
+      camTarget.z + oz * braco,
     )
 
     // --- 4) oclusao: encurta o braco em vez de atravessar parede -----------
-    const want = occludedDistance(camTarget, _desired, CAMERA.TP_DISTANCE)
+    const want = occludedDistance(camTarget, _desired, braco)
     tpDist = want < tpDist
       ? damp(tpDist, want, CAMERA.TP_IN_SPEED, dt)   // entra rapido
       : damp(tpDist, want, CAMERA.TP_OUT_SPEED, dt)  // sai devagar
@@ -629,6 +697,9 @@ export function createPlayerController({ camera, character, input, collision, sc
     position,
     velocity,
     animator,
+    /** Modo vitrine (tecla X). Sem argumento, alterna. */
+    vitrine(v) { return toggleVitrine(v) },
+    get emVitrine() { return vitrine },
     get yaw() { return yaw },
     set yaw(v) { yaw = v; bodyYaw = v + Math.PI; camReady = false },
     get pitch() { return pitch },

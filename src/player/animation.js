@@ -83,12 +83,28 @@ const APOIO_CORRER = 0.34
 // mais baixo pra o pe alcancar o chao, e o boneco AGACHAVA a cada passo. Foi o
 // teste de altura de quadril que pegou.
 const WALK = {
-  quadrilContato: 0.42, // coxa a frente no ataque de calcanhar (24 graus)
-  quadrilPico: 0.52,    // flexao maxima, no meio do balanco
-  quadrilExt: 0.30,     // coxa atras no fim do apoio
-  joelhoContato: 0.06,  // joelho quase reto ao tocar o chao
+  // PASSADA LONGA DE PROPOSITO. O passo e o que decide a cadencia (ver
+  // passoMetros): passo curto obriga a perna a girar depressa pra cobrir a
+  // mesma velocidade. Com 0.42/0.30 o boneco dava 5.5 passos por segundo na
+  // velocidade padrao do jogo — foi a queixa "a animacao esta muito rapida,
+  // muito mesmo". Alongar o passo e a unica correcao que nao inventa
+  // deslizamento; o resto vem do RITMO, mais abaixo.
+  quadrilContato: 0.62, // coxa a frente no ataque de calcanhar (36 graus)
+  quadrilPico: 0.72,    // flexao maxima, no meio do balanco
+  quadrilExt: 0.48,     // coxa atras no fim do apoio
+  // 0.35 rad (20 graus) de joelho no contato e MUITO pra uma caminhada real
+  // (la sao uns 5 graus), e esta aqui por geometria, nao por estilo: com a coxa
+  // 36 graus a frente e o joelho reto, o tornozelo fica so 60 cm abaixo do
+  // quadril e a conta de altura pediria um quadril 10 cm mais baixo pra o pe
+  // alcancar o chao. Dobrar o joelho poe a canela de volta na vertical e
+  // devolve essa altura. O efeito colateral e uma caminhada mais "macia", que
+  // combina com o boneco.
+  joelhoContato: 0.35,
   joelhoApoio: 0.22,    // flexao de amortecimento logo depois do ataque
-  joelhoBalanco: 0.95,  // flexao maxima no meio do balanco
+  // 0.72 e nao 0.95: com a passada longa nova o pe ja passa longe do chao pela
+  // propria geometria, e 0.95 fazia o calcanhar subir 28 cm — marcha de
+  // soldado, nao caminhada.
+  joelhoBalanco: 0.72,
   tornoBaixo: 0.30,     // empurrao do antepe
   tornoAlto: 0.18,      // ponta do pe pra cima no balanco (nao raspar o chao)
   braco: 0.42,          // amplitude do balanco do braco
@@ -103,7 +119,7 @@ const WALK = {
   lean: 3.0 * DEG,
   ombro: 0.045,
   passoLargo: 0.012,    // afastamento lateral do pe (a marcha nao e em linha)
-  teto: 0.075,          // queda maxima do quadril, em metros
+  teto: 0.086,          // queda maxima do quadril, em metros
 }
 const RUN = {
   // Passo GRANDE. Sao 6.2 m/s (22 km/h) no config; com o passo curto da versao
@@ -161,6 +177,34 @@ const PERNA = 0.605
 const COXA = 0.384
 const CANELA = 0.3655
 const PERNA_RETA = COXA + CANELA
+
+/**
+ * RITMO — a fracao da cadencia FISICAMENTE EXATA que a animacao usa.
+ *
+ * Este numero e uma TROCA CONSCIENTE, e vale explicar por que ele existe em vez
+ * de a cadencia sair inteira da conta.
+ *
+ * A conta exata (velocidade dividida pelo passo) e a unica que faz o pe nao
+ * patinar. So que a velocidade do jogo e alta: WALK_SPEED e 3.1 m/s (11 km/h) e
+ * RUN_SPEED e 6.2 (22 km/h). Com a perna deste boneco — 75 cm — o passo maximo
+ * que a geometria permite sem o quadril agachar fica em torno de 68 cm andando
+ * e 79 cm correndo. Cobrir 3.1 m/s com passo de 68 cm da 4.5 passos por segundo;
+ * cobrir 6.2 com 79 cm da 7.8. Nenhum humano anda assim, e na tela isso le como
+ * o boneco tremendo as pernas — foi exatamente a queixa do dono.
+ *
+ * Nao da pra alongar mais o passo (a geometria da perna e o teto de queda do
+ * quadril nao deixam) e nao da pra baixar a velocidade (a velocidade esta certa,
+ * disse o dono). Sobra desacelerar a passada e aceitar que o pe escorrega no
+ * chao — que e o que praticamente todo jogo de terceira pessoa faz.
+ *
+ * 0.66 poe a caminhada padrao em ~3.0 passos/s e a corrida em ~5.2, que sao
+ * numeros de gente. O preco e ~34% de escorregao, invisivel a 3 m de camera e
+ * muito menos incomodo que a perna a 300 rpm.
+ *
+ * Se um dia a velocidade do jogo baixar, SUBA este numero de volta pra 1: o
+ * codigo em volta ja e exato, so este fator e que nao e.
+ */
+const RITMO = 0.66
 
 /**
  * COMPRIMENTO DO PASSO, EM METROS, dado o gesto.
@@ -796,7 +840,7 @@ export function createAnimator(character) {
     // (veiculo, empurrao, teleporte), onde a passada viraria um tremor.
     // O piso de 0.35 evita a animacao congelar quando o jogador encosta numa
     // parede e a velocidade real cai a quase zero com o wLoco ainda subindo.
-    const hz = Math.min(3.9, sp / (2 * passo)) || 0
+    const hz = Math.min(3.9, RITMO * sp / (2 * passo)) || 0
     stride += TAU * Math.max(sp > 0.05 ? 0.35 : 0, hz) * dt
     if (stride > TAU) stride -= TAU * Math.floor(stride / TAU)
     tBreath += dt

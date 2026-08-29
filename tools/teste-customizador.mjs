@@ -88,6 +88,15 @@ try {
   ok('a tela de criacao abriu com abas', abas.length > 5, abas.join(' '))
   ok('a aba de PUPILA nao existe mais', !abas.some((t) => /PUPILA/i.test(t)), abas.join(' '))
   ok('a aba de tronco se chama CAMISAS', abas.some((t) => /CAMISA/i.test(t)), abas.join(' '))
+  {
+    const barra = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.mcrp-cri .cz-tab')].find((x) => (x.textContent || '').trim() === 'OLHOS')
+      if (b) b.click()
+      return !!document.querySelector('.mcrp-cri .cz-sec.is-active .cz-range')
+    })
+    ok('a aba de OLHOS tem a BARRA de fechar a palpebra', barra)
+  }
+
   ok('a aba de PELE virou a aba COR', !abas.some((t) => /^PELE$/i.test(t)) && abas.some((t) => /^COR$/i.test(t)), abas.join(' '))
 
   /**
@@ -111,11 +120,18 @@ try {
       const lista = blocos.length ? blocos : [sec]
       // qual bloco e o do campo? o customizador guarda a ordem dos campos na
       // aba; aqui usamos a ordem declarada em TAB_DEFS via o proprio texto
-      const ordem = { corCabelo: 0, corBarba: 1, pele: 2 }
+      const ordem = { corCabelo: 0, corBarba: 1, pele: 2, olhos: 0, palpebra: 1 }
       const b = lista[ordem[campoNome] !== undefined ? ordem[campoNome] : 0]
-      const cards = [...b.querySelectorAll('.cz-card, .cz-dot')]
-      if (!cards[i]) return { erro: 'card ' + i + ' nao existe (tem ' + cards.length + ')' }
-      cards[i].click()
+      // A palpebra e uma BARRA e nao uma grade: nela "escolher" e arrastar.
+      const range = b.querySelector('.cz-range')
+      if (range) {
+        range.value = String(i)
+        range.dispatchEvent(new Event('input', { bubbles: true }))
+      } else {
+        const cards = [...b.querySelectorAll('.cz-card, .cz-dot')]
+        if (!cards[i]) return { erro: 'card ' + i + ' nao existe (tem ' + cards.length + ')' }
+        cards[i].click()
+      }
       await new Promise((r) => setTimeout(r, 260))
       return {
         naTela: G.criacao.aparencia[campoNome],
@@ -129,7 +145,8 @@ try {
   // --- 2. os cinco campos do bug ---------------------------------------------
   // Sao exatamente os cinco que tinham apelido em ingles.
   const CASOS = [
-    ['OLHOS', 'olhos', 2],
+    ['OLHOS', 'olhos', 5],
+    ['OLHOS', 'palpebra', 6],
     ['BOCA', 'boca', 2],
     ['CABELO', 'cabelo', 2],
     ['SOBRANC.', 'sobrancelha', 2],

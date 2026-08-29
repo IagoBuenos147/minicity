@@ -694,7 +694,7 @@ export function createCharacter(opts = {}) {
   // Ordem do merge: padrao de roupa -> catalogo -> o que o chamador pediu.
   const app = Object.assign(
     {
-      cabeca: 0, olhos: 0, pupila: 0, nariz: 1, boca: 0, barba: 0, cabelo: 0,
+      cabeca: 0, olhos: 0, palpebra: 0, nariz: 1, boca: 0, barba: 0, cabelo: 0,
       pele: 0, corCabelo: 1, corBarba: 0, sobrancelha: 0, skin: corPele(0),
       chapeu: 0, calcado: 1, blusa: 1, calca: 0, colar: 0, anelAcess: 0,
       tatuagem: 0, relogio: 0,
@@ -1090,7 +1090,9 @@ export function createCharacter(opts = {}) {
       corBarba: app.corBarba, beardColor: app.corBarba,
       cabeca: app.cabeca, head: app.cabeca,
       olhos: app.olhos, eyes: app.olhos,
-      pupila: app.pupila, pupil: app.pupila,
+      // 'palpebra' e a BARRA da aba de olhos: 0 = aberto, 10 = fechado. O byte
+      // era da pupila, que morreu quando a iris virou parte de cada olho.
+      palpebra: app.palpebra, lid: app.palpebra,
       nariz: app.nariz, boca: app.boca, barba: app.barba,
       sobrancelha: app.sobrancelha, brows: app.sobrancelha, cabelo: app.cabelo,
       shirt: app.shirt, pants: app.pants, shoes: app.shoes,
@@ -1309,7 +1311,10 @@ export function createCharacter(opts = {}) {
   // na curva do cranio ANTERIOR — foi exatamente o que a conferencia pegou.
   const DEPENDE = {
     cabelo: ['cabelo', 'corCabelo', 'cabeca'],
-    olhos: ['olhos', 'pupila', 'skin', 'cabeca'],
+    // 'palpebra' TEM que estar aqui: sem ela, arrastar a barra nao reconstroi o
+    // slot e o olho fica congelado no valor com que foi montado — o controle
+    // parece morto e nao ha erro nenhum pra investigar.
+    olhos: ['olhos', 'palpebra', 'skin', 'cabeca'],
     sobrancelha: ['sobrancelha', 'corCabelo', 'cabeca'],
     boca: ['boca', 'corCabelo', 'skin', 'cabeca'],
     nariz: ['nariz', 'skin', 'cabeca'],

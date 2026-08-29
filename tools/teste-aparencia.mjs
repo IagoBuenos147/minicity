@@ -38,7 +38,7 @@ function difere(a, b) {
 /* Cobaia com um valor DIFERENTE em cada campo. E de proposito que nenhum se
    repete: com dois campos iguais, trocar a ordem dos dois passaria no teste. */
 const AMOSTRA = {
-  cabeca: 7, olhos: 4, pupila: 3, nariz: 2, boca: 1,
+  cabeca: 7, olhos: 4, palpebra: 3, nariz: 2, boca: 1,
   barba: 4, cabelo: 3, pele: 5, corCabelo: 5, sobrancelha: 2,
   chapeu: 5, calcado: 4, blusa: 3, calca: 2, colar: 1,
   anelAcess: 5, tatuagem: 4, relogio: 3, jaqueta: 2, corBarba: 9,
@@ -49,7 +49,7 @@ ok('APARENCIA_BYTES = 20', Proto.APARENCIA_BYTES === 20, String(Proto.APARENCIA_
 
 ok('a ORDEM dos campos e a do contrato',
   C.join(',') === [
-    'cabeca', 'olhos', 'pupila', 'nariz', 'boca',
+    'cabeca', 'olhos', 'palpebra', 'nariz', 'boca',
     'barba', 'cabelo', 'pele', 'corCabelo', 'sobrancelha',
     'chapeu', 'calcado', 'blusa', 'calca', 'colar',
     'anelAcess', 'tatuagem', 'relogio', 'jaqueta', 'corBarba',
@@ -72,11 +72,11 @@ ok('a ORDEM dos campos e a do contrato',
     const n = O[i]
     if (!Number.isInteger(n) || n < 0 || n > 255) problemas.push(C[i] + '=' + n + ' fora de 0..255')
   }
-  // Os dois campos que existem so pra ocupar o byte: 'jaqueta' virou parte de
-  // blusa e 'pupila' virou parte do olho. Os dois tem UMA opcao, o zero.
-  // Nao ha mais byte de reserva: o ultimo virou corBarba nesta reforma.
+  // So 'jaqueta' existe agora pra ocupar byte (virou parte de camisa): UMA
+  // opcao, o zero. O byte que era da pupila foi reaproveitado pela barra de
+  // fechar os olhos, e o de reserva virou corBarba.
   if (O[C.indexOf('jaqueta')] !== 1) problemas.push('jaqueta deveria ser 1')
-  if (O[C.indexOf('pupila')] !== 1) problemas.push('pupila deveria ser 1')
+  if (O[C.indexOf('palpebra')] < 2) problemas.push('palpebra deveria ter degraus')
   if (O[C.indexOf('corBarba')] < 2) problemas.push('corBarba deveria ter catalogo')
   ok('a tabela de opcoes tem uma entrada valida por campo',
     problemas.length === 0, problemas.join(' | ') || O.length + ' campos, todos em 0..255')
@@ -193,9 +193,9 @@ ok('VERSAO_PROTOCOLO subiu por causa da aparencia de 20 bytes (>= 3)',
     deu.join(',') === esperado.join(','), deu.join(','))
 }
 {
-  const n = normalizarAparencia({ cabeca: -3, olhos: null, pupila: 'x', calca: 1.9 })
+  const n = normalizarAparencia({ cabeca: -3, olhos: null, palpebra: 'x', calca: 1.9 })
   ok('negativo, nulo, texto e fracao viram byte valido',
-    n.cabeca === 0 && n.olhos === 0 && n.pupila === 0 && n.calca === 1
+    n.cabeca === 0 && n.olhos === 0 && n.palpebra === 0 && n.calca === 1
     && Object.keys(n).length === 20)
 }
 {

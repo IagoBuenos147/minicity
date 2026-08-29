@@ -282,7 +282,7 @@ export function bitDoItem(item) {
 export const CAMPOS_APARENCIA = [
   'cabeca',      //  0  formato do cranio
   'olhos',       //  1  formato/abertura da palpebra
-  'pupila',      //  2  tamanho, cor e forma da iris
+  'palpebra',    //  2  quanto o olho esta fechado (0 = aberto)
   'nariz',       //  3
   'boca',        //  4
   'barba',       //  5  0 = sem barba
@@ -326,16 +326,20 @@ export const CAMPOS_APARENCIA = [
 // catalogo JAQUETAS esta vazio e o campo continua no pacote por causa dos 20
 // bytes fixos, sempre em 0. Ver o comentario de JAQUETAS em roupas.js.
 export const APARENCIA_OPCOES = [
-  //  cabeca olhos pupila nariz boca barba cabelo pele corCab sobrancelha
-          6,    5,     1,    4,   3,    4,     3,  10,    11,          3,
+  //  cabeca olhos palpebra nariz boca barba cabelo pele corCab sobrancelha
+          6,    6,       11,    5,   3,    4,     3,  10,    11,          3,
   //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
            7,      5,    4,    3,    4,   4,   4,      4,      1,       9,
 ]
 
-// 'pupila' vale 1 (so o zero) porque A ABA DE PUPILA DEIXOU DE EXISTIR: a iris
-// virou parte do olho, e cada um dos cinco olhos traz a propria solucao de
-// iris/pupila/brilho. O byte continua no pacote pelo mesmo motivo de 'jaqueta'
-// — 20 bytes fixos —, viajando sempre 0.
+// O BYTE 2 MUDOU DE DONO, e nao de posicao. Ele era 'pupila'; a aba de pupila
+// deixou de existir (a iris virou parte de cada olho) e o byte ficou viajando
+// zero. Agora ele e 'palpebra': quanto o olho esta fechado, de 0 (aberto) a 10.
+//
+// A VERSAO NAO SOBE, e de proposito: o pacote continua com 20 bytes, todos os
+// outros campos ficam onde estavam, e o valor que um cliente velho manda nesse
+// byte e 0 — que quer dizer exatamente "olho aberto", o unico visual que ele
+// sabia desenhar. Ou seja: o cliente velho continua certo sem saber.
 
 /**
  * O que um jogador que nunca escolheu nada usa. Nao e tudo zero: 0 quer dizer
@@ -343,8 +347,8 @@ export const APARENCIA_OPCOES = [
  * descalco. Cabelo/rosto ficam no primeiro item do catalogo mesmo.
  */
 const APARENCIA_DEFAULT = [
-  //  cabeca olhos pupila nariz boca barba cabelo pele corCab sobrancelha
-          0,    0,     0,    1,   0,    0,     0,   0,     1,          0,
+  //  cabeca olhos palpebra nariz boca barba cabelo pele corCab sobrancelha
+          0,    0,       0,     1,   0,    0,     0,   0,     1,          0,
   //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
            0,      1,    1,    0,    0,   0,   0,      0,      0,       0,
 ]

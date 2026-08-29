@@ -1,7 +1,9 @@
 import * as THREE from 'three'
 import * as N from './rosto/nucleo.js'
-import { OLHOS } from './rosto/olhos.js'
-import { NARIZES } from './rosto/nariz.js'
+import { OLHOS as OLHOS_BASE, OLHO_GLOBO } from './rosto/olhos.js'
+import { NARIZES as NARIZES_BASE } from './rosto/nariz.js'
+import { OLHO_CARTOON } from './rosto/olho-cartoon.js'
+import { NARIZ_CARTOON } from './rosto/nariz-cartoon.js'
 import { BOCAS } from './rosto/boca.js'
 import { BARBAS } from './rosto/barba.js'
 import { CABELOS } from './rosto/cabelo.js'
@@ -64,7 +66,43 @@ export const {
 export const shadeColor = N.shade
 
 // --- os catalogos -----------------------------------------------------------
-export { OLHOS, NARIZES, BOCAS, BARBAS, CABELOS, SOBRANCELHAS }
+export { BOCAS, BARBAS, CABELOS, SOBRANCELHAS }
+
+/**
+ * A BARRA DE FECHAR OS OLHOS vale pros SEIS olhos, e nao so pro da referencia.
+ *
+ * O olho 'cartoon' desenha a propria palpebra: ela e parte da copia que o dono
+ * pediu, e varre do topo ate embaixo por dentro do proprio modelo. Os cinco
+ * olhos que ja existiam foram escritos cada um com a palpebra dele, em
+ * geometrias completamente diferentes — calota tombada, rolo de tubo, moldura
+ * extrudada, leque radial. Mexer na abertura de cada um por dentro seriam cinco
+ * reformas, cada uma com o proprio jeito de quebrar, e nenhuma delas e o que o
+ * dono pediu.
+ *
+ * Entao eles ganham a PERSIANA (nucleo.js): uma casca de pele que desce por
+ * cima do olho inteiro, seguindo a curvatura do proprio globo — por isso ela
+ * precisa das medidas dele, que olhos.js publica em OLHO_GLOBO. Com a barra em
+ * zero ela nao cria malha nenhuma, entao os cinco continuam exatamente como
+ * estavam.
+ */
+function comPersiana(olho, i) {
+  if (olho.propriaPalpebra) return olho
+  const globo = OLHO_GLOBO[i]
+  return Object.assign({}, olho, {
+    build(ctx) {
+      const g = olho.build(ctx)
+      const k = N.fechamentoOlho(ctx)
+      if (!g || !(k > 0.001)) return g
+      const tampa = N.persianaOlho(globo, k, N.skinOf(ctx))
+      if (tampa) g.add(tampa)
+      return g
+    },
+  })
+}
+
+export const OLHOS = OLHOS_BASE.map(comPersiana).concat([OLHO_CARTOON])
+export const NARIZES = NARIZES_BASE.concat([NARIZ_CARTOON])
+export const PALPEBRAS = N.PALPEBRAS
 
 /**
  * HEAD_SHAPES: os PARAMETROS de campo dos seis cranios. Nome antigo, mantido
@@ -92,8 +130,12 @@ export const CABECAS = CRANIOS.map((c, i) => ({
 }))
 
 /**
- * PUPILAS — VAZIO DE PROPOSITO. Ver o item 2 do cabecalho.
- * Nao "conserte" a falta: a ausencia e o que faz a aba sumir.
+ * PUPILAS — VAZIO DE PROPOSITO, e agora tambem SEM BYTE.
+ *
+ * A iris virou parte do olho (item 2 do cabecalho) e o byte que era dela no
+ * pacote de rede foi REAPROVEITADO pela barra de fechar os olhos ('palpebra').
+ * O array continua exportado porque o teste de fumaca e o customizador
+ * perguntam por ele; catalogo vazio e o que faz a aba sumir sozinha.
  */
 export const PUPILAS = []
 
@@ -111,7 +153,9 @@ export function defaultAppearance() {
     // nomes do contrato (os 20 bytes da rede)
     cabeca: 0,
     olhos: 0,
-    pupila: 0,     // sempre 0: a aba nao existe mais (ver o cabecalho)
+    // 0 = olho aberto. E a barra da aba OLHOS (ver PALPEBRAS em rosto/nucleo.js);
+    // ela ocupa o byte que era do catalogo de pupila.
+    palpebra: 0,
     // 1, e nao 0: o indice 0 do catalogo de nariz e "sem nariz". Um padrao todo
     // zerado entregaria um jogador novo com a cara lisa, e ele leria isso como
     // bug, nao como estilo.
@@ -152,6 +196,7 @@ export const CATALOGS = {
   // nomes do contrato
   cabeca: CABECAS,
   olhos: OLHOS,
+  palpebra: PALPEBRAS,
   nariz: NARIZES,
   boca: BOCAS,
   barba: BARBAS,
@@ -160,7 +205,7 @@ export const CATALOGS = {
   corCabelo: CORES_CABELO,
   corBarba: CORES_BARBA,
   sobrancelha: SOBRANCELHAS,
-  // 'pupila' NAO entra: catalogo vazio e o que faz o customizer esconder a aba.
+  // 'pupila' NAO entra: o catalogo morreu e o byte virou 'palpebra'.
   // apelidos antigos
   hair: CABELOS,
   eyes: OLHOS,

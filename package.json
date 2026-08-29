@@ -17,6 +17,7 @@
     "teste-normais": "node tools/teste-normais.mjs",
     "teste-passada": "node tools/teste-passada.mjs",
     "teste-customizador": "node tools/teste-customizador.mjs",
+    "teste-camera": "node tools/teste-camera.mjs",
     "shot-clima": "node tools/shot-clima.mjs",
     "shot-tela": "node tools/shot-tela.mjs",
     "online": "npm run build && node servidor.js",

@@ -231,6 +231,9 @@ const MINI = {
   // Cor da barba: o card tem que mostrar a BARBA, nao o cabelo. Quadro menor,
   // mais baixo no rosto (sobe negativo) e o chapeu fora do caminho.
   corBarba: { foco: 'rosto', quadro: 0.46, giro: 0.26, sobe: -0.035, esconde: ['chapeu', 'cabelo'] },
+  // A palpebra e uma BARRA, nao uma grade de cards: ela nunca pede miniatura.
+  // A entrada existe so pra o palco enquadrar o rosto quando o jogador arrasta.
+  palpebra: { foco: 'rosto', quadro: 0.34, giro: 0.03, esconde: ['chapeu', 'cabelo'] },
 
   // --- roupa: peca grande e presa a junta, a via antiga serve ---------------
   chapeu: { foco: 'rosto', quadro: 0.66, giro: 0.36, sobe: 0.055 },

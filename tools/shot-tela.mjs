@@ -44,6 +44,27 @@ export const GRUPOS = {
   ],
   criacao: [
     {
+      // A ABA DE OLHOS com a BARRA da palpebra, e o olho da referencia
+      // escolhido — o pedido "crie um sistema na propria customizacao onde eu
+      // fecho os olhos com uma barra".
+      nome: 'tela-05b-olhos',
+      antes: `G.fluxo.solo()
+        setTimeout(() => {
+          const b = [...document.querySelectorAll('.mcrp-cri .cz-tab')]
+          const alvo = b.find(x => /^OLHOS$/i.test((x.textContent || '').trim()))
+          if (alvo) alvo.click()
+          setTimeout(() => {
+            const cards = [...document.querySelectorAll('.mcrp-cri .cz-sec.is-active .cz-card')]
+            if (cards[5]) cards[5].click()
+            setTimeout(() => {
+              const r = document.querySelector('.mcrp-cri .cz-sec.is-active .cz-range')
+              if (r) { r.value = '4'; r.dispatchEvent(new Event('input', { bubbles: true })) }
+            }, 260)
+          }, 200)
+        }, 40)`,
+      quadros: 90, espera: 1600,
+    },
+    {
       // A ABA DE COR com as TRES listas (cabelo, barba e pele), que era o pedido
       // "na aba cor vai ter cor de cabelo, cor de barba e cor de pele, tudo em
       // uma aba".
@@ -236,6 +257,54 @@ export const GRUPOS = {
         }
         document.body.appendChild(d)`,
       espera: 1400, semQuadro: true,
+    },
+  ],
+  // O OLHO E O NARIZ DA REFERENCIA (Rick & Morty), e a barra da palpebra.
+  cartoon: [
+    {
+      nome: 'p15-olho-cartoon',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const base = { olhos:5, nariz:4, chapeu:0, cabelo:0, barba:0, boca:0, sobrancelha:0 }
+        for (const k of [0, 2, 4, 5, 7, 10]) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = 'palpebra ' + k
+          G.provador.setAparencia(Object.assign({}, G.appearance, base, { palpebra: k }))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:420px;height:300px;object-fit:none;object-position:50% 38%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1600, semQuadro: true,
+    },
+    {
+      nome: 'p16-cartoon-rosto',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const tiros = [
+          ['rosto inteiro aberto', { olhos:5, nariz:4, palpebra:0 }],
+          ['rosto inteiro meio',   { olhos:5, nariz:4, palpebra:4 }],
+          ['nariz cartoon so',     { olhos:0, nariz:4, palpebra:0 }],
+          ['persiana no olho 0',   { olhos:0, nariz:1, palpebra:5 }],
+          ['persiana no olho 2',   { olhos:2, nariz:1, palpebra:5 }],
+          ['persiana no olho 4',   { olhos:4, nariz:1, palpebra:5 }],
+        ]
+        for (const [lb0, patch] of tiros) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, cabelo:0, barba:0 }, patch))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:400px;height:360px;object-fit:contain;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1600, semQuadro: true,
     },
   ],
   traco: [

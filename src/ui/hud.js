@@ -262,6 +262,7 @@ const HELP_ROWS = [
   [['Espaco'], 'Pular'],
   [['E'], 'Interagir / entrar no veiculo'],
   [['V'], 'Trocar camera'],
+  [['X'], 'Ver o personagem de frente (e o cenario atras)'],
   // A barra de itens e o unico jeito de descobrir que o revolver existe: sem
   // esta linha o jogador so acha por acidente. (O anel verde e a arma de
   // portal sairam do jogo; estao em backup/poder/.)
