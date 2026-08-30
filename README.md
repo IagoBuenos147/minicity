@@ -43,7 +43,7 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
 | `Mouse` | Olhar |
 | `E` | Interagir |
 | `V` | Alternar 1ª / 3ª pessoa (estilo GTA) |
-| `1 2` | Mãos / revólver |
+| `1` … `9` | **A barra de itens** (as 9 vagas da mochila, centrada no rodapé). Aperta e pega na mão; aperta de novo e guarda |
 | `C` | Trocar a estação: **sol → chuva → neve → sol** |
 | `R` `Q` | Girar o móvel (com um móvel na mão) |
 | `Segurar E` | Guardar de volta o móvel que está na mira |
@@ -80,6 +80,69 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
   **fichas de sinuca a granel** (você escolhe quantas). Tudo fica à vista na
   loja. O que você compra vai para as **9 vagas da mochila** — sem espaço, a
   compra não passa.
+- **Hotel Paraíso** (esquina noroeste do anel, atrás da mercearia): o prédio
+  de quatro andares que antes era só cenário com um letreiro de "Bar do Tito".
+  A **porta de vidro é automática** — as duas folhas correm para os lados
+  sozinhas quando você chega e liberam o vão inteiro. Dentro, um saguão de pé
+  direito de 5 m: **balcão de recepção** com a **Íris** atrás (ela ainda só dá
+  as boas-vindas), escaninho de chaves, três relógios de fuso, **sala de espera
+  com poltronas e mesinhas de vidro** (dá para **sentar**), **escada de mármore**
+  que é só cenário e termina numa porta fechada, e um **elevador** de portas de
+  bronze. É o lugar pensado para receber vários NPCs.
+- **Garagem do Nando** (concessionária, do lado do hotel na mesma calçada do
+  anel): showroom de pé-direito alto com treliça aparente, piso de epóxi e a
+  fachada inteira de vidro. Dentro estão **os quatro veículos à venda**, de
+  verdade e não em miniatura — o **cupê preto** e a **caminhonete** em ângulo
+  sobre a marcação amarela, a **moto** num **prato giratório** e o **skate**
+  numa vitrine. Cada um tem cavalete de preço, e falar com um deles (ou com o
+  **Nando**, atrás do balcão) abre a **mesma janela de loja do Taco de Ouro**,
+  já naquele item. O que você compra aparece **estacionado na vaga demarcada em
+  frente à loja**, pronto para entrar com `E`.
+- **Caminhonete** (veículo novo): pickup de cabine simples com uns quarenta anos
+  de estrada — pintura azul desbotada pelo sol, ferrugem na saia, para-choque
+  cromado fosco, faróis redondos e caçamba com assoalho corrugado, estepe
+  deitado e caixa de ferramentas. É o veículo **pesado**: mais lenta que o
+  carro, com o corpo tombando na curva e o pneu alto escorregando antes.
+- **Bebida na mercearia**: a **geladeira do fundo** (a das duas portas marcadas
+  BEBIDAS) e o caixa abrem a **mesma janela de loja do Taco de Ouro**, com
+  **lata de cerveja**, **garrafa de vodka** e **garrafa de whiskey**. O que você
+  compra vai para a primeira vaga livre da barra e **já vai para a sua mão** —
+  em primeira pessoa você vê o punho fechado em volta da garrafa, o balanço do
+  passo (na mesma cadência da câmera) e uma **pose diferente para correr**.
+- **A Adega 100** (o galpão cego atrás da barbearia, de frente para o anel): o
+  prédio que era só cenário, com o número **100** pintado ao lado da porta. Da
+  rua ele continua morto — **porta de carga soldada** (dois cordões de solda em
+  X, corrente e cadeado), janelas do térreo **emparedadas com tijolo novo**,
+  sem letreiro, sem vitrine, sem luz. A única pista é uma **marca de giz** na
+  altura da cintura apontando para o beco.
+  A entrada de verdade é a **porta de aço no beco**, entre este prédio e os
+  fundos da barbearia. Na primeira vez o **postigo corre antes da porta** —
+  alguém olha, pergunta quem mandou você, e só então a tranca corre. Você entra
+  num **vestíbulo vermelho sem saída aparente**: o vão para o salão fica na
+  quina, atrás de uma **cortina de tiras**.
+  Dentro: **balcão com chopeira de dois barris**, cada um com **torneira de
+  latão** que abre no `E` (ou no botão esquerdo, se estiver de mãos livres) e
+  **jorra chope de verdade** — a coluna cresce para baixo na velocidade da
+  queda, faz espuma na grelha e, ao fechar, o rabo se desprende do bico e cai.
+  Atrás do dono (**Dico**) há uma **tela de arame**, e atrás da tela está a
+  operação: **alambique de cobre no fogo**, bombonas de granel, garrafões,
+  **mesa de envase** com funil, garrafas de rótulo arrancado e uma caixa de
+  tampas trocadas. A parede sul é a **adega**: cinco prateleiras do chão ao
+  teto, garrafas deitadas embaixo e em pé em cima — e cada fileira abre a
+  **loja já naquele item**.
+  Vende **três copos** (americano, tulipa e caneca de meio litro), **pinga de
+  alambique**, **pinga com tala de umburana**, **garrafão de 5 L**, **gin**,
+  **vodka e whiskey mais baratos que os da mercearia** (não paga imposto quem
+  não emite nota), **long neck**, **lata** e a **garrafa sem rótulo** — tampa
+  trocada, líquido turvo, metade do preço. Você que sabe.
+- **O copo na mão**: com um copo na barra de itens, o **botão esquerdo** faz o
+  ciclo inteiro. Copo vazio: a mão **estica para a frente**, para receber. Se
+  estiver embaixo de uma torneira aberta, o **chope cai dentro do copo** (a
+  coluna encurta e termina no vidro) e ele enche com colarinho; cheio, a mão
+  volta sozinha. Aí cada clique **leva o copo à boca** e bebe um gole — quanto
+  menos resta, mais o copo inclina. No último gole ele zera, e o clique seguinte
+  volta a esticar a mão. A caneca de meio litro rende seis goles; o americano,
+  três.
 - **Móveis na sua casa**: clique numa vaga da mochila para pegar o móvel. Ele
   aparece como um fantasma **verde** onde cabe e **vermelho** onde não cabe, com
   a pegada desenhada no chão. `R`/`Q` gira, botão esquerdo instala, `Esc`
@@ -176,6 +239,29 @@ sozinha do que você está mexendo.
 Menos opções e mais cuidado em cada uma: **cada item de uma aba é feito por um
 método de construção diferente**, para dar para comparar qual combina com o
 jogo.
+
+## Testar sem servidor (um arquivo so)
+
+```bash
+npm run local
+```
+
+Gera **`MiniCityRP.html`** na raiz — o jogo inteiro num arquivo so, que abre com
+**dois cliques**, sem `npm run dev`, sem servidor e sem internet.
+
+Por que precisa de um build proprio: o `index.html` normal carrega o jogo como
+**modulo ES**, e navegador nenhum carrega modulo de `file://` (a origem de um
+arquivo local e opaca e o CORS barra). Este build empacota tudo como script
+classico e joga o codigo dentro do proprio HTML.
+
+O que **nao** funciona no arquivo local, de proposito:
+
+- **multijogador** — o servidor continua sendo `npm run online`;
+- as ferramentas de foto e os testes que falam com o dev server.
+
+O resto roda: cidade, personagem, customizacao, veiculos, cassino e save.
+Confira com `npm run teste-local` (ele abre o arquivo por `file://` de verdade e
+verifica que o jogo subiu).
 
 ## O que saiu do jogo
 

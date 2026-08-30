@@ -27,7 +27,9 @@ import { SIMBOLOS, PAGAMENTOS, criarSlots } from '../cassino/slots.js'
 // PAINEL MODAL: enquanto qualquer tela esta aberta o jogador fica travado
 // (setLocked(true)) e o mouse solto. O painel engole TODO evento de mouse pra
 // nenhum clique de botao virar tiro/interacao no mundo, e engole o teclado pra
-// digitar "5" no campo do caixa nao trocar o item da hotbar.
+// digitar "5" no campo do caixa nao trocar o item da barra (as teclas 1 a 9
+// escolhem a vaga da mochila; a hotbar de 2 slots que este comentario citava
+// virou essa barra).
 //
 // CSS: um <style> so, injetado uma vez, com TODA classe prefixada por
 // 'mcrp-cas-' (helper cn() abaixo faz isso sozinho) pra nao brigar com o HUD,

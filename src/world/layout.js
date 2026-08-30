@@ -160,9 +160,175 @@ export const LOJA_JOGOS = {
   facade: 'z1',
   door: { center: 42, width: 2.8, height: 2.7 },
   sign: 'TACO DE OURO',
+  // O letreiro da fachada NAO desenha esse nome: desenha os quatro naipes.
+  // Foi pedido do dono ("retire o nome taco de ouro e coloque apenas os 4
+  // nipes brilhando com as devidas cores deles"), e o nome continua aqui
+  // porque quem usa `sign` nao e so o letreiro — e o rotulo do lote.
+  // Quem le `signArte` e o buildShell de city.js.
+  signArte: 'naipes',
   // magenta: vermelho e do barbeiro, verde da mercearia, ambar do cassino e
   // bege da casa. De longe tem que dar pra dizer QUAL loja e so pela cor.
   signColor: 0xd93bb0,
+}
+
+// --- Hotel Paraiso: esquina noroeste do anel, fachada para -Z ----------
+// Este lote NASCEU predio de cenario: era o FILLERS de -52..-30 / -52..-35, de
+// 16 m de altura, e o letreiro procedural de city.js sorteava "BAR DO TITO" pra
+// ele. Virou hotel de verdade, com miolo, porta que abre e gente dentro.
+//
+// POR QUE A FACHADA E A z0 (e nao a z1, como a barbearia e a mercearia):
+// o nearestStreetFace de city.js ja dava 'x-' pra esta caixa, ou seja, a rua
+// mais perto e o ANEL. Virar a frente pro +Z poria a porta de um hotel a tres
+// metros da parede DOS FUNDOS da mercearia — um beco. A unica frente de rua
+// aqui e o anel, e das duas faces que encostam nele (a oeste e a norte) so a
+// norte e um eixo que apronOf/naFrenteDaPorta/neve ja sabem tratar. Fachada
+// virada pro -Z e o caso do CASSINO: suportado em todo lugar, sem caso novo.
+//
+// POR QUE O LOTE ENCOLHEU (o filler ia de x -52 e z -52):
+// as calcadas internas do anel sao x -52..-48 e z -52..-48. O predio de cenario
+// estava EM CIMA delas — dava pra fazer isso porque caixa macica nao tem porta.
+// Um hotel tem, e a porta precisa de calcada na frente. Entao:
+//   - z0 = -48 encosta topo a topo na calcada norte do anel;
+//   - x0 = -47.1 porque o avental (apronOf(b, 0.9), que e o que o groundY de
+//     city.js le) para EXATAMENTE em -48.0, a borda da calcada oeste. Um
+//     centimetro a mais e sao duas lajes no mesmo Y de 0.16 disputando a mesma
+//     superficie — o mesmo z-fighting que semLotes() foi escrito pra matar.
+//
+// wallHeight 15.5 e a altura do PREDIO INTEIRO, nao do saguao. Quem le este
+// numero e a neve (poe a laje branca em wallHeight + 0.34) e os occluders de
+// camera; o pe-direito do saguao (5.2 m) mora em hotel.js, que e quem constroi
+// o forro. Com wallHeight 5.2 aqui, nevaria dentro do predio, no meio da torre.
+export const HOTEL = {
+  id: 'hotel',
+  x0: -47.1, x1: -30,  // 17.1 m
+  z0: -48, z1: -35,    // 13 m
+  wallHeight: 15.5,
+  facade: 'z0',        // parede z = z0 e a fachada (voltada para -Z)
+  // 3.6 e o vao mais largo do mapa, e e de proposito: e uma porta AUTOMATICA de
+  // duas folhas de vidro. Cada folha tem 1.82 e corre 1.78 pro lado, entao com
+  // a porta aberta o vao inteiro fica livre — que foi o pedido ("abre para os
+  // lados sem atrapalhar a passagem"). Vao menor deixaria folha na passagem.
+  door: { center: -38.5, width: 3.6, height: 3.2 },
+  sign: 'HOTEL PARAISO',
+  // turquesa: vermelho e do barbeiro, verde da mercearia, ambar do cassino,
+  // bege da casa e magenta da loja de jogos. De longe tem que dar pra dizer
+  // QUAL casa e so pela cor do letreiro.
+  signColor: 0x39c9c0,
+}
+
+// --- Garagem do Nando: ao lado do hotel, mesma calcada do anel ------------
+// O vizinho do HOTEL, e isso e de proposito: a calcada norte do anel virou a
+// unica rua do mapa com duas portas de estabelecimento, e duas portas juntas
+// fazem uma esquina comercial — uma sozinha faz um predio perdido no fundo.
+//
+// Nasceu, como o hotel, de um predio de cenario: o FILLERS de -28..-14 /
+// -52..-35, que o letreiro procedural chamava de "CHAVEIRO 24H".
+//
+// As medidas seguem a MESMA regra do hotel, pelo mesmo motivo:
+//   - z0 = -48 encosta topo a topo na calcada norte do anel (que vai de -52 a
+//     -48). O filler estava em cima dela, o que caixa macica pode e porta nao;
+//   - z1 = -34.5 porque o avental (apronOf(b, 0.9)) para em -33.6 e o avental
+//     da MERCEARIA, que e fachada z1, comeca em -32.9: 70 cm de folga entre as
+//     duas lajes de 16 cm;
+//   - x0 = -28 porque o avental do hotel acaba em -29.1 e o desta comeca em
+//     -28.9. Vinte centimetros e pouco, mas e o suficiente pra as duas lajes
+//     nao disputarem superficie.
+//
+// wallHeight 6.5 e um pavimento SO, alto. Showroom nao tem andar em cima — o
+// que ele tem e pe-direito, porque a coisa que ele vende tem 2 m de altura e
+// precisa de ar em volta pra parecer que esta em exposicao e nao estacionada.
+export const CONCESSIONARIA = {
+  id: 'auto',
+  x0: -28, x1: -14,    // 14 m
+  z0: -48, z1: -34.5,  // 13.5 m
+  wallHeight: 6.5,
+  facade: 'z0',
+  // 3.4: a porta e por onde os veiculos ENTRAM. A caminhonete tem 1,96 de
+  // largura e o carro 1,92; com o vao de 2,8 da loja de jogos nao passaria
+  // nenhum dos dois, e um showroom cujo estoque nao cabe pela porta e um
+  // showroom que se desmonta na primeira vez que o jogador repara.
+  door: { center: -21, width: 3.4, height: 3.2 },
+  sign: 'GARAGEM DO NANDO',
+  // azul eletrico: vermelho e do barbeiro, verde da mercearia, ambar do
+  // cassino, bege da casa, magenta da loja de jogos e turquesa do hotel.
+  signColor: 0x3f8fe0,
+}
+
+// --- A ADEGA 100: o predio de cenario que virou porta ---------------------
+// Este lote NASCEU predio de cenario, como o hotel e a garagem: era o FILLERS
+// de 14..30 / -52..-32, painel cinza de 14 m, e o numero que city.js pintava
+// ao lado da porta dele (100 + bi*17, com bi = 0) era exatamente 100. E dai que
+// vem o nome do lugar: o predio nao tem letreiro nenhum, tem um numero.
+//
+// POR QUE A PEGADA NAO MUDOU UM CENTIMETRO (e o hotel e a garagem tiveram que
+// encolher): os dois recuaram pra liberar a calcada do anel na frente da porta.
+// Aqui a porta de rua NAO ABRE — ela e uma chapa de enrolar soldada. Nao ha
+// nada pra chegar de calcada, e o predio pode continuar exatamente onde estava,
+// em cima dela, como estava enquanto era caixa macica. O que muda e que agora
+// `semLotes()` de city.js recorta a laje da calcada sob ele (todo LOTE e
+// recortado) — e quem preenche o buraco e o proprio piso da adega, no mesmo
+// nivel de 0.16.
+//
+// A porta de verdade e no BECO, na face z1, contra os fundos da barbearia (que
+// comeca em z = -28): sao 3,1 m de fresta entre os dois aventais, e e a unica
+// rua deste mapa em que ninguem passa por acaso.
+//
+// wallHeight 14 e a altura do PREDIO INTEIRO — o mesmo `h` que ele tinha de
+// cenario, pra silhueta do skyline nao mudar. O pe-direito do salao (3,30 m)
+// mora em world/adega.js, que e quem constroi o forro. Quem le este 14 e a
+// neve (laje branca em wallHeight + 0.34) e o occluder de camera.
+//
+// A `door` declarada aqui e a DE CARGA, a soldada, na fachada z0. Ela existe
+// como dado porque naFrenteDaPorta() de city.js le door.center de todo LOTE pra
+// nao plantar poste na frente de porta; a porta jogavel e assunto de adega.js.
+export const ADEGA = {
+  id: 'adega',
+  x0: 14, x1: 30,     // 16 m
+  z0: -52, z1: -32,   // 20 m
+  wallHeight: 14,
+  facade: 'z0',       // a fachada MORTA, virada pro anel
+  door: { center: 22, width: 3.4, height: 3.5 },
+  sign: '100',
+  // cinza de painel: e a UNICA cor de letreiro do mapa que nao e cor nenhuma, e
+  // isso e o ponto. Vermelho e do barbeiro, verde da mercearia, ambar do
+  // cassino, bege da casa, magenta da loja de jogos, turquesa do hotel e azul
+  // da garagem — todas gritam de longe. Esta some.
+  signColor: 0x6a6f76,
+}
+
+// --- O CORTICO 117: o predio de cenario que virou tres andares -----------
+// Tambem nasceu FILLERS — era o de 32..52 / -52..-33, reboco de 9 m, e o numero
+// que city.js pintava ao lado da porta dele era 117. Como a adega, ele fica com
+// o proprio numero: e assim que se chama o lugar.
+//
+// POR QUE ELE ENCOLHEU (o filler ia de x 32 a 52 e de z -52 a -33):
+//   - z0 = -48 libera a calcada interna do anel (que vai de -52 a -48) pra
+//     FRENTE da porta. E o mesmo recuo do hotel e da garagem, e pela mesma
+//     razao: caixa macica podia ficar em cima da calcada, porta nao pode.
+//   - x1 = 47.1 porque o avental (apronOf(b, 0.9), que e o que o groundY de
+//     city.js le) para EXATAMENTE em 48.0, a borda da calcada leste do anel.
+//     Um centimetro a mais e sao duas lajes no mesmo Y de 0.16 disputando a
+//     mesma superficie — o z-fighting que semLotes() existe pra matar.
+//   - x0 = 32 porque o avental da ADEGA acaba em 30.9 e o deste comeca em 31.1.
+//
+// wallHeight 9.6 e o predio inteiro: TRES pisos de 3,00 m (pe-direito de 2,72
+// mais 28 cm de laje) mais a platibanda. Quem le este numero e a neve (laje
+// branca em wallHeight + 0.34) e o occluder de camera; a planta dos andares
+// mora em world/cortico.js.
+//
+// E ELE E O PRIMEIRO LOTE DO JOGO COM MAIS DE UM ANDAR. Isso nao cabia no
+// contrato antigo — a altura do chao era uma funcao (x, z) -> y, uma cota por
+// metro quadrado. Ver src/systems/pisos.js.
+export const CORTICO = {
+  id: 'cortico',
+  x0: 32, x1: 47.1,   // 15.1 m
+  z0: -48, z1: -33,   // 15 m
+  wallHeight: 9.6,
+  facade: 'z0',       // fachada virada pro anel, ao norte
+  // 1.6 e uma porta de predio, nao de loja: aqui nao entra movel, entra gente.
+  door: { center: 39.5, width: 1.6, height: 2.4 },
+  sign: '117',
+  signColor: 0x8a8172,
 }
 
 // interior util (dentro das paredes)
@@ -180,17 +346,25 @@ export function interiorOf(b) {
 
 // --- Predios de cenario (sem interior) ----------------------------------
 // h = altura, c = cor base, style: 'brick' | 'plaster' | 'panel'
+//
+// `num` E O NUMERO PINTADO AO LADO DA PORTA, e ele existe por causa da adega.
+// city.js numerava por posicao (`100 + bi * 17`), o que quer dizer que tirar um
+// lote da lista RENUMERAVA todos os que vinham depois. Isso passou a importar
+// no dia em que um predio de cenario virou endereco: o 100 e a ADEGA, e sem o
+// numero cravado aqui o vizinho herdaria o nome do lugar.
 export const FILLERS = [
   // NE (ao lado da barbearia)
-  // O lote de 32..52 / -30..-12 saiu daqui: virou a LOJA DE JOGOS. Era a unica
-  // frente de avenida do mapa que ainda era predio cego, e "loja" so quer dizer
-  // alguma coisa se der pra chegar nela pela calcada.
-  { x0: 14, x1: 30, z0: -52, z1: -32, h: 14, c: 0x7f8a97, style: 'panel' },
-  { x0: 32, x1: 52, z0: -52, z1: -33, h: 9, c: 0xb0a08a, style: 'plaster' },
+  // DOIS lotes sairam daqui:
+  //  32..52 / -30..-12 virou a LOJA DE JOGOS (era a unica frente de avenida do
+  //  mapa que ainda era predio cego);
+  //  14..30 / -52..-32 virou a ADEGA 100 — e ela ficou com o numero dela.
+  // (o lote de 32..52 / -52..-33, que levava o numero 117, virou o CORTICO)
   // NW (ao lado da mercearia)
-  { x0: -52, x1: -38, z0: -30, z1: -12, h: 12, c: 0x8d7f96, style: 'plaster' },
-  { x0: -52, x1: -30, z0: -52, z1: -35, h: 16, c: 0x6f7b88, style: 'panel' },
-  { x0: -28, x1: -14, z0: -52, z1: -35, h: 10, c: 0xa5896f, style: 'brick' },
+  // DOIS lotes sairam daqui, os dois virando estabelecimento de verdade:
+  //  -52..-30 / -52..-35 virou o HOTEL PARAISO (era o "BAR DO TITO");
+  //  -28..-14 / -52..-35 virou a GARAGEM DO NANDO (era o "CHAVEIRO 24H").
+  // O que sobrou do quadrante e este predio cego a oeste da mercearia.
+  { x0: -52, x1: -38, z0: -30, z1: -12, h: 12, c: 0x8d7f96, style: 'plaster', num: 134 },
   // SE (dois lotes sairam daqui: 14..34 / 12..30 virou o CASSINO, e a faixa
   // 38..50 / 12..22 virou a CASA VELHA. O que sobrou do lote de esquina virou
   // o quintal murado dos fundos dela.)
@@ -198,19 +372,19 @@ export const FILLERS = [
   // z1=24.5 e o avental dela vai ate 25.4. Com 2,5 m de fundura, 7 m de altura
   // viraria uma torre em cima de uma laje fina; 4,5 le como muro de quintal,
   // que e o que ele sempre foi.
-  { x0: 36, x1: 52, z0: 25.5, z1: 28, h: 4.5, c: 0xbba07f, style: 'brick' },
-  { x0: 14, x1: 32, z0: 34, z1: 52, h: 10, c: 0x9c9086, style: 'plaster' },
-  { x0: 36, x1: 52, z0: 32, z1: 52, h: 15, c: 0x77828f, style: 'panel' },
+  { x0: 36, x1: 52, z0: 25.5, z1: 28, h: 4.5, c: 0xbba07f, style: 'brick', num: 151 },
+  { x0: 14, x1: 32, z0: 34, z1: 52, h: 10, c: 0x9c9086, style: 'plaster', num: 168 },
+  { x0: 36, x1: 52, z0: 32, z1: 52, h: 15, c: 0x77828f, style: 'panel', num: 185 },
   // SW e o parque (sem predios grandes), so um no canto
-  { x0: -52, x1: -36, z0: 36, z1: 52, h: 9, c: 0xa8927a, style: 'brick' },
+  { x0: -52, x1: -36, z0: 36, z1: 52, h: 9, c: 0xa8927a, style: 'brick', num: 202 },
 ]
 
-// Os tres predios que tem INTERIOR de verdade. Quem precisa varrer "todo
-// predio em que da pra entrar" (o avental de calcada e o groundY de city.js, a
-// grade de telhado da chuva em clima.js, os occluders de camera do main, a
-// neve dos telhados) le esta lista em vez de repetir as tres constantes na mao
-// -- que e como o cassino ficaria de fora de um deles e ninguem notaria.
-export const LOTES = [BARBER, GROCERY, CASINO, CASA, LOJA_JOGOS]
+// Os predios que tem INTERIOR de verdade. Quem precisa varrer "todo predio em
+// que da pra entrar" (o avental de calcada e o groundY de city.js, a grade de
+// telhado da chuva em clima.js, os occluders de camera do main, a neve dos
+// telhados) le esta lista em vez de repetir as constantes na mao -- que e como
+// o cassino ficaria de fora de um deles e ninguem notaria.
+export const LOTES = [BARBER, GROCERY, CASINO, CASA, LOJA_JOGOS, HOTEL, CONCESSIONARIA, ADEGA, CORTICO]
 
 /** Retangulo do avental de calcada em volta de um lote, ja respeitando de que
  *  lado fica a fachada (na frente quem manda e a calcada da rua). */

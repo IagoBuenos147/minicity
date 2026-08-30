@@ -29,6 +29,133 @@ const URL_BASE = process.env.GAME_URL || 'http://localhost:5173'
 //   quadros  quantos quadros do jogo forcar antes de clicar
 //   espera   ms de relogio depois do 'antes' (pra transicao de CSS terminar)
 export const GRUPOS = {
+  // A LOJA DE JOGOS depois da luz nova, e a 1a pessoa olhando pro chao.
+  loja3d: [
+    {
+      nome: 'p21-loja-entrada',
+      antes: `G.fluxo.jogar()
+        G.fluxo.foto(true)
+        G.player.teleport(42, -19.2, Math.PI)
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 30, espera: 700,
+    },
+    {
+      nome: 'p22-loja-salao',
+      antes: `G.player.teleport(42, -16.5, Math.PI)
+        if (G.player.girarCamera) G.player.girarCamera(0)
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 30, espera: 600,
+    },
+    {
+      nome: 'p23-loja-mesas',
+      antes: `G.player.teleport(42, -22.5, Math.PI * 0.5)
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 30, espera: 600,
+    },
+    {
+      nome: 'p24-loja-balcao',
+      antes: `G.player.teleport(42, -25.4, 0)
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 30, espera: 600,
+    },
+    {
+      nome: 'p27-fachada',
+      antes: `G.player.teleport(42, -8.5, 0)
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 24, espera: 700,
+    },
+    {
+      nome: 'p28-parede-oeste',
+      antes: `G.player.teleport(38.5, -21.0, Math.PI * 1.5)
+        for (let i = 0; i < 50; i++) G.player.update(1/60)`,
+      quadros: 24, espera: 600,
+    },
+    {
+      nome: 'p29-parede-leste',
+      antes: `G.player.teleport(48.8, -20.3, Math.PI * 0.5)
+        for (let i = 0; i < 50; i++) G.player.update(1/60)`,
+      quadros: 24, espera: 600,
+    },
+    {
+      nome: 'p26-maletas',
+      antes: `G.player.teleport(49.4, -24.5, Math.PI * 1.5)
+        for (let i = 0; i < 60; i++) G.player.update(1/60)`,
+      quadros: 24, espera: 600,
+    },
+    {
+      nome: 'p25-olhar-pra-baixo',
+      antes: `G.player.teleport(42, -18.0, Math.PI)
+        G.player.pitch = -1.35
+        for (let i = 0; i < 60; i++) G.player.update(1/60)
+        G.player.pitch = -1.35`,
+      quadros: 20, espera: 600,
+    },
+  ],
+  // A revisao desta rodada: catalogo de boca refeito (5), barba cheia refeita,
+  // cabelo sem o 'raspado' e com o arrepiado cortado pela linha do cabelo, e a
+  // sobrancelha subida pra caber acima do olho de desenho.
+  revisao: [
+    {
+      nome: 'p18-bocas',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        for (let i = 0; i < 17; i++) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = 'boca ' + i
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, cabelo:0, barba:0, olhos:0, boca:i }))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:250px;height:145px;object-fit:none;object-position:50% 66%;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1600, semQuadro: true,
+    },
+    {
+      nome: 'p19-barbas',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const tiros = []
+        for (let i = 1; i < 4; i++) { tiros.push(['barba ' + i + ' frente', i, 0]); tiros.push(['barba ' + i + ' 3/4', i, 0.85]) }
+        for (const [lb0, b, gi] of tiros) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, cabelo:0, olhos:0, boca:3, barba:b }))
+          G.provador.focar('rosto', true)
+          G.provador.girar(gi - (G.__gb || 0)); G.__gb = gi
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:400px;height:360px;object-fit:contain;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1800, semQuadro: true,
+    },
+    {
+      nome: 'p20-cabelo-sobrancelha',
+      antes: `G.fluxo.foto(true)
+        const d = document.createElement('div')
+        d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
+        const tiros = []
+        for (let c = 0; c < 5; c++) tiros.push(['cabelo ' + c, { cabelo:c, sobrancelha:0 }])
+        for (let s = 0; s < 3; s++) tiros.push(['sobranc. ' + s, { cabelo:0, sobrancelha:s }])
+        for (const [lb0, patch] of tiros) {
+          const w = document.createElement('div')
+          const lb = document.createElement('div'); lb.textContent = lb0
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, barba:0, olhos:0, boca:0 }, patch))
+          G.provador.focar('rosto', true)
+          G.provador.atualizar(0.6); G.provador.render()
+          const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
+          im.style.cssText = 'width:400px;height:360px;object-fit:contain;background:#222;border:1px solid #444'
+          w.appendChild(lb); w.appendChild(im); d.appendChild(w)
+        }
+        document.body.appendChild(d)`,
+      espera: 1800, semQuadro: true,
+    },
+  ],
   menu: [
     { nome: 'tela-01-menu', antes: "G.menu.abrir('principal')", espera: 900 },
     { nome: 'tela-02-modo', antes: "G.menu.abrir('modo')", espera: 700 },
@@ -248,11 +375,11 @@ export const GRUPOS = {
         for (let i = 0; i < 5; i++) {
           const w = document.createElement('div')
           const lb = document.createElement('div'); lb.textContent = 'olho ' + i
-          G.provador.setAparencia(Object.assign({}, G.appearance, { olhos:i, chapeu:0, cabelo:0, barba:0, nariz:1 }))
+          G.provador.setAparencia(Object.assign({}, G.appearance, { olhos:i, chapeu:0, cabelo:0, barba:0 }))
           G.provador.focar('rosto', true)
           G.provador.atualizar(0.6); G.provador.render()
           const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-          im.style.cssText = 'width:420px;height:300px;object-fit:none;object-position:50% 38%;background:#222;border:1px solid #444'
+          im.style.cssText = 'width:250px;height:175px;object-fit:none;object-position:50% 40%;background:#222;border:1px solid #444'
           w.appendChild(lb); w.appendChild(im); d.appendChild(w)
         }
         document.body.appendChild(d)`,
@@ -266,15 +393,17 @@ export const GRUPOS = {
       antes: `G.fluxo.foto(true)
         const d = document.createElement('div')
         d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
-        const base = { olhos:5, nariz:4, chapeu:0, cabelo:0, barba:0, boca:0, sobrancelha:0 }
-        for (const k of [0, 2, 4, 5, 7, 10]) {
+        const base = { chapeu:0, cabelo:0, barba:0, boca:0, sobrancelha:0 }
+        const tiros = []
+        for (const k of [0, 5]) for (const o of [0, 1, 2, 3, 4]) tiros.push([o, k])
+        for (const [o, k] of tiros) {
           const w = document.createElement('div')
-          const lb = document.createElement('div'); lb.textContent = 'palpebra ' + k
-          G.provador.setAparencia(Object.assign({}, G.appearance, base, { palpebra: k }))
+          const lb = document.createElement('div'); lb.textContent = 'olho ' + o + '  palpebra ' + k
+          G.provador.setAparencia(Object.assign({}, G.appearance, base, { olhos: o, palpebra: k }))
           G.provador.focar('rosto', true)
           G.provador.atualizar(0.6); G.provador.render()
           const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
-          im.style.cssText = 'width:420px;height:300px;object-fit:none;object-position:50% 38%;background:#222;border:1px solid #444'
+          im.style.cssText = 'width:250px;height:225px;object-fit:contain;background:#222;border:1px solid #444'
           w.appendChild(lb); w.appendChild(im); d.appendChild(w)
         }
         document.body.appendChild(d)`,
@@ -285,19 +414,18 @@ export const GRUPOS = {
       antes: `G.fluxo.foto(true)
         const d = document.createElement('div')
         d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;overflow:auto;font:11px monospace;color:#ddd;padding:6px;display:flex;flex-wrap:wrap;gap:4px'
-        const tiros = [
-          ['rosto inteiro aberto', { olhos:5, nariz:4, palpebra:0 }],
-          ['rosto inteiro meio',   { olhos:5, nariz:4, palpebra:4 }],
-          ['nariz cartoon so',     { olhos:0, nariz:4, palpebra:0 }],
-          ['persiana no olho 0',   { olhos:0, nariz:1, palpebra:5 }],
-          ['persiana no olho 2',   { olhos:2, nariz:1, palpebra:5 }],
-          ['persiana no olho 4',   { olhos:4, nariz:1, palpebra:5 }],
-        ]
+        const tiros = []
+        for (const c of [3, 4, 5]) {
+          tiros.push(['cabelo ' + c + ' frente', { cabelo:c, olhos:5, nariz:4 }])
+          tiros.push(['cabelo ' + c + ' perfil', { cabelo:c, olhos:5, nariz:4, __gira: 1.62 }])
+        }
         for (const [lb0, patch] of tiros) {
           const w = document.createElement('div')
           const lb = document.createElement('div'); lb.textContent = lb0
-          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, cabelo:0, barba:0 }, patch))
+          G.provador.setAparencia(Object.assign({}, G.appearance, { chapeu:0, barba:0 }, patch))
           G.provador.focar('rosto', true)
+          const gi = patch.__gira || 0
+          G.provador.girar(gi - (G.__gh || 0)); G.__gh = gi
           G.provador.atualizar(0.6); G.provador.render()
           const im = document.createElement('img'); im.src = G.renderer.domElement.toDataURL('image/png')
           im.style.cssText = 'width:400px;height:360px;object-fit:contain;background:#222;border:1px solid #444'
@@ -1046,7 +1174,13 @@ async function esperarDebugger() {
   throw new Error('navegador nao abriu a porta de debug')
 }
 
-const browser = await puppeteer.connect({ browserWSEndpoint: await esperarDebugger() })
+// protocolTimeout alto: o SwiftShader renderiza por software, e o salao da loja
+// de jogos com quatro luzes e duas mesas de sinuca passa dos 30 s por quadro
+// que o padrao do puppeteer aceita. No PC de verdade isso e milissegundo.
+const browser = await puppeteer.connect({
+  browserWSEndpoint: await esperarDebugger(),
+  protocolTimeout: 240000,
+})
 
 try {
   const page = await browser.newPage()

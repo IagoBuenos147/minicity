@@ -5,8 +5,8 @@ import { CATALOGOS_ROUPA } from '../player/roupas.js'
 // Painel de customizacao do personagem.
 //
 // Dois grupos de abas sobre os MESMOS catalogos do jogo:
-//   "rosto"  -> a cadeira do barbeiro (cabeca, olhos, pupila, nariz, boca,
-//               barba, cabelo, cor do cabelo, sobrancelha, pele)
+//   "rosto"  -> a cadeira do barbeiro (cabeca, olhos, boca, barba, cabelo,
+//               sobrancelha, cores)
 //   "roupa"  -> o provador (chapeu, roupa de cima, calca, calcado, colar,
 //               anel, relogio, tatuagem)
 //
@@ -99,7 +99,6 @@ export const TAB_DEFS = [
       { field: 'palpebra', title: 'Abrir e fechar', tipo: 'barra' },
     ],
   },
-  { field: 'nariz', label: 'NARIZ', title: 'Nariz', glyph: 'nariz', grupo: 'rosto', foco: 'rosto' },
   { field: 'boca', label: 'BOCA', title: 'Boca', glyph: 'boca', grupo: 'rosto', foco: 'rosto' },
   { field: 'barba', label: 'BARBA', title: 'Barba', glyph: 'barba', grupo: 'rosto', foco: 'rosto' },
   { field: 'cabelo', label: 'CABELO', title: 'Corte de cabelo', glyph: 'cabelo', grupo: 'rosto', foco: 'rosto' },
@@ -515,8 +514,6 @@ const CSS = `
   background:transparent; border:2px solid currentColor;
 }
 .mcrp-cz .cz-glyph.g-pupila::after{ left:50%; top:13px; width:8px; height:8px; margin-left:-4px; border-radius:50%; }
-.mcrp-cz .cz-glyph.g-nariz::before{ left:50%; top:5px; width:11px; height:20px; margin-left:-5.5px; border-radius:44% 44% 50% 50%; }
-.mcrp-cz .cz-glyph.g-nariz::after{ left:50%; top:22px; width:19px; height:6px; margin-left:-9.5px; border-radius:6px; opacity:.32; }
 .mcrp-cz .cz-glyph.g-boca::before{ left:24%; right:24%; top:12px; height:6px; border-radius:0 0 14px 14px; }
 .mcrp-cz .cz-glyph.g-boca.v1::before{ height:14px; border-radius:0 0 18px 18px; }
 .mcrp-cz .cz-glyph.g-boca.v2::before{ top:16px; height:5px; border-radius:14px 14px 0 0; }

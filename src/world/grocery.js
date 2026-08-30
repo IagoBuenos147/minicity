@@ -7,6 +7,7 @@ import {
 } from './materials.js'
 import * as Props from './props.js'
 import { createNPC } from '../npc/npc.js'
+import { bebidaDe } from '../mobilia/bebidas.js'
 import { congelarPersonagem } from '../player/congelar.js'
 
 // ---------------------------------------------------------------------------
@@ -88,11 +89,28 @@ const pick = (rng, arr) => arr[Math.min(arr.length - 1, Math.floor(rng() * arr.l
 // ---------------------------------------------------------------------------
 const M = {
   get floor() {
-    const t = tileTex(14, '#efece4', '#ddd8cd')
-    return stdMat('groc-floor', { map: t, roughness: 0.25, metalness: 0.04, color: 0xffffff })
+    // O DONO: "ta muito claro mesmo, e bem forte". Metade do problema era este
+    // piso. `#efece4` contra `#ddd8cd` sao dois brancos separados por 4% de
+    // luminancia — de pe, a 1,70 m, o xadrez simplesmente NAO EXISTE: e um
+    // lencol branco. E com roughness 0.25 ele ainda devolvia o brilho das nove
+    // calhas do teto direto no olho.
+    //
+    // O par novo tem 22% de diferenca entre as duas pastilhas, que e o que faz
+    // o desenho aparecer, e roughness 0.42 troca o reflexo especular por
+    // difuso. Continua sendo piso de mercado (claro e encerado), so que agora
+    // da pra ver que ele e feito de peca.
+    const t = tileTex(14, '#e2ded3', '#bdb7a9')
+    return stdMat('groc-floor', { map: t, roughness: 0.42, metalness: 0.02, color: 0xffffff })
   },
   get skirt() { return solid(0x51565c, 0.55, 0.15) },
-  get ceiling() { return solid(0xdcdcd8, 0.95) },
+  // Forro 12% mais escuro que a parede, de proposito. Teto e parede na mesma
+  // cor tiram a quina da sala: sem a linha onde um acaba e o outro comeca, o
+  // comodo perde o tamanho e vira uma caixa de luz.
+  get ceiling() { return solid(0xc3c5c2, 0.95) },
+  /** Verde da casa, lavado. Faixa de parede e rodape — e o que da cor a um
+   *  interior que era branco de cima a baixo. */
+  get faixa() { return solid(0x9dc0a8, 0.85) },
+  get parede() { return solid(0xdfe2dc, 0.92) },
   get plate() { return solid(0xe9ebec, 0.45, 0.25) },
   get steel() { return solid(0xb6bcc2, 0.35, 0.75) },
   get darkSteel() { return solid(0x3d4348, 0.45, 0.6) },
@@ -143,8 +161,8 @@ function placeProp(obj, x, z, ry) {
  * Retorna { obj, levels } com a gondola/prateleira apoiada em y=0.
  * Convencao de props.makeShelf: w em X, h em Y, d em Z, face aberta para +Z.
  */
-function makeShelfUnit(w, h, d) {
-  const obj = Props.makeShelf(w, h, d)
+function makeShelfUnit(w, h, d, opts) {
+  const obj = Props.makeShelf(w, h, d, opts)
   obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
   return { obj, levels: shelfLevels(h) }
 }
@@ -349,11 +367,20 @@ function buildCeilingAndLights(g, lights, fixtures) {
   const rodGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.22, 6)
   const xs = [-32.5, -25.5, -18.5]
   const zs = [-28.0, -22.0, -16.0]
-  const lampMat = emissive(0xf3f7ff, 3.2)
+  // 2.0 e nao 3.2. Sao NOVE calhas num comodo de 415 m2 e o brilho delas se
+  // soma: com 3.2 o teto inteiro passava do limiar do bloom (0.85, em
+  // core/engine.js) e o halo escorria pela sala toda, lavando o que estava
+  // embaixo. Tubo fluorescente e claro, nao e um holofote.
+  const lampMat = emissive(0xf3f7ff, 2.0)
   // difusor: painel voltado pra baixo, espalha o brilho da calha
+  // 0.55 e nao 0.95. O bloom corta em 0.85: um difusor TRANSPARENTE em 0.95
+  // termina na tela somado ao que aparece atras dele, entao o pixel dele fica
+  // cruzando o limiar pra cima e pra baixo conforme o angulo — acende e apaga
+  // sozinho. Em 0.55 ele nunca chega la, e quem estoura e o tubo (2.0), que
+  // estoura SEMPRE. Estourar sempre nao pisca; e ficar na beirada que pisca.
   const diffMat = stdMat('groc-diffuser', {
-    color: 0x0d0f12, emissive: 0xe3ecff, emissiveIntensity: 1.5,
-    roughness: 0.9, transparent: true, opacity: 0.62, depthWrite: false,
+    color: 0x0d0f12, emissive: 0xe3ecff, emissiveIntensity: 0.55,
+    roughness: 0.9, transparent: true, opacity: 0.5, depthWrite: false,
   })
   let n = 0
   for (const x of xs) {
@@ -363,18 +390,18 @@ function buildCeilingAndLights(g, lights, fixtures) {
       const hs = new THREE.Mesh(housingGeo, M.plate)
       hs.castShadow = true; hs.receiveShadow = true
       unit.add(hs)
-      // a ultima luminaria pisca: materiais proprios pra nao afetar as outras
-      const isFlick = (n === 4)
-      const tm = isFlick ? lampMat.clone() : lampMat
-      const dm = isFlick ? diffMat.clone() : diffMat
-      const tube = new THREE.Mesh(tubeGeo, tm)
-      tube.position.y = -0.055
+      // Tubo em -0.02 e nao -0.055. O tubo tem 5 cm de altura, entao a face de
+      // baixo dele ficava em -0.080 — 5 mm ABAIXO do difusor, que esta em
+      // -0.075: o tubo furava o difusor e a borda da furada piscava. Agora a
+      // face de baixo do tubo para em -0.045 e sobram 3 cm de folga. O tubo
+      // continua inteiro dentro da caixa (que vai de -0.055 a +0.055).
+      const tube = new THREE.Mesh(tubeGeo, lampMat)
+      tube.position.y = -0.02
       unit.add(tube)
-      const diff = new THREE.Mesh(diffGeo, dm)
+      const diff = new THREE.Mesh(diffGeo, diffMat)
       diff.rotation.x = Math.PI / 2
       diff.position.y = -0.075
       unit.add(diff)
-      if (isFlick) fixtures.flicker = [{ mat: tm, on: 3.2, off: 0.45 }, { mat: dm, on: 1.5, off: 0.2 }]
       for (const s of [-1, 1]) {
         const rod = new THREE.Mesh(rodGeo, M.steel)
         rod.position.set(s * 1.2, 0.16, 0)
@@ -387,10 +414,47 @@ function buildCeilingAndLights(g, lights, fixtures) {
 
   // Exatamente 3 PointLights (sem sombra) — corredor esquerdo, miolo e caixa.
   // Mais que isso e a cidade estoura o limite de luzes por frame.
-  const lit = [[-31.0, -24.0], [-24.0, -19.0], [-19.0, -15.5]]
-  for (const [x, z] of lit) {
-    const pl = new THREE.PointLight(0xeaf2ff, 34, 10, 2)
-    pl.position.set(x, CEIL_Y - 0.45, z)
+  // 22 e nao 34, alcance 13 e nao 10, e a cor menos azul.
+  //
+  // O conjunto antigo era forte e CURTO: 34 de intensidade com alcance 10 num
+  // comodo de 21 x 19 m faz tres poças duras de luz no meio dos corredores e
+  // deixa o resto no escuro, e o olho le o conjunto como "estourado" mesmo com
+  // metade da sala mal iluminada. Menos intensidade com mais alcance espalha o
+  // mesmo total por mais area: a leitura fica pareja e nada satura.
+  //
+  // 0xeaf2ff era azul de mais pra uma loja de bairro. 0xf4f5f6 e o branco
+  // levemente frio de lampada fluorescente, sem puxar pro ciano.
+  //
+  // ONDE elas ficam importa tanto quanto quanto elas valem. A posicao antiga
+  // punha uma luz em (-31, -24) e os letreiros de corredor estao pendurados em
+  // z = -24, x = -30: um metro de distancia. Com decay 2 isso entrega 20.8 de
+  // irradiancia no letreiro MERCEARIA contra 1.8 no letreiro vizinho e 2.1 no
+  // chao — 10x mais luz num objeto so. Ele saturava em branco, e como saturar
+  // depende do angulo, andar pelo corredor fazia o letreiro acender e apagar.
+  // Era a queixa "iluminacao muito forte perto do MERCEARIA, piscando de longe".
+  //
+  // Estas tres posicoes foram escolhidas medindo: nenhuma passa a 2.5 m de um
+  // objeto parado. Do ponto mais claro pro mais escuro da loja a razao caiu de
+  // 31.5x pra 3.1x, e o fundo dos corredores (que estava em 0.66, o canto
+  // escuro da loja) subiu pra 1.76. Mesma contagem de luzes, mesmo custo.
+  //
+  // Alcance 15 e nao 13 porque as luzes se afastaram das paredes: com 13 o
+  // corte caia dentro da sala.
+  // A ALTURA delas era o outro erro, e o maior de todos. Penduradas a 45 cm do
+  // forro, com decay 2, elas entregavam 119 de irradiancia no forro logo acima
+  // contra 1.8 no chao — 65x. O forro estourava em branco chapado em tres
+  // pocas e o bloom escorria delas, e era isso que se lia como "muito claro
+  // mesmo, e bem forte" mesmo com o chao na medida.
+  //
+  // Descendo pra 1.24 m abaixo do forro (e ficando 32 cm acima do topo das
+  // gondolas, sem encostar em nada), o forro cai pra 9.0 — treze vezes menos —
+  // e o chao ate MELHORA, porque a lampada se aproximou dele. A razao
+  // forro/chao vai de 65x pra 5.6x. Fisicamente e o certo tambem: a luz sai da
+  // boca da luminaria pra baixo, e o teto so recebe o reflexo.
+  const lit = [[-30.5, -20.5, 17], [-27.0, -27.5, 16], [-19.5, -16.5, 16]]
+  for (const [x, z, i] of lit) {
+    const pl = new THREE.PointLight(0xf4f5f6, i, 15, 2)
+    pl.position.set(x, CEIL_Y - 1.24, z)
     pl.castShadow = false
     g.add(pl)
     lights.push(pl)
@@ -404,7 +468,10 @@ function buildGondolas(g, colliders, pool) {
     const rng = mulberry32(gd.seed * 7919 + 13)
 
     for (const s of [-1, 1]) {
-      const { obj, levels } = makeShelfUnit(len, GONDOLA_H, GONDOLA_D)
+      // testeira: false — a coroa logo abaixo faz esse papel pela gondola
+      // inteira. Ver a nota em Props.makeShelf: as duas juntas eram o "bugando
+      // entre azul e verde" do corredor.
+      const { obj, levels } = makeShelfUnit(len, GONDOLA_H, GONDOLA_D, { testeira: false })
       // face aberta do movel (+Z local) apontando para s*X
       obj.rotation.y = s * Math.PI / 2
       obj.position.set(gd.x + s * (GONDOLA_D / 2), 0, cz)
@@ -421,8 +488,25 @@ function buildGondolas(g, colliders, pool) {
       })
     }
 
-    // testeira de topo com faixa colorida (ajuda a ler a silhueta de longe)
-    g.add(box(GONDOLA_D * 2, 0.14, len, M.accent, gd.x, GONDOLA_H + 0.07, cz))
+    // COROA DE TOPO — uma peca so, e ela e a testeira da gondola.
+    //
+    // Subiu de 14 pra 24 cm de altura porque agora carrega o letreiro OFERTAS
+    // nas duas faces do corredor (antes o letreiro vinha numa placa separada,
+    // que comecava na MESMA altura que esta e brigava por pixel com ela).
+    // O texto fica 1 cm pra fora da chapa: e folga de sobra pro z-buffer a
+    // qualquer distancia que o jogador consiga chegar dentro da loja.
+    g.add(box(GONDOLA_D * 2, 0.24, len, M.accent, gd.x, GONDOLA_H + 0.12, cz))
+    for (const s of [-1, 1]) {
+      const letreiro = new THREE.Mesh(
+        new THREE.PlaneGeometry(len - 0.3, 0.18),
+        textPlaneMat('OFERTAS', {
+          color: '#ffffff', font: 'bold 110px "Trebuchet MS", sans-serif', emissiveIntensity: 0.3,
+        }),
+      )
+      letreiro.position.set(gd.x + s * (GONDOLA_D + 0.01), GONDOLA_H + 0.12, cz)
+      letreiro.rotation.y = s * Math.PI / 2
+      g.add(letreiro)
+    }
     // ponta de gondola: painel arredondado nas duas extremidades
     for (const e of [gd.z0, gd.z1]) {
       // +0.05 no Y: o bisel do roundedBox estica a peca alem de h
@@ -446,7 +530,9 @@ function buildWallShelves(g, colliders, pool) {
   for (const r of runs) {
     const len = r.z1 - r.z0
     const cz = (r.z0 + r.z1) / 2
-    const { obj, levels } = makeShelfUnit(len, WALL_SHELF_H, WALL_SHELF_D)
+    // aqui a testeira do movel fica: nao ha coroa nenhuma por cima dela. So a
+    // cor muda pro verde da loja — o azul de fabrica destoava do resto.
+    const { obj, levels } = makeShelfUnit(len, WALL_SHELF_H, WALL_SHELF_D, { testeira: 0x1f7a44 })
     obj.rotation.y = r.s * Math.PI / 2
     obj.position.set(r.x, 0, cz)
     g.add(obj)
@@ -524,7 +610,9 @@ function buildFridges(g, colliders, pool) {
       new THREE.PlaneGeometry(FRIDGE_W - 0.30, 0.26),
       textPlaneMat(idx < 2 ? 'GELADOS' : 'BEBIDAS', { color: '#ffffff', glow: '#9be8c0', emissiveIntensity: 0.6 }),
     )
-    lbl.position.set(0, FRIDGE_H - 0.26, FRIDGE_D / 2 + 0.035)
+    // +0.05 e nao +0.035: a testeira atras termina em FRIDGE_D/2 + 0.03, e
+    // 5 mm de folga nao seguram o letreiro no lugar visto do outro corredor.
+    lbl.position.set(0, FRIDGE_H - 0.26, FRIDGE_D / 2 + 0.05)
     u.add(lbl)
 
     g.add(u)
@@ -674,14 +762,31 @@ function buildCandyRack() {
     t.castShadow = true; t.receiveShadow = true
     g.add(t)
   }
+  // A CHAPA VERMELHA VEM ANTES, E O TEXTO FICA 4 CM NA FRENTE DELA.
+  //
+  // O dono viu a placa de OFERTA "bugando, tremendo". A chapa e uma caixa de
+  // 3 cm de espessura centrada em z=0, ou seja, a face dela esta em +0.015; o
+  // plano do texto estava em +0.02. CINCO MILIMETROS entre duas superficies
+  // paralelas — e essa e a distancia mais perigosa que existe pro z-buffer, que
+  // aqui nao e logaritmico e perde precisao rapido com a distancia. A placa e
+  // pequena e vista de 8 a 12 m do outro lado do corredor, que e justamente
+  // onde os cinco milimetros deixam de existir na conta de profundidade.
+  //
+  // Quatro centimetros e oito vezes a folga anterior e continua invisivel: a
+  // placa e chapa com adesivo, e adesivo de 4 cm de espessura ninguem ve de
+  // frente.
+  g.add(box(0.40, 0.14, 0.03, solid(0xe0453c, 0.6), 0, 0.52, 0))
   const top = new THREE.Mesh(
     new THREE.PlaneGeometry(0.36, 0.12),
     textPlaneMat('OFERTA', { color: '#ffffff', glow: '#ff8b4a', emissiveIntensity: 0.5 }),
   )
-  top.position.set(0, 0.52, 0.02)
+  top.position.set(0, 0.52, 0.055)
   g.add(top)
-  g.add(box(0.40, 0.14, 0.03, solid(0xe0453c, 0.6), 0, 0.52, 0))
   g.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  // DEPOIS do traverse, de proposito: um plano de texto com alpha nao tem o que
+  // fazer no mapa de sombra do sol, e mandar ele pra la e mais uma superficie
+  // fina disputando profundidade — pelo mesmo motivo de tudo acima.
+  top.castShadow = false
   return g
 }
 
@@ -824,7 +929,7 @@ function buildClerk(g, colliders) {
       pants: 0x2b3540,
       shoes: 0xf0f0ee,
       appearance: {
-        cabeca: 4, olhos: 2, nariz: 1, boca: 0, barba: 3,
+        cabeca: 4, olhos: 2, nariz: 0, boca: 0, barba: 3,
         cabelo: 2, pele: 3, corCabelo: 0, corBarba: 6, sobrancelha: 1,
         chapeu: 0, calcado: 1, blusa: 3, calca: 0,
       },
@@ -985,17 +1090,25 @@ function buildSignageAndDetails(g) {
     u.position.set(s.x, 3.02, -24.0)
     const board = box(2.3, 0.5, 0.07, solid(s.c, 0.55), 0, 0, 0)
     u.add(board)
-    const face = textPlaneMat(s.t, { color: '#ffffff', glow: '#ffffff', emissiveIntensity: 0.45 })
+    // 0.28 e nao 0.45: o letreiro nao precisa competir com a lampada do teto,
+    // e emissivo alto aqui so aproxima o pixel do limiar de bloom.
+    const face = textPlaneMat(s.t, { color: '#ffffff', glow: '#ffffff', emissiveIntensity: 0.28 })
     for (const sz of [1, -1]) {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 0.4), face)
-      p.position.z = sz * 0.041
+      // 0.052 contra a face da chapa em 0.035 = 17 mm de folga. Os 6 mm de
+      // antes nao sobrevivem a precisao do z-buffer vista do outro lado da loja.
+      p.position.z = sz * 0.052
       if (sz < 0) p.rotation.y = Math.PI
       u.add(p)
     }
-    // tirantes ate o forro (CEIL_Y - 0.02)
+    // Tirantes ate o forro. 18 mm e nao 8: a 15 m de distancia um cilindro de
+    // 8 mm ocupa MENOS de um pixel na tela, e um traco sub-pixel nao tem como
+    // ser desenhado de forma estavel — ele aparece e some conforme a camera
+    // anda. E o mesmo motivo pelo qual as hastes dos pendentes da loja de jogos
+    // subiram de 16 pra 30 mm. Nao e iluminacao, e tamanho.
     const cableLen = (CEIL_Y - 0.02) - (3.02 + 0.25)
     for (const sx of [-1, 1]) {
-      const cable = cyl(0.008, 0.008, cableLen, M.steel, 6)
+      const cable = cyl(0.018, 0.018, cableLen, M.steel, 6)
       cable.position.set(sx * 0.9, 0.25 + cableLen / 2, 0)
       u.add(cable)
     }
@@ -1102,13 +1215,56 @@ export function buildGrocery(game) {
     label: 'Falar com a atendente',
     onInteract: (gm) => gm.toast('Atendente: bem-vindo a mercearia! Da uma olhada.'),
   })
+  // --- A VENDA DE BEBIDA -----------------------------------------------------
+  //
+  // Era um toast mentiroso ("Voce comprou um refrigerante. -R$ 5") que nao
+  // cobrava nada e nao entregava nada. Agora abre a MESMA janela de loja do Taco
+  // de Ouro (src/ui/loja-ui.js), com o catalogo de bebidas no lugar do de
+  // mobilia — a regra de compra, o carrinho e a conferencia de vaga sao os
+  // mesmos, porque sao o mesmo modulo.
+  //
+  // Este arquivo nao importa UI nenhuma: chama por `gm.mercado`, do mesmo jeito
+  // que o interior da loja de jogos chama `gm.loja` e o cassino chama
+  // `gm.cassino`. Quem monta a janela e o main.
+  //
+  // TRES PORTAS pra mesma loja, e nao uma: o caixa (quem chega pra pagar) e as
+  // DUAS geladeiras rotuladas BEBIDAS (quem chega pela prateleira). Foi a
+  // mesma decisao da loja de jogos — "os itens tb devem estar a vista" —, e ela
+  // e o que faz a geladeira ser jogo e nao cenario.
+  function abrirMercado(gm, foco) {
+    if (gm.mercado && typeof gm.mercado.abrir === 'function') gm.mercado.abrir(foco)
+    else gm.toast('Atendente: as bebidas estao na geladeira do fundo.')
+  }
+
   interactables.push({
     id: 'grocery-buy',
     position: new THREE.Vector3(-17.6, BASE + 1.0, -15.3),
     radius: 2.0,
-    label: 'Comprar um refrigerante',
-    onInteract: (gm) => gm.toast('Voce comprou um refrigerante. -R$ 5'),
+    label: 'Comprar bebida',
+    onInteract: (gm) => abrirMercado(gm),
   })
+
+  // As geladeiras de indice 2 e 3 sao as que levam o letreiro BEBIDAS (ver
+  // buildFridges); as duas primeiras dizem GELADOS. O ponto fica na FRENTE do
+  // vidro, meio metro pra fora da porta, e na altura da prateleira do meio: a
+  // interacao pesa o Y pela metade, entao ai o rotulo aparece na hora certa
+  // tambem em primeira pessoa.
+  const zVitrine = IN.z0 + FRIDGE_D + 0.55
+  const PORTAS = [
+    { x: FRIDGE_X[2], foco: 'cerveja-lata' },
+    { x: FRIDGE_X[3], foco: 'whiskey-garrafa' },
+  ]
+  for (let i = 0; i < PORTAS.length; i++) {
+    const porta = PORTAS[i]
+    const b = bebidaDe(porta.foco)
+    interactables.push({
+      id: 'grocery-geladeira-' + i,
+      position: new THREE.Vector3(porta.x, BASE + 1.15, zVitrine),
+      radius: 1.9,
+      label: b ? ('Pegar: ' + b.nome + ' — ' + b.preco) : 'Geladeira de bebidas',
+      onInteract: (gm) => abrirMercado(gm, porta.foco),
+    })
+  }
 
   // ---- animacao do modulo -------------------------------------------------
   // npc.js le target.matrixWorld, entao o alvo TEM que ser um Object3D.
@@ -1122,7 +1278,6 @@ export function buildGrocery(game) {
   }
 
   let t = 0
-  let flickT = 0
 
   function update(dt, gm) {
     t += dt
@@ -1143,15 +1298,11 @@ export function buildGrocery(game) {
       if (typeof npc.update === 'function') npc.update(dt)
     }
 
-    // uma fluorescente com mau contato (tubo + difusor piscam juntos)
-    if (fixtures.flicker) {
-      flickT -= dt
-      if (flickT <= 0) {
-        flickT = 0.05 + Math.random() * 1.6
-        const on = Math.random() > 0.22
-        for (const f of fixtures.flicker) f.mat.emissiveIntensity = on ? f.on : f.off
-      }
-    }
+    // A fluorescente de mau contato saiu. Era juice de proposito — uma calha
+    // piscando no meio do salao — mas o dono a leu como defeito duas vezes
+    // ("ela fica piscando quando vejo de longe") e pediu pra tirar. Uma luz que
+    // pisca de proposito e indistinguivel de uma luz com bug: quem joga nao tem
+    // como saber a diferenca, e o beneficio nao paga a duvida.
   }
 
   return { group, colliders, interactables, update }

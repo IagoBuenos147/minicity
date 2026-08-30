@@ -325,11 +325,16 @@ export const CAMPOS_APARENCIA = [
 // 'jaqueta' vale 1 (so o indice 0) porque blusa e jaqueta viraram UMA aba: o
 // catalogo JAQUETAS esta vazio e o campo continua no pacote por causa dos 20
 // bytes fixos, sempre em 0. Ver o comentario de JAQUETAS em roupas.js.
+// ESTA TABELA E UM ESPELHO DO TAMANHO DOS CATALOGOS, e tem que ser mantida
+// junto com eles nos DOIS sentidos. Menor que o catalogo, os itens novos
+// chegam cortados na tela dos outros jogadores (o indice para na ultima opcao
+// antiga). MAIOR que o catalogo e pior: o indice passa, `catalogo[i]` volta
+// undefined la no fundo do render, no meio de um frame, e o boneco SOME.
 export const APARENCIA_OPCOES = [
   //  cabeca olhos palpebra nariz boca barba cabelo pele corCab sobrancelha
-          6,    6,       11,    5,   3,    4,     3,  10,    11,          3,
+         12,   15,       11,    1,  17,   25,    21,  10,    11,         12,
   //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
-           7,      5,    4,    3,    4,   4,   4,      4,      1,       9,
+           7,      7,   12,   13,    4,   4,   4,      4,      1,       9,
 ]
 
 // O BYTE 2 MUDOU DE DONO, e nao de posicao. Ele era 'pupila'; a aba de pupila
@@ -348,14 +353,15 @@ export const APARENCIA_OPCOES = [
  */
 const APARENCIA_DEFAULT = [
   //  cabeca olhos palpebra nariz boca barba cabelo pele corCab sobrancelha
-          0,    0,       0,     1,   0,    0,     0,   0,     1,          0,
+          0,    0,       0,     0,   0,    0,     0,   0,     1,          0,
   //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
            0,      1,    1,    0,    0,   0,   0,      0,      0,       0,
 ]
 
-// 'nariz' nasce em 1 e nao em 0 porque o indice 0 do catalogo de nariz e
-// "sem nariz" (o dono pediu a opcao). Um padrao todo zerado entregaria um
-// jogador novo com a cara lisa e ele leria isso como bug, nao como estilo.
+// 'nariz' vale 1 OPCAO e nasce em 0 porque o catalogo de nariz esta VAZIO: o
+// personagem passou a usar o rosto da referencia, que nao tem nariz desenhado.
+// O campo continua ocupando o byte 3 (os 20 bytes sao fixos) e viaja sempre em
+// 0 — tirar o byte custaria uma versao de protocolo pra economizar um byte.
 
 // --- tamanhos fixos ---------------------------------------------------------
 // 20 bytes: um por campo de CAMPOS_APARENCIA. Derivado da lista de proposito —

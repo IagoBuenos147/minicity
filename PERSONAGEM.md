@@ -13,20 +13,20 @@ desta tabela **é** o protocolo.
 
 | # | campo | opções | observação |
 |---|---|---|---|
-| 0 | `cabeca` | 6 | formatos de crânio |
-| 1 | `olhos` | 6 | cada um traz a própria íris |
+| 0 | `cabeca` | 12 | formatos de crânio (6 originais + ovalada, achatada, alongada atrás, diamante, trapézio, coração) |
+| 1 | `olhos` | 15 | todos de desenho; cada um traz a própria íris e a própria pálpebra. Os 10 últimos mudam só o **miolo**: detalhe chapado (olheira, brilho duplo, cílios, anel na íris) e depois a pupila (miniatura, gigante, fenda de gato, íris tripla, reflexo em meia-lua, íris raiada) |
 | 2 | `palpebra` | 11 | **barra**: 0 = aberto, 10 = fechado. Ocupa o byte que era da pupila |
-| 3 | `nariz` | 5 | 0 = sem nariz |
-| 4 | `boca` | 3 | |
-| 5 | `barba` | 4 | 0 = sem barba |
-| 6 | `cabelo` | 3 | |
+| 3 | `nariz` | 1 | **campo morto**: o catálogo esvaziou, viaja sempre 0 |
+| 4 | `boca` | 17 | todas são linha |
+| 5 | `barba` | 25 | 0 = sem barba. As 24 últimas são o cartaz de 24 estilos de barbearia inteiro, na ordem do cartaz. `cheia`, `stubble` e `costeletas` saíram por recusa do dono |
+| 6 | `cabelo` | 21 | os 18 últimos saem de um cartaz de cortes masculinos. `raspado`, `undercut` e `trancinhas` saíram por recusa do dono (filtro em `appearance.js`, o código continua nos arquivos) |
 | 7 | `pele` | 10 | tom |
 | 8 | `corCabelo` | 11 | |
-| 9 | `sobrancelha` | 3 | |
+| 9 | `sobrancelha` | 12 | variam formato E espessura do fio ao mesmo tempo |
 | 10 | `chapeu` | 7 | 0 = nenhum |
-| 11 | `calcado` | 5 | 0 = descalço |
-| 12 | `blusa` | 4 | 0 = nenhuma. A aba se chama **CAMISAS** |
-| 13 | `calca` | 3 | |
+| 11 | `calcado` | 7 | 0 = descalço. A `bota` saiu por recusa do dono; entraram tênis de corrida, tênis de skate e sapato social |
+| 12 | `blusa` | 12 | 0 = nenhuma. A aba se chama **CAMISAS**. O catálogo foi REFEITO: das antigas só o `moletom` ficou (o único de dupla casca, com avesso visível na borda) e entraram 10 modas novas — regata, polo, flanela, corta-vento, havaiana, camisa de time, tricô, jaqueta jeans, oversized e colete |
+| 13 | `calca` | 13 | quatro delas são **bermudas**. As 10 novas saíram da mesma lista de modas das camisas, pra as duas abas combinarem |
 | 14 | `colar` | 4 | 0 = nenhum |
 | 15 | `anelAcess` | 4 | 0 = nenhum |
 | 16 | `tatuagem` | 4 | 0 = nenhuma |
@@ -60,7 +60,7 @@ peça é um arquivo; a matemática compartilhada é um núcleo.
 |---|---|
 | `src/player/rosto/nucleo.js` | **a matemática do crânio** + as ferramentas de rosto (pelo, cor, casca) |
 | `src/player/rosto/CONTRATO.md` | como escrever uma peça de rosto. Leia antes de mexer |
-| `src/player/rosto/{olhos,nariz,boca,barba,cabelo,sobrancelha}.js` | um catálogo cada |
+| `src/player/rosto/{olho-cartoon,olho-extra,boca,boca-extra,barba,barba-extra,cabelo,cabelo-extra,cabelo-corte,sobrancelha,sobrancelha-extra}.js` | um catálogo cada (os `-extra`/`-corte` entram no fim da lista do irmão, nunca no meio: índice de catálogo é o que está salvo no save e o que viaja na rede) |
 | `src/player/appearance.js` | agregador: reexporta tudo com os nomes antigos |
 | `src/player/roupa/nucleo.js` | as ferramentas de roupa (casca, folga, perfil do corpo) |
 | `src/player/roupa/CONTRATO.md` | como escrever uma peça de roupa |
@@ -106,8 +106,25 @@ ali. Daí a separação:
 
 ## 4. Os olhos
 
-Seis olhos, **seis métodos**, e a íris faz parte de cada um — **não existe mais
-catálogo de pupila**.
+Cinco olhos, **um modelo com tabela de parâmetros**, e a íris faz parte de cada um
+— **não existe mais catálogo de pupila** (nem de nariz).
+
+Os cinco olhos realistas, cada um por um método de construção diferente, foram
+retirados do catálogo. Não foi por defeito: o personagem escolheu um estilo, e um
+olho realista de 2 cm no mesmo catálogo que um olho de desenho de 8 cm não é
+escolha de gosto — são duas caras diferentes no mesmo corpo. Estão inteiros em
+`backup/personagem/olhos-antigo.js`.
+
+**Os olhos mandam no resto do rosto.** Com 8 cm de globo e contorno preto grosso:
+
+- a **sobrancelha** subiu de `0.077 * S` para `0.098 * S`, porque o topo do olho
+  (com o contorno) está em `0.0864 * S` e a borda de baixo da sobrancelha fica
+  `0.0093 * S` abaixo da linha dela — com o valor antigo ela era desenhada
+  **atravessando** o globo;
+- a **boca** só pode ser **traço** (ver seção 4b): ao lado de um contorno preto
+  chapado, qualquer peça com sombra própria lê como objeto colado no rosto;
+- o **furo da boca na barba cheia** cresceu junto (meia-largura 8,6 cm contra
+  4,7 cm), senão a barba fecha por cima da boca.
 
 O que todo olho tem que ter: pálpebra de **geometria** (nunca textura), esclera
 que não é branco puro, **anel limbal escuro** na borda da íris, pelo menos um
@@ -155,9 +172,118 @@ Três coisas que o render pegou e que não são óbvias:
   arco 0.95 é 42% acima de onde para na frente, deixando uma **cunha branca** nos
   cantos. Por isso o arco vai de 0.95 a 1.52 ao longo do curso.
 
-Os outros cinco olhos ganham a **persiana** (`rosto/nucleo.js`): uma casca de
-pele que desce por cima do olho inteiro, seguindo a curvatura do próprio globo
-(daí `OLHO_GLOBO`). Com a barra em zero ela não cria malha nenhuma.
+Os cinco olhos realistas que existiam antes saíram do catálogo (estão em
+`backup/personagem/olhos-antigo.js`) e com eles saiu a **persiana**, a pálpebra
+genérica que dependia das medidas publicadas em `OLHO_GLOBO`. Os três que
+ficaram desenham a própria pálpebra por dentro. `persianaOlho()` continua em
+`rosto/nucleo.js` para quem for escrever o próximo olho sem pálpebra própria.
+
+---
+
+## 4b. A boca e a barba
+
+**Quatro bocas, e as quatro são o mesmo traço.**
+
+Antes disto houve uma rodada de bocas ambiciosas — sorriso com canto em bolota,
+fileira de dentes, cavidade escavada com língua — e as três foram recusadas de
+uma vez, junto com o lábio cheio e a cavidade que vinham de `boca.js`. O motivo
+é o mesmo nas cinco:
+
+> **Peça com volume não convive com rosto de traço.**
+
+A cara é feita de linhas chapadas: o olho é uma bola branca com um contorno
+preto de espessura constante, e a sobrancelha é um risco. Do lado disso,
+qualquer coisa com sombra própria — um lábio que pega realce, uma chapa de dente
+com parede lateral acesa, um buraco com rebordo — vira um **objeto colado** no
+rosto em vez de virar parte do desenho. Não é questão de afinar parâmetro: é a
+técnica errada para este rosto.
+
+A primeira tentativa de traço reaproveitou a **fita** da boca `traco` e também
+foi recusada — "ficou parecendo um boneco". A fita é uma **lente**: engrossa no
+meio e afina até quase nada nas pontas. Isso funciona no `traco`, onde a linha é
+quase reta e a lente lê como o sulco de um lábio fechado; mas com uma curva forte
+por cima, barriga no meio mais dois bicos nos cantos é exatamente o desenho da
+boca **entalhada** de um boneco de ventríloquo. Não era a curva — era a espessura
+variável.
+
+As três de `rosto/boca-extra.js` são outra arte, e mais simples:
+
+> **espessura constante + ponta redonda** — um risco de caneta.
+
+5 mm de espessura do começo ao fim e um semicírculo fechando cada ponta. Sobre
+essa caneta vieram três formas elementares; depois, mais três que trocam **a
+caneta** em vez da forma:
+
+| | o que muda | por quê |
+|---|---|---|
+| Traço | lente, quase reta | o da referência, mantido |
+| Neutro | **reta** | a ponta redonda é o que impede a reta de ler como um corte |
+| Alegre | **arco de círculo** | numa parábola a curvatura cresce em direção às pontas e o sorriso "abre" nos cantos; num arco ela é a mesma do começo ao fim |
+| Raiva | **ângulo** (dois segmentos) | reta e arco já são as outras duas; o "^" é a única forma que não se confunde com nenhuma a 3 m de câmera |
+| Pincelada | espessura **assimétrica** | entra fina, engrossa a 67% do caminho, levanta fina. É a assimetria que separa "risco feito à mão" de "peça fresada" — a lente do `traco` também varia, mas simétrica, e por isso lê como entalhe |
+| Ondulada | uma **onda inteira** de seno | única com simetria de **rotação** em vez de espelho, e única que lê como dúvida |
+| Aro | a curva **fecha** | as outras têm duas pontas e separam "em cima" de "embaixo"; o aro não tem ponta e separa "dentro" de "fora". É a boca aberta feita só de linha, com a pele aparecendo dentro — o oposto da cavidade escavada recusada na primeira rodada |
+
+As sete acima ainda eram **a mesma marca**: uma fita escura contínua deitada na
+pele. O que variava era o caminho e o perfil de espessura — e é por isso que
+todas parecem parentes por mais diferente que seja a curva.
+
+> **Variar caminho e espessura não é variar a arte.**
+
+As três últimas trocam o **tipo de marca**:
+
+| | a marca é | por quê funciona |
+|---|---|---|
+| Hachura | **seis traços curtos** e soltos, com falha entre eles | a regra é a FALHA: se os seis se encostassem viraria uma fita contínua de borda tremida, ou seja a mesma marca malfeita. É o vão que faz o olho completar a linha, e essa participação é o que dá a sensação de coisa desenhada à mão |
+| Duplo | **duas** linhas paralelas | a de baixo tem 55% do comprimento, 30% da espessura e a curvatura **invertida** (acompanha o queixo, não a boca). Duas cópias iguais leriam como erro de renderização |
+| Pontilhado | **nove marcas redondas** | o tamanho não é constante: nove iguais leem como fileira de cravos. Crescendo no meio e sumindo nas pontas, viram uma linha que o olho fecha sozinho |
+
+As três são uma geometria só (`juntar()` funde as marcas e copia as normais em
+vez de recalcular — recalcular mediaria as normais de marcas vizinhas que se
+encostam e acenderia um vinco na emenda). E o número de estações de cada risco
+sai do **comprimento**: com 34 fixas, um pingo de 5 mm custava 350 triângulos e
+o pontilhado inteiro passava de 3 mil; agora custa 900.
+
+A quarta leva é **fina** (58% da espessura) e um pouco menor, e as três são
+feitas de **segmentos retos emendados** — o que dá identidade a cada uma é o
+**canto** entre eles:
+
+| | a marca é | por quê funciona |
+|---|---|---|
+| Serrilhado | seis segmentos alternando cima/baixo | os cotovelos se arredondam **de graça**: a ponta redonda de dois segmentos vizinhos cai no mesmo ponto e a sobreposição É o canto. Como linha de centro única (onda triangular) daria bico agudo e a fita se dobraria sobre si mesma em cada quina |
+| Colchete | um traço longo + dois terminais **verticais** | `risco` aguenta `x0 === x1` porque a normal sai da **derivada**: com `dx = 0` ela vira (−1, 0) e a fita se abre no eixo X. Com normal (0,1) fixa — o que era tentador escrever — o terminal nasceria com largura zero |
+| Partido | duas metades que não se encontram | o **degrau** é o que salva: duas metades no mesmo nível com um vão leem como erro de renderização, o olho procura o pedaço que faltou. Com a direita 5 mm mais alta, o vão vira intenção |
+
+Traço fino não é "a mesma boca menor" — ele muda o que a boca **aguenta**. Numa
+fita de 7 mm um cotovelo se dobra sobre si mesmo e vira um nó (foi por isso que a
+boca de raiva precisou arredondar o vértice com hipotenusa); com 4 mm o canto
+fecha limpo, e só por isso esta leva pode existir.
+
+Dois detalhes do risco que não são óbvios: a normal sai da **derivada** da linha
+(medida na vertical, a espessura de um arco fica 20% maior nas pontas), e a ponta
+redonda para em `cos(1.476)`, não em `cos(PI/2)` — espessura zero cria triângulo
+degenerado, e vértice degenerado sai com normal (0,0,0), que na tela é uma mancha
+preta na ponta da boca.
+
+Três traços que leem a 3 m de câmera valem mais que três esculturas que só
+funcionam em close.
+
+**A barba cheia foi refeita.** A primeira versão foi recusada pelos pelos
+externos, e o defeito não era densidade nem cor — eram três decisões:
+
+1. **Fios da silhueta poucos, compridos e espalhados.** 62 fios de até 1,1 cm em
+   4,4 rad dá um fio a cada 4°, e cada um é contável a olho nu. Borda de barba é
+   o contrário: **muito fio curto**, tão junto que o olho para de contar.
+2. **Mechas sorteadas em posição e em giro.** `rnd() * Math.PI` no giro da seção
+   punha cada mecha num ângulo próprio; com a seção achatada, uma fica deitada e
+   a vizinha em pé. O resultado tem nome: **escama**. Barba é penteada.
+3. **Comprimento só de sorteio.** Sem uma tabela por azimute, o mesmo sorteio
+   vale na costeleta e no queixo, o contorno serrilha em alta frequência e a
+   barba não tem **forma**.
+
+O manto (a camada que resolve o furo da boca) foi mantido; mechas e franja foram
+reescritas sobre `COMP(az)` — cheio no queixo (1.0), quase raspado na costeleta
+(0.22) — e um penteado único, calculado num lugar só.
 
 ---
 

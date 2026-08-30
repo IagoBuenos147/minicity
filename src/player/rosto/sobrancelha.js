@@ -101,17 +101,30 @@ const S = HEAD_S
 /**
  * Altura da sobrancelha no espaco da cabeca.
  *
- * A tabela do CONTRATO diz 0.096 * S; este arquivo desce pra 0.077 * S de
- * proposito (ver defeito 1 no cabecalho). A conta que manda e a distancia ate o
- * OLHO, nao a distancia ate o topo do cranio: (0.077 - 0.035) * S = 5,6 cm numa
- * cabeca de 49,2 cm, ou 11,4% da altura — a faixa humana e 11 a 13%.
+ * SUBIU DE 0.077 PRA 0.098 QUANDO O CATALOGO DE OLHO MUDOU, e o numero nao e
+ * gosto — e o piso da conta.
  *
- * O piso e a palpebra: o topo do olho fica por volta de 0.062 * S e a borda de
- * baixo da peca mais gorda (metodo A, na cabeca da sobrancelha) para em
- * 0.0677 * S. Sao 6,9 mm de pele a vista entre uma coisa e outra, que e o que
- * impede a sobrancelha de ler como palpebra pesada.
+ * O 0.077 valia pros olhos realistas, cujo topo ficava por volta de 0.062 * S:
+ * a borda de baixo da peca mais gorda (metodo A, na cabeca da sobrancelha) para
+ * 0.0093 * S abaixo desta linha, entao sobravam 6,9 mm de pele a vista e a
+ * sobrancelha nao lia como palpebra pesada.
+ *
+ * O olho que ficou no catalogo e outro bicho. O de desenho tem centro em
+ * EYE_ANCHOR.y + 0.004 = 0.039 * S e semi-eixo vertical 0.0448 * S, e ainda
+ * carrega o contorno preto por fora (casco invertido em 1.058):
+ *
+ *     topo do olho = 0.039 + 0.0448 * 1.058 = 0.0864 * S
+ *
+ * Com BROW_Y em 0.077 a borda de baixo da sobrancelha caia em 0.0677 * S — ou
+ * seja, DOIS CENTIMETROS DENTRO do globo. Nao e que ficasse apertado: a
+ * sobrancelha era desenhada atravessando o olho.
+ *
+ * 0.098 poe a borda de baixo em 0.0887 * S, 4,9 mm acima do contorno do olho, e
+ * deixa 0.054 * S (7,2 cm) de testa ate a linha do cabelo mais baixa — que e o
+ * espaco de que uma cabeca com olho deste tamanho precisa. A tabela do CONTRATO
+ * pedia 0.096 * S, entao isto e um retorno a ela, nao uma invencao.
  */
-const BROW_Y = 0.077 * S
+const BROW_Y = 0.098 * S
 
 /**
  * Onde fica o MEIO da sobrancelha (antes do faceSpread) e quanto ela mede.

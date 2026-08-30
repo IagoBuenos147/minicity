@@ -634,11 +634,18 @@ function malhaConchas(sp, s, nCol, corte, pCranio, pMaxilar) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. OS SEIS CRANIOS
+// 6. OS DOZE CRANIOS
 //
-// Seis, e nao treze: o pedido foi menos cabecas e mais cuidado em cada uma. Os
-// nomes sao os que o dono do projeto listou — redonda, comprida, quadrada,
-// pera, realista e mandibula.
+// Comecou em seis, e nao treze: o pedido foi menos cabecas e mais cuidado em
+// cada uma. Os nomes das seis primeiras sao os que o dono do projeto listou —
+// redonda, comprida, quadrada, pera, realista e mandibula.
+//
+// Tres a mais entraram depois — ovalada, achatada, alongada-atras — sempre
+// pelo mesmo criterio das seis: cabeca nova so entra se mudar a SILHUETA
+// contra TODAS as que ja estavam na lista, nao so o parametro. As tres novas
+// atacam um eixo que nenhuma das seis tinha como identidade principal: testa
+// larga com queixo fino (ovalada), baixa e larga (achatada) e funda com o
+// occipital projetado (alongada-atras).
 //
 // Cada uma declara o METODO que a constroi. Nao e decoracao: a silhueta e o
 // sombreado mudam de verdade entre um metodo e outro, e e essa diferenca que
@@ -821,6 +828,186 @@ export const CRANIOS = [
       occipital: 0.08, occY: -0.06,
     }),
     malha(s) { return malhaConchas(this.campo, s, 32, 1.34, 2.0, 3.4) },
+  },
+
+  // -------------------------------------------------------------------------
+  // 6 OVALADA — metodo A (esfera UV).
+  // Ovo invertido: testa larga, queixo fino — o oposto da pera, que alarga
+  // embaixo e estreita em cima. crown positivo alarga a moleira; taper alto
+  // (0.58) com taperP moderado (1.85) afina o queixo numa curva continua, sem
+  // o degrau que um taperP baixo deixaria no meio do rosto.
+  // Fica com o metodo A por um motivo diferente do da redonda: um ovo tem a
+  // curvatura mais fechada nas DUAS pontas (testa e queixo), que e exatamente
+  // onde a esfera UV concentra vertice por causa dos polos. Nos outros tres
+  // metodos essa concentracao so existe numa ponta (aneis, com foco) ou em
+  // nenhuma (cubo); aqui as duas pontas precisam dela ao mesmo tempo.
+  // Sem square, sem goniaco, sem temple: nenhuma quina, so curva — e o que
+  // impede 'ovalada' de virar 'quadrada com os cantos limados'.
+  {
+    id: 'ovalada', nome: 'Ovalada', metodo: 'esfera UV',
+    campo: campo({
+      kx: 0.96, kz: 1.02, yTop: 1.02, taper: 0.58, taperP: 1.85, nape: 0.05,
+      crown: 0.17,
+      zigo: 0.06, zigoY: 0.04, zigoW: 0.22,
+      queixo: 0.05, queixoY: -0.80,
+      brow: 0.05, browY: 0.34, glabela: 0.03, frontal: 0.07,
+    }),
+    malha(s, wSeg, hSeg) { return malhaUV(this.campo, s, wSeg || 36, hSeg || 28) },
+  },
+
+  // -------------------------------------------------------------------------
+  // 7 ACHATADA — metodo B (cubo esferificado).
+  // Baixa e larga, cabeca de crianca: yTop no piso da faixa permitida (0.95 —
+  // o minimo que o esqueleto aceita, ver a REGRA DE ALTURA acima). kx 1.16 e o
+  // maior do catalogo inteiro; kz 1.10 e o maior ate aqui — a alongada-atras,
+  // logo abaixo, vai mais funda ainda, mas por um caminho diferente (kz sobe,
+  // kx desce, ao inves de crescer junto; ver o comentario dela). Os dois eixos
+  // crescendo JUNTOS e o que da a leitura "larga" sem violar a altura que o
+  // resto do jogo assume.
+  // A quadrada tambem usa cubo, mas pelo motivo OPOSTO: ela precisa da grade
+  // uniforme pra desenhar o CANTO do maxilar. Aqui nao ha canto nenhum, e e
+  // por isso mesmo que o cubo ainda ganha — uma cabeca larga e sem afunilamento
+  // nao tem NENHUM ponto que peca mais densidade, e a esfera UV sempre aposta
+  // nos polos mesmo quando nada ali merece a aposta. O cubo e o unico metodo
+  // que nao aposta em lugar nenhum.
+  // brow, frontal, zigo e goniaco ficam quase zerados de proposito: relevo de
+  // osso adulto marcado nao combina com cranio que ainda nao formou as
+  // saliencias.
+  {
+    id: 'achatada', nome: 'Achatada', metodo: 'cubo esferificado',
+    campo: campo({
+      kx: 1.16, kz: 1.10, yTop: 0.95, taper: 0.10, taperP: 2.2, nape: 0.04,
+      crown: 0.10,
+      zigo: 0.04, zigoY: 0.10, zigoW: 0.30,
+      queixo: 0.04, queixoY: -0.72,
+      brow: 0.04, browY: 0.36, frontal: 0.05,
+    }),
+    malha(s) { return malhaCubo(this.campo, s, 11) },
+  },
+
+  // -------------------------------------------------------------------------
+  // 8 ALONGADA ATRAS — metodo C (aneis empilhados), foco no occipital (0.55).
+  // Dolicocefalica: funda, nao larga. kz sobe pra 1.18 — mais que o kz da
+  // propria achatada (1.10, a mais larga do catalogo) — mas ao CONTRARIO dela
+  // o kx ENCOLHE (0.90, igual a comprida) em vez de crescer: achatada sobe kx
+  // E kz juntos (fica GRANDE), esta so sobe kz e desce kx (fica FUNDA, perfil
+  // estreito). Os mesmos dois numeros, lidos em direcoes opostas, viram duas
+  // identidades diferentes.
+  // occipital vai ao dobro do maior valor que o catalogo tinha ate aqui (0.30
+  // contra 0.15 na realista), puxado pra baixo (occY -0.14) pra ficar "atras e
+  // embaixo", como o proprio campo ja documenta. O foco em 0.55 nao e o mesmo
+  // numero da comprida (0.62) por coincidencia: e a altura (em t, 0=topo,
+  // 1=queixo) que cai matematicamente em cima de occY -0.14, pra concentrar os
+  // aneis onde a saliencia acontece — sem isso a bossa de tras vira um degrau
+  // de dois aneis, o mesmo defeito que ja pintou 'comprida' e 'pera' de preto
+  // quando a costura saiu errada (ver o comentario da MALHA C, acima).
+  {
+    id: 'alongada-atras', nome: 'Alongada atras', metodo: 'aneis empilhados',
+    campo: campo({
+      kx: 0.90, kz: 1.18, yTop: 1.02, taper: 0.30, taperP: 1.45, nape: 0.02,
+      occipital: 0.30, occY: -0.14,
+      zigo: 0.07, zigoY: 0.03, zigoW: 0.20,
+      goniaco: 0.04, goniacoY: -0.46,
+      queixo: 0.08, queixoY: -0.78,
+      brow: 0.05, browY: 0.34, glabela: 0.03, frontal: 0.06,
+    }),
+    malha(s) { return malhaAneis(this.campo, s, 26, 30, 0.55) },
+  },
+
+  // -------------------------------------------------------------------------
+  // 9 DIAMANTE — metodo B (cubo esferificado).
+  // Silhueta estreito-largo-estreito: tempora fechada, maca do rosto no pico
+  // de largura do catalogo, queixo quase em ponta. Nenhuma das nove chega
+  // perto disso — redonda e realista tambem inflam a maca, mas continuam
+  // largas em cima e embaixo tambem; aqui as duas pontas ficam FINAS de
+  // proposito pra a faixa do meio, sozinha, ler como o ponto largo.
+  // zigo vai a 0.24 (a realista, a mais alta ate aqui, para em 0.15) e fecha
+  // numa faixa estreita (zigoW 0.17) exatamente na metade da cabeca (zigoY
+  // 0) — e temple POSITIVO (0.16) bem acima dele (templeY 0.30) aperta a
+  // tempora antes do salto, o degrau que desenha o diamante.
+  // O cubo entra porque esse salto NAO mora num polo: e um bulge no meio da
+  // superficie, cercado de duas pontas finas que tambem precisam de
+  // resolucao. A esfera UV apostaria a densidade extra em testa e queixo —
+  // que aqui sao as partes que SOBRAM espaco —, e o cubo, por nao apostar em
+  // lugar nenhum (o mesmo raciocinio da achatada), da a mesma nota pras tres
+  // regioes de uma vez.
+  {
+    id: 'diamante', nome: 'Diamante', metodo: 'cubo esferificado',
+    campo: campo({
+      kx: 0.94, kz: 1.02, yTop: 0.99, taper: 0.56, taperP: 1.7, nape: 0.05,
+      crown: -0.16,
+      temple: 0.16, templeY: 0.30, templeW: 0.26,
+      zigo: 0.24, zigoY: 0.0, zigoW: 0.17,
+      queixo: 0.05, queixoY: -0.86,
+      brow: 0.05, browY: 0.34, glabela: 0.03, frontal: 0.07,
+    }),
+    malha(s) { return malhaCubo(this.campo, s, 11) },
+  },
+
+  // -------------------------------------------------------------------------
+  // 10 TRAPEZIO — metodo D (duas conchas soldadas).
+  // Topo estreito, mandibula MUITO larga e de lado quase reto — nao afunila
+  // como a pera (que tambem inverte o triangulo, mas em curva) nem so
+  // "cresce inteira" como a achatada. taper fica em 0, como na pera: nao ha
+  // afinamento nenhum pro queixo. Quem abre a mandibula e o flare, no maior
+  // valor do catalogo (0.55 contra 0.42 da pera).
+  // O lado da mandibula aqui precisa ser GEOMETRICAMENTE reto — lado de
+  // trapezio, nao curva de pera —, e o campo sozinho nunca desenha isso: ele
+  // so multiplica um raio, que e sempre curvo. malhaConchas aplica a
+  // superelipse na AMOSTRAGEM da concha de baixo, e e ela que achata o lado
+  // de verdade. pMaxilar vai a 4.0, mais que o 3.4 da mandibula — la o alvo
+  // era so o ANGULO do gonio; aqui e a face lateral inteira que tem que
+  // ficar reta.
+  // corte fica em 1.18 rad, mais alto (mais perto do topo) que o 1.34 da
+  // mandibula: a concha de baixo toma conta de mais cabeca — da orelha pro
+  // queixo, nao so do queixo pra cima —, porque no trapezio quem domina o
+  // perfil e a mandibula, nao o angulo dela. pCranio continua 2.0, redondo e
+  // sem drama nenhum: o contraste entre calota mole e mandibula reta e o que
+  // faz o trapezio, entao a calota fica sem graca de proposito.
+  {
+    id: 'trapezio', nome: 'Trapezio', metodo: 'duas conchas soldadas',
+    campo: campo({
+      kx: 0.92, kz: 1.00, yTop: 0.97, taper: 0.0, taperP: 1.5, nape: 0.09,
+      flare: 0.55, crown: -0.10,
+      goniaco: 0.16, goniacoY: -0.50, square: 0.9,
+      zigo: 0.06, zigoY: 0.02, zigoW: 0.24,
+      queixo: 0.06, queixoY: -0.80,
+      temple: 0.06, templeY: 0.32, templeW: 0.30,
+      brow: 0.06, browY: 0.33, glabela: 0.035, frontal: 0.08,
+    }),
+    malha(s) { return malhaConchas(this.campo, s, 32, 1.18, 2.0, 4.0) },
+  },
+
+  // -------------------------------------------------------------------------
+  // 11 CORACAO — metodo A (esfera UV).
+  // Testa e tempora largas despencando numa ponta de queixo afiada — o
+  // oposto da pera (larga embaixo) e mais extremo que a ovalada (larga em
+  // cima tambem, mas tudo em curva suave, sem tempora nenhuma).
+  // crown vai a 0.20, o maior do catalogo (ovalada para em 0.17), E temple
+  // fica NEGATIVO (-0.14, incha) bem alto — templeY 0.36, na altura da
+  // sobrancelha. Os dois empurrando a parte de cima ao mesmo tempo e o que
+  // nenhuma outra cabeca faz: redonda tambem tem temple negativo, mas la e
+  // embaixo (templeY -0.02, bochecha, nao testa).
+  // taper vai a 0.74, o maior do catalogo (ovalada 0.58), com taperP baixo
+  // (1.55) pra comecar a fechar cedo — e a ponta do coracao. frontal fica
+  // baixo de proposito (0.03, metade do de qualquer outra cabeca com relevo
+  // de osso): achatar a testa contradiria o "larga" que crown e temple
+  // acabaram de desenhar.
+  // Fica com o metodo A pelo mesmo motivo da ovalada: as duas pontas de
+  // interesse — a testa larga que ainda arredonda no topo, e o queixo em
+  // bico — caem nos dois polos da esfera, onde a malha UV concentra vertice
+  // de graca. Muda so o quanto se pede de cada polo.
+  {
+    id: 'coracao', nome: 'Coracao', metodo: 'esfera UV',
+    campo: campo({
+      kx: 1.00, kz: 1.03, yTop: 1.01, taper: 0.74, taperP: 1.55, nape: 0.045,
+      crown: 0.20,
+      temple: -0.14, templeY: 0.36, templeW: 0.24,
+      zigo: 0.05, zigoY: 0.02, zigoW: 0.22,
+      queixo: 0.04, queixoY: -0.88,
+      brow: 0.05, browY: 0.35, glabela: 0.03, frontal: 0.03,
+    }),
+    malha(s, wSeg, hSeg) { return malhaUV(this.campo, s, wSeg || 38, hSeg || 30) },
   },
 ]
 
@@ -1255,9 +1442,15 @@ export function fechamentoOlho(ctx) {
  * reformas, e cada uma com o proprio jeito de quebrar.
  *
  * A persiana e uma casca de PELE que desce por cima do olho inteiro, seguindo a
- * curvatura do proprio globo (por isso ela precisa das medidas dele, que
- * olhos.js publica em OLHO_GLOBO). Ela nao substitui a palpebra do olho — passa
- * por cima dela. Com fechamento 0 nao existe malha nenhuma.
+ * curvatura do proprio globo (por isso ela precisa das medidas dele, num
+ * descritor { rx, ry, rz, x, y, sink }). Ela nao substitui a palpebra do olho:
+ * passa por cima dela. Com fechamento 0 nao existe malha nenhuma.
+ *
+ * HOJE NINGUEM CHAMA ISTO. Os cinco olhos que precisavam dela sairam do
+ * catalogo (estao em backup/personagem/olhos-antigo.js) e os tres que ficaram
+ * desenham a propria palpebra por dentro. Fica aqui porque o proximo olho sem
+ * palpebra propria vai precisar dela de novo, e a matematica da calota custou
+ * tres rodadas de acerto pra ficar de pe.
  *
  * `globo` = { rx, ry, rz, x, y, sink }. `k` = 0..1.
  */

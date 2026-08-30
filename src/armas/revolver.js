@@ -95,6 +95,32 @@ function damp(cur, alvo, lambda, dt) {
 function suave(k) { return k * k * (3 - 2 * k) }   // smoothstep
 
 /**
+ * A FICHA DE INVENTARIO DO REVOLVER.
+ *
+ * A arma nao esta a venda em loja nenhuma — acha-se no beco —, mas desde que a
+ * barra de itens virou UMA SO (as nove vagas da mochila, teclas 1 a 9), ela
+ * OCUPA UMA VAGA como qualquer outra coisa. A vaga precisa de nome, de foto e
+ * de quanto empilha, e e isto.
+ *
+ * Ela e registrada pelo main (catalogo.registrarItem), e nao importada pelo
+ * catalogo: mobilia nao tem nada com arma.
+ *
+ * `build` devolve o GRUPO do modelo, so pro fotografo da miniatura — quem
+ * segura a arma de verdade e este modulo, com pose, mira e coice proprios. E
+ * por isso que ela nunca passa por src/player/mao.js.
+ */
+export const ITEM_REVOLVER = {
+  id: 'revolver',
+  nome: 'Revolver',
+  qualidade: 'fina',
+  preco: 0,
+  empilha: 1,
+  naCasa: false,
+  desc: 'Seis camaras, coronha de madeira lascada. Achado num beco.',
+  build: () => criarModeloRevolver().grupo,
+}
+
+/**
  * @param dep.scene, dep.camera, dep.player, dep.character, dep.collision
  * @param dep.rede         cliente de rede (opcional: sem ele, modo local)
  * @param dep.hud          opcional, pra toast e pra apagar a mira ao usar alca
@@ -323,12 +349,12 @@ export function criarRevolver({ scene, camera, player, character, collision, red
       // o sistema de interacao COPIA os campos, entao desligar so vale por id
       const it = (game && game.interaction) || interaction
       if (it && typeof it.setEnabled === 'function') it.setEnabled('revolver', false)
-      // se o main tiver um slot pra ele na barra, ja poe na mao
-      const hb = game && game.hotbar
-      if (hb && typeof hb.indiceDe === 'function') {
-        const i = hb.indiceDe('revolver')
-        if (i >= 0) { hb.marcarDisponivel(i, true); hb.selecionar(i) }
-      }
+      // A arma vai pra MOCHILA e ja e selecionada. Antes ela morava num slot
+      // reservado da hotbar (o de indice 1), que ficava travado com cadeado ate
+      // este momento; com uma barra so, "reservar" um numero pro revolver seria
+      // furar uma das nove vagas do jogador pra sempre. Quem entrega e o main:
+      // e ele que tem o inventario e a barra.
+      if (game && typeof game.pegouItem === 'function') game.pegouItem('revolver')
     },
   }
 

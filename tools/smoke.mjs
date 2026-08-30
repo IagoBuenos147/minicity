@@ -143,9 +143,11 @@ try {
   })
   check('sem geometria NaN', scene.nan === 0, 'nan=' + scene.nan)
   check('so o sol projeta sombra', scene.shadow === 1, 'luzes com sombra=' + scene.shadow)
-  /* 22 luzes CARAS: 2 direcionais + 1 hemisferio + 19 pontuais (2 do pool de
+  /* 30 luzes CARAS: 2 direcionais + 1 hemisferio + 27 pontuais (2 do pool de
      efeito, 8 dos postes de rua, 3 da barbearia, 3 da mercearia, 2 do salao do
-     cassino, 1 da casa velha). O teto era 20 contando TODAS; subiu com o
+     cassino, 1 da casa velha, 4 da LOJA DE JOGOS, 2 do HOTEL, 2 da GARAGEM DO
+     NANDO). O teto era 20 contando TODAS;
+     subiu com o
      cassino, que e um salao de 19 x 17 m sem uma janela virada pro sol — com
      uma luz so, o canto das caca-niqueis e o balcao do caixa ficavam pretos,
      porque o emissivo do neon acende o proprio neon e nao a parede na frente
@@ -164,8 +166,69 @@ try {
 
      A casa fica com UMA luz. A barbearia tem tres e a mercearia tres, as duas
      em comodos menores; este e o interior mais barato do jogo por metro
-     quadrado, e e onde o jogador vai passar o comeco da partida. */
-  check('orcamento de luzes caras <= 22', scene.luzCara <= 22,
+     quadrado, e e onde o jogador vai passar o comeco da partida.
+
+     Subiu de 22 pra 26 pela LOJA DE JOGOS, pela mesma regra e pelo mesmo
+     motivo. Ela nasceu com ZERO luz e um comentario proprio dizendo que o
+     emissivo daria conta. Nao deu: o dono fotografou e a resposta foi "ta bem
+     escuro". E o MAIOR interior do jogo (19 x 17 m, o tamanho do salao do
+     cassino), com duas mesas de sinuca pra acender por baixo de luminaria
+     pendente, e tinha zero.
+
+     Sao QUATRO e nao tres (o que a barbearia e a mercearia levam) porque ela
+     tem 17 m de profundidade: com tres, a metade da frente — entrada, ilha de
+     baralhos, vitrine — continuava escura, e o render depois da primeira
+     correcao mostrou isso. Nenhuma delas projeta sombra.
+
+     Subiu de 26 pra 28 pelo HOTEL PARAISO — e este e o primeiro aumento deste
+     arquivo que ANDOU PRA TRAS antes de assentar, o que vale registrar.
+
+     O hotel entrou pedindo QUATRO (tres no saguao mais uma sob a marquise, do
+     lado de fora, porque city.js so poe poste na calcada EXTERNA do anel e a
+     porta dele fica na interna). O teto subiu pra 30, e o dono reprovou nas
+     duas pontas ao mesmo tempo: "ta muito forte a entrada do hotel e dentro
+     dele tambem" e "parece ate que tive queda de fps".
+
+     As duas queixas eram a mesma causa. Vale escrever porque nao e obvia: o
+     three.js e forward renderer, e o numero de PointLight da CENA entra no
+     shader de TODO material. Cada luz nova nao custa "onde ela ilumina" — ela
+     custa um laco a mais por FRAGMENTO em cada pixel do mapa. Ir de 26 pra 30
+     foi +15% no sombreamento da cidade inteira pra acender um saguao de 205 m2.
+
+     Ficou em DUAS, e mais fracas (34 e 30, contra 50/44/40). A da marquise
+     saiu inteira: o que uma marquise precisa dizer a noite e "estou acesa", e
+     pra isso o forro emissivo basta — ele nao ilumina o chao, mas a calcada
+     interna do anel nunca teve iluminacao mesmo.
+
+     E de 28 pra 30 pela GARAGEM DO NANDO, que nasceu ja com a licao do hotel
+     aprendida: DUAS, direto, sem passar por quatro. Showroom de 173 m2 com
+     oito calhas emissivas no teto — que acendem a si mesmas e nao a lataria — e
+     duas PointLight que fazem o servico de dar brilho especular no que esta a
+     venda, que e a unica coisa ali que precisa de luz de verdade.
+
+     E de 30 pra 33 pela ADEGA 100. Duas das tres seguem a regra de sempre e a
+     terceira e a excecao que vale registrar.
+
+     As duas primeiras sao o de sempre: um salao de 15 x 19 m SEM UMA JANELA (o
+     predio e cego de proposito — ver world/adega.js) nao se acende com
+     emissivo, pelo motivo que este comentario ja repetiu tres vezes. Sao 30 e
+     20 de intensidade, mais fracas que as da loja de jogos, porque um lugar
+     clandestino escuro esta CERTO: o que nao pode e o balcao estar preto.
+
+     A TERCEIRA NAO ESTA ALI PRA ILUMINAR. Ela e verde-fria, fica atras da tela
+     de arame, sobre o alambique, e o trabalho dela e CONTRASTAR com o ambar do
+     salao. Um interior inteiro na mesma temperatura le como bar; o mesmo
+     interior quente com um fundo esverdeado atras de uma tela le como bar com
+     alguma coisa acontecendo la atras. Emissivo nao faria isso: emissivo acende
+     a PROPRIA superficie, e o que se quer aqui e o cobre do alambique e a
+     parede atras dele mudando de cor. E o unico truque de luz do arquivo, e
+     custa uma luz — a mesma conta que aprovou a lampada da casa velha.
+
+     E sao QUATRO, nao tres: a quarta foi paga com uma foto. O vestibulo da
+     adega e um comodo fechado sem janela, e ele saiu PRETO no render — nao dava
+     pra ver o banco nem a cortina que o jogador precisa achar pra entrar. E
+     fraca (10) e vermelha, de proposito. */
+  check('orcamento de luzes caras <= 34', scene.luzCara <= 34,
     'caras=' + scene.luzCara + ' (total com as ambientes=' + scene.lights + ')')
   check('colisores registrados', scene.colliders > 100, String(scene.colliders))
   for (const id of ['barber-talk', 'barber-chair', 'barber-mirror', 'grocery-clerk', 'grocery-buy']) {
@@ -477,7 +540,11 @@ try {
       import('/src/player/appearance.js'),
       import('/src/player/roupas.js'),
     ])
-    const reais = [A.CABECAS, A.OLHOS, A.PUPILAS, A.NARIZES, A.BOCAS, A.BARBAS,
+    // Indice 2 e A.PALPEBRAS e nao A.PUPILAS: o byte 2 MUDOU DE DONO quando a
+    // iris virou parte do olho. Esta linha ficou pra tras na troca e o teste
+    // passou a comparar o catalogo de pupila (vazio) com a tabela da palpebra
+    // (11 degraus) — acusava defeito onde nao havia e escondia os de verdade.
+    const reais = [A.CABECAS, A.OLHOS, A.PALPEBRAS, A.NARIZES, A.BOCAS, A.BARBAS,
       A.CABELOS, A.SKIN_TONES, A.HAIR_COLORS, A.SOBRANCELHAS,
       R.CHAPEUS, R.CALCADOS, R.BLUSAS, R.CALCAS, R.COLARES, R.ANEIS,
       R.TATUAGENS, R.RELOGIOS].map((c) => (Array.isArray(c) ? c.length : -1))
@@ -497,7 +564,8 @@ try {
     return {
       ruins,
       jaqueta: P.APARENCIA_OPCOES[18], nJaquetas: R.JAQUETAS.length,
-      pupila: P.APARENCIA_OPCOES[2], nPupilas: A.PUPILAS.length,
+      palpebra: P.APARENCIA_OPCOES[2], nPalpebras: A.PALPEBRAS.length,
+      nPupilas: A.PUPILAS.length, campo2: P.CAMPOS_APARENCIA[2],
     }
   })
   check('APARENCIA_OPCOES bate com os catalogos', tabela.ruins.length === 0,
@@ -508,9 +576,11 @@ try {
   // A aba de pupila foi apagada: a iris passou a fazer parte de cada olho, com
   // um metodo proprio em cada um dos cinco. Catalogo vazio e o que faz o
   // customizador esconder a aba sozinho.
-  check('a pupila virou parte do olho (a aba sumiu)',
-    tabela.nPupilas === 0 && tabela.pupila === 1,
-    'PUPILAS=' + tabela.nPupilas + ' opcoes[pupila]=' + tabela.pupila)
+  check('a pupila virou parte do olho, e o byte dela virou a palpebra',
+    tabela.nPupilas === 0 && tabela.campo2 === 'palpebra'
+    && tabela.nPalpebras === tabela.palpebra,
+    'PUPILAS=' + tabela.nPupilas + ' byte2=' + tabela.campo2
+    + ' PALPEBRAS=' + tabela.nPalpebras + ' opcoes=' + tabela.palpebra)
 
   // 7e) o fluxo de entrada: menu -> criacao -> cutscene -> jogo ---------------
   // O caminho que o jogador percorre de verdade, do jeito que ele o percorre:

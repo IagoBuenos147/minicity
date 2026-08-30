@@ -1,7 +1,7 @@
 # Contrato dos modulos de rosto (`src/player/rosto/*.js`)
 
 Leia isto antes de escrever qualquer peca de rosto. Quem nao segue este contrato
-produz um traco que flutua fora da pele em 5 dos 6 cranios e ninguem percebe ate
+produz um traco que flutua fora da pele em 8 dos 9 cranios e ninguem percebe ate
 o jogador trocar de cabeca.
 
 ## 1. O formato de um catalogo
@@ -44,7 +44,7 @@ flutuando ou enterrada.
 
 | campo | o que e |
 |---|---|
-| `ctx.cabeca` | indice do cranio (0..5) |
+| `ctx.cabeca` | indice do cranio (0..8) |
 | `ctx.olhos`, `ctx.nariz`, `ctx.boca`, `ctx.barba`, `ctx.cabelo`, `ctx.sobrancelha` | indices |
 | `ctx.pele` | indice do tom de pele |
 | `ctx.skin` | cor de pele ja resolvida (hex). Use `skinOf(ctx)` |
@@ -148,11 +148,32 @@ diferenca entre "pelo" e "capacete de plastico".
 
 | modulo | itens | observacao |
 |---|---|---|
-| `olhos.js` | 5 | cinco METODOS diferentes de construir olho, nao cinco parametros |
-| `nariz.js` | 4 | indice 0 = "sem nariz" (`build` devolve `null`) + 3 metodos |
-| `boca.js` | 3 | um deles identico ao do jogo de referencia (traco escuro fino e largo, cantos levemente pra cima, sem dente aparente) |
-| `barba.js` | 4 | indice 0 = "sem barba" (`null`), + estilo da referencia, + bigode, + barba fechada |
-| `cabelo.js` | 3 | tres metodos |
-| `sobrancelha.js` | 3 | tres metodos; pelo menos um com fio visivel |
+| `olho-cartoon.js` + `olho-extra.js` + `olho-extra2.js` | 5 + 4 + 6 | UM modelo com tabela de parametros; todos tem palpebra propria (`propriaPalpebra`) e por isso nao passam pela persiana. Os quatro do extra NAO mexem na estrutura (como o torto e a fenda mexem): sao o mesmo desenho com um detalhe CHAPADO a mais cada — olheira, segundo ponto de brilho, cilios e anel na iris. O pedido era diferenciar NPC, nao inventar outro olho. Os seis do extra2 sao a leva seguinte e mexem so no MIOLO — pupila miniatura, gigante, fenda de gato, iris tripla, reflexo em meia-lua e iris raiada |
+| `boca.js` + `boca-extra.js` | 1 + 16 | so o `traco` de `boca.js` entra no catalogo; `boca-extra.js` traz reta, arco, angulo, pincelada, onda, hachura, duplo, pontilhado, serrilhado, colchete, escada, quadrada, franja, taca, torta e tracejado. Duas regras saidas de duas recusas: peca de boca com VOLUME (labio, dente, cavidade) nao convive com este rosto, que e feito de linha chapada; e espessura SIMETRICA com bico nas duas pontas le como boca entalhada de boneco (a pincelada varia a espessura, mas assimetrica, e por isso funciona). E uma terceira, da recusa das seis primeiras: variar o CAMINHO e a ESPESSURA nao e variar a arte — enquanto a marca for a mesma fita continua, as bocas parecem parentes. Hachura, duplo e pontilhado mudam o TIPO DE MARCA |
+| `barba.js` + `barba-extra.js` + `barba-extra2.js` + `barba-extra3.js` | 4 + 12 + 6 + 6 | indice 0 = "sem barba" (`null`), + estilo da referencia, + bigode, + barba cheia. As doze do extra sao a metade de cima de um cartaz de 24 estilos de barbearia, na ordem do cartaz: por fazer, curta aparada, cortina, costeletas, cavanhaque, Van Dyke, ancora, Balbo, mosca, Zappa, bigode guidao e circular. **A regra que custou uma leva inteira: peca que preenche da linha de corte ate o polo do queixo TAPA A BOCA.** Quem cobre bochecha e queixo tem que usar o `cascaComFuro` de `barba.js`, que faz da boca o FIM da casca (duas faixas por coluna de azimute) em vez de um buraco no meio dela. O extra2 traz as de bigode da metade de baixo do cartaz e o extra3 as seis cheias; a ORDEM do catalogo e declarada em `appearance.js` (ORDEM_CARTAZ), nao herdada da ordem dos arquivos. `cheia`, `stubble` e `costeletas` saem por filtro |
+| `cabelo.js` + `cabelo-extra.js` + `cabelo-corte.js` + `cabelo-corte2.js` | 2 + 3 + 8 + 10 | os dois primeiros sao casca colada no cranio; os tres do extra tem que MUDAR A SILHUETA. Os oito cortes saem de um cartaz de cortes masculinos (french crop, crop texturizado, undercut, perm coreano, mullet, cortina, escovinha, trancinhas). **Segunda regra, aprendida na revisao: o card do customizador mostra o boneco DE FRENTE.** Corte medido e correto de perfil (o rabo do mullet, a divisao da cortina) mas invisivel de frente e um card vazio pro jogador |
+| `sobrancelha.js` + `sobrancelha-extra.js` + `sobrancelha-extra2.js` | 3 + 6 + 3 | tres metodos; pelo menos um com fio visivel. As seis do extra variam DUAS coisas ao mesmo tempo — o formato (reta, arqueada, caida nas pontas, grossa e curta, fina e longa, quebrada) e a espessura/densidade do fio. Variar so uma das duas daria seis irmas |
+| `nucleo.js` (`CRANIOS`) | 12 | seis originais + ovalada, achatada, alongada atras, diamante, trapezio e coracao. O indice viaja como byte, mas `APARENCIA_OPCOES` em `comum/protocolo.js` CORTA no numero de opcoes — catalogo que cresce sem atualizar aquela tabela chega cortado na tela dos outros jogadores |
 
-Nao existe mais catalogo de PUPILA: a iris faz parte do olho.
+## 10. Como conferir um catalogo inteiro
+
+```bash
+node tools/shot-catalogo.mjs barba
+node tools/shot-catalogo.mjs cabelo olhos sobrancelha cabeca
+```
+
+Renderiza CADA item do catalogo no provador (o mesmo palco do customizador,
+de frente, que e o enquadramento do card) e salva a grade inteira numa foto
+so em `shots/cat-<aba>.png`. Com catalogo de 16 itens, olhar a grade e a unica
+forma barata de responder as tres perguntas que importam: alguma peca nasceu
+flutuando? alguma sumiu? duas ficaram parecidas demais?
+
+Ela NAO usa o dev server de proposito — builda e serve o `dist/` estatico.
+Renderizar 16 bonecos leva minutos no renderizador por software, e qualquer
+arquivo salvo nesse meio tempo faria o Vite recarregar a pagina e matar a
+grade pela metade.
+
+Nao existe mais catalogo de PUPILA (a iris faz parte do olho) nem de NARIZ (o
+rosto da referencia nao tem nariz desenhado). Os dois catalogos estao VAZIOS e e
+isso que faz a aba sumir sozinha — ver `abaTemCatalogo` em `ui/customizer.js`.
+Os cinco olhos e os quatro narizes antigos estao em `backup/personagem/`.

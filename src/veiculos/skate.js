@@ -326,7 +326,10 @@ export function construir() {
   // +Z, isso poe o corpo olhando pra -X — dai o -PI/2. O +0.30 abre o tronco um
   // pouco pra frente, que e como se anda de verdade.
   const assento = new THREE.Object3D()
-  assento.position.set(0, DECK_Y + ESP + ESP_LIXA, -0.02)
+  // ATENCAO AO -RODA_R: o assento e filho do PIVO, que ja esta pendurado na
+  // altura do eixo. Sem descontar isso o skatista nascia 2.8 cm ACIMA da lixa
+  // — os pes no ar, que era metade da queixa de "parece um skate voador".
+  assento.position.set(0, DECK_Y + ESP + ESP_LIXA - RODA_R, -0.02)
   assento.rotation.y = -Math.PI / 2 + 0.30
   assento.name = 'assento'
   // contrato de veiculos.js: 'empe' + ancora 'pes' = o ponto JA e onde a raiz
@@ -338,17 +341,33 @@ export function construir() {
   assento.userData.dynamic = true
   pivo.add(assento)                  // dentro do pivo: o skatista tomba com o deck
 
-  // FORNO. Funde o PIVO, nao o grupo: e o pivo que o sistema tomba na curva
-  // (rotation.z), entao ele tem que continuar existindo como no. Por dentro
-  // dele o deck (madeira + lixa + arte + 16 parafusos) e os dois trucks sao
-  // rigidos — nada disso se mexe enquanto o skate anda. Ficam de fora so os
-  // dois eixos de roda e o assento, ja marcados acima.
-  bakeStatic(pivo)
+  // --- alvos dos pes (contrato de pose de veiculos.js) ----------------------
+  // Onde cada pe REPOUSA em cima da lixa: em cima dos parafusos de cada truck,
+  // que e onde um skatista poe o pe de verdade. O sistema usa estes dois
+  // pontos como base e leva o pe de tras ate o chao quando ele empurra.
+  // Lado +X = pe da frente (o nariz do skate fica no +X do boneco, ver o giro
+  // do assento logo acima).
+  const pesAlvo = []
+  for (const sz of [1, -1]) {
+    const a = new THREE.Object3D()
+    a.position.set(0, DECK_Y + ESP + ESP_LIXA - RODA_R, sz * EIXO_Z)
+    a.userData.dynamic = true
+    pivo.add(a)
+    pesAlvo.push(a)
+  }
 
   grupo.userData.pivo = pivo         // o sistema inclina ESTE, nao o grupo
   grupo.userData.assento = assento
   grupo.userData.rodas = rodas
   grupo.userData.config = 'skate'
+  grupo.userData.piloto = { pes: pesAlvo }
+
+  // FORNO. Funde o PIVO, nao o grupo: e o pivo que o sistema tomba na curva
+  // (rotation.z), entao ele tem que continuar existindo como no. Por dentro
+  // dele o deck (madeira + lixa + arte + 16 parafusos) e os dois trucks sao
+  // rigidos — nada disso se mexe enquanto o skate anda. Ficam de fora so os
+  // dois eixos de roda, o assento e os alvos dos pes, ja marcados acima.
+  bakeStatic(pivo)
 
   return { grupo, assento, rodas, config: 'skate' }
 }

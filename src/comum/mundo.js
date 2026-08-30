@@ -172,18 +172,66 @@ export const HELI_MONTAGEM = 3.4
 
 // Como cada um dirige. Numeros em metros e segundos.
 // O carro e o mais rapido em reta e o que menos vira; o skate e o contrario.
+//
+// `limite` e a ADERENCIA, em m/s^2 de aceleracao lateral: a curva pede
+// |taxa de giro x velocidade| e o pneu segura ate este teto — o que passar
+// disso vira derrapagem (veiculos.js, funcao andar). Como a taxa de giro e
+// limitada por giroMax, o pedido maximo de cada veiculo e giroMax*velMax:
+// carro 17.2, moto 20.3, skate 10.4. Por isso o carro (limite 10) so comeca a
+// sair de lado acima de uns 46 km/h de curva fechada e gruda em tudo abaixo
+// disso, a moto (14) so escorrega em alta, e o skate (7) so quando o jogador
+// carrega numa curva quase no talo.
+// `agarra` deixou de ser "quanto escorrega" e virou "quanto rapido o pneu
+// morde de volta": a velocidade lateral morre a agarra*6.5 por segundo.
+//
+// A PRIMEIRA VERSAO DISTO ERROU A MAO e o dono reprovou: com limite 5.5 e
+// agarra 0.26 o carro escorregava em QUALQUER curva e a escorregada durava
+// mais de meio segundo, entao ele parecia estar sempre no gelo — e como o
+// giroMax era 0.62 (35 graus por segundo de guinada) ele ainda por cima virava
+// pouco. Derrapagem tem que ser o que acontece quando o jogador EXAGERA, nao o
+// estado normal do carro.
 export const DIRIGIR = {
   carro: {
     velMax: 22, re: 7, acel: 11, freio: 20, atrito: 2.2,
-    giroMax: 0.62, giroVel: 2.6, agarra: 0.86, inclina: 0.13, alturaCam: 2.5, distCam: 7.2,
+    giroMax: 0.78, giroVel: 3.0, agarra: 0.5, limite: 10,
+    inclina: 0.15, alturaCam: 2.5, distCam: 7.2,
   },
   moto: {
     velMax: 26, re: 5, acel: 15, freio: 22, atrito: 2.6,
-    giroMax: 0.78, giroVel: 3.4, agarra: 0.93, inclina: 0.55, alturaCam: 2.1, distCam: 5.6,
+    giroMax: 0.78, giroVel: 3.4, agarra: 0.95, limite: 14,
+    inclina: 0.55, alturaCam: 2.1, distCam: 5.6,
   },
+  // A CAMINHONETE e o veiculo PESADO. Ela nao e "o carro mais lenta": cada
+  // numero aqui vem de uma coisa que uma pickup velha faz e nenhum dos outros
+  // tres faz.
+  //   velMax 17 e acel 7.5  motor cansado. Ela demora pra chegar la, e chega
+  //                         em 61 km/h contra os 79 do carro.
+  //   giroMax 0.66          entre-eixos de 3 m nao vira em cima de si mesmo.
+  //   limite 7.5            pneu alto e cravado agarra MENOS que pneu de rua:
+  //                         o pedido maximo dela e 0.66*17 = 11.2, entao ela
+  //                         comeca a sair de lado bem antes do carro (17.2
+  //                         pedidos contra 10 de limite).
+  //   agarra 0.45           e quando sai, demora a morder de volta.
+  //   inclina 0.30          o dobro do carro. Ela e ALTA, e o corpo tombar na
+  //                         curva e o que faz ela se sentir pesada — foi por
+  //                         isso que a carroceria virou grupo separado das
+  //                         rodas (VEICULOS.md).
+  //   freio 15              tambor velho: para, mas pedindo licenca.
+  caminhonete: {
+    velMax: 17, re: 6, acel: 7.5, freio: 15, atrito: 2.6,
+    giroMax: 0.66, giroVel: 2.2, agarra: 0.45, limite: 7.5,
+    inclina: 0.30, alturaCam: 2.9, distCam: 8.0,
+  },
+  // `impulso` e quanto UMA empurrada rende parado (m/s); ela rende cada vez
+  // menos conforme a velocidade sobe, e por isso o skate tem uma velocidade de
+  // cruzeiro (uns 34 km/h) em vez de ir sempre ao teto. `ciclo` e quanto dura
+  // a empurrada inteira: pe fora do deck, varredura e volta. O `atrito` baixo
+  // e o que faz ele rolar sozinho por muito tempo, como skate de verdade.
   skate: {
-    velMax: 9.5, re: 2.5, acel: 4.2, freio: 7, atrito: 1.1,
-    giroMax: 0.9, giroVel: 3.0, agarra: 0.97, inclina: 0.22, alturaCam: 1.9, distCam: 4.6,
+    velMax: 11.5, re: 3.2, acel: 4.2, freio: 5.5, atrito: 0.55,
+    impulso: 4.0, ciclo: 1.25,
+    giroMax: 0.9, giroVel: 3.0, agarra: 0.97, limite: 7,
+    inclina: 0.30, alturaCam: 1.9, distCam: 4.6,
   },
   helicoptero: {
     velMax: 24, re: 8, acel: 9, freio: 10, atrito: 1.4,

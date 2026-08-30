@@ -87,6 +87,11 @@ try {
     [...document.querySelectorAll('.mcrp-cri .cz-tab')].map((b) => (b.textContent || '').trim()))
   ok('a tela de criacao abriu com abas', abas.length > 5, abas.join(' '))
   ok('a aba de PUPILA nao existe mais', !abas.some((t) => /PUPILA/i.test(t)), abas.join(' '))
+  // Mesma historia da pupila: o catalogo de nariz ficou vazio e a aba tem que
+  // sumir SOZINHA (abaTemCatalogo). Uma aba de nariz sem nariz nenhum seria uma
+  // tela em branco que nao da erro nenhum — exatamente o tipo de regressao que
+  // passa despercebida.
+  ok('a aba de NARIZ nao existe mais', !abas.some((t) => /NARIZ/i.test(t)), abas.join(' '))
   ok('a aba de tronco se chama CAMISAS', abas.some((t) => /CAMISA/i.test(t)), abas.join(' '))
   {
     const barra = await page.evaluate(() => {
@@ -145,7 +150,8 @@ try {
   // --- 2. os cinco campos do bug ---------------------------------------------
   // Sao exatamente os cinco que tinham apelido em ingles.
   const CASOS = [
-    ['OLHOS', 'olhos', 5],
+    // 2 e o ultimo olho: o catalogo caiu pra tres (so os de desenho).
+    ['OLHOS', 'olhos', 2],
     ['OLHOS', 'palpebra', 6],
     ['BOCA', 'boca', 2],
     ['CABELO', 'cabelo', 2],
@@ -154,7 +160,6 @@ try {
     ['COR', 'corBarba', 3],
     ['COR', 'pele', 4],
     ['CABECA', 'cabeca', 3],
-    ['NARIZ', 'nariz', 2],
     ['BARBA', 'barba', 2],
     ['CHAPEU', 'chapeu', 3],
     ['CAMISAS', 'blusa', 2],
@@ -170,12 +175,12 @@ try {
   // --- 3. e a volta inteira: a peca continua depois de mexer noutra aba -------
   // Este e o caso EXATO do bug: mexer numa aba escrevia o valor velho de outra.
   {
-    const antes = await clicar('OLHOS', 'olhos', 3)
+    const antes = await clicar('OLHOS', 'olhos', 2)
     await clicar('CAMISAS', 'blusa', 1)
     await clicar('CALCA', 'calca', 1)
     const depois = await page.evaluate(() => window.__game.criacao.aparencia.olhos)
     ok('trocar de camisa NAO desfaz a escolha de olho',
-      depois === 3 && antes.naTela === 3, 'olhos ficou em ' + depois)
+      depois === 2 && antes.naTela === 2, 'olhos ficou em ' + depois)
   }
 
   ok('nenhum erro no console', erros.length === 0, erros.slice(0, 3).join(' | ') || 'limpo')

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { tex } from '../world/materials.js'
 import { PLAYER, CAMERA, LEVELS } from '../config.js'
 import { HIPS_Y } from '../player/character.js'
 import {
@@ -47,6 +48,10 @@ const REDUZ_GIRO = 0.62
 const ABSORVE_LAT = 6.5
 // Mergulho no freio / levantada na aceleracao, em radianos por g de mentira.
 const MERGULHO = 0.075
+// Com que forca o veiculo se realinha com a trajetoria real enquanto derrapa.
+// E o que faz a derrapagem TERMINAR sozinha; alto demais, ele endireita tao
+// rapido que a derrapagem nunca chega a aparecer na tela.
+const DERIVA_ALINHA = 1.3
 // Distancia de entrada, somada ao raio do veiculo.
 const ALCANCE_ENTRAR = 2.4
 // Maior circulo de colisao que um veiculo pode ter (ver medirRaio).
@@ -54,10 +59,13 @@ const RAIO_MAX = 1.6
 // Segundos esperando o servidor confirmar o entrar antes de desistir calado.
 const TEMPO_PEDIDO = 2.0
 const PERIODO_POS = 1 / TICK_HZ
-// Skate: W nao e aceleracao continua, e o pe empurrando o chao.
-const IMPULSO_INTERVALO = 0.62
 // Skate: o pulinho do Espaco.
 const PULO_SKATE = 3.4
+// Skate: em que trecho do ciclo de empurrada o pe esta VARRENDO o chao. E so
+// nesse pedaco que entra velocidade — antes o pe esta descendo, depois esta
+// voltando pro deck. E o que separa "empurrar" de "acelerar".
+const VARRE_INI = 0.16
+const VARRE_FIM = 0.56
 const GRAVIDADE = PLAYER.GRAVITY
 // Bateu: a velocidade cai pra isto (nao atravessa, nao capota, so para).
 const PERDA_BATIDA = 0.18
@@ -296,6 +304,18 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       // O skate tomba em volta do EIXO das rodas, nao em volta do chao: pra
       // isso ele expoe um pivo na altura do eixo. Sem pivo, tomba o grupo.
       pivoInclina: ud.pivo || null,
+      // A CARROCERIA e o corpo do carro SEM as rodas. Existindo ela, o
+      // mergulho e a rolagem vao pra ela e nao pro grupo inteiro — ou seja, o
+      // carro afunda na frente enquanto as rodas continuam plantadas no chao,
+      // que e como PESO se le. Sem ela, tudo inclina junto (moto, heli).
+      carroceria: ud.carroceria || null,
+      // O volante gira junto com o esterco. Os alvos das maos sao filhos dele,
+      // entao as maos do motorista giram junto — de graca.
+      volante: ud.volante || null,
+      voltaVolante: Number.isFinite(ud.voltaVolante) ? ud.voltaVolante : 2.6,
+      // Onde o piloto poe mao e pe, e o quanto ele se inclina. Ver a secao
+      // "POSE DO PILOTO" mais abaixo.
+      piloto: ud.piloto || null,
       // guardamos o brilho de repouso: acender e voltar tem que cair EXATO no
       // valor que o modelo escolheu, senao a lanterna fica acesa pra sempre
       luzesFreio: comLuzBase(ud.luzesFreio),
@@ -320,7 +340,11 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       vel: 0, velLat: 0, giro: 0,
       rolagem: 0, mergulho: 0, inclFrente: 0,
       vy: 0, noAr: false,
-      tImpulso: 0,
+      // Skate: -1 = pe no deck; 0..1 = fase do ciclo de empurrada.
+      empurra: -1,
+      freando: 0,        // skate: o pe raspando o chao (S), 0..1
+      freioMao: false,   // carro: o Espaco
+      alturaCorpo: 0,    // afundar da carroceria (peso na suspensao)
       // interpolacao do que e remoto: 100 ms atras, como todo o resto
       buffer: [],
     }
@@ -474,7 +498,10 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     // sempre, porque ninguem mais amortecia aquele valor de volta a zero.
     v.vel = 0; v.velLat = 0; v.giro = 0
     v.rolagem = 0; v.mergulho = 0; v.inclFrente = 0
+    v.freioMao = false; v.empurra = -1; v.freando = 0; v.alturaCorpo = 0
     if (v.pivoInclina) v.pivoInclina.rotation.z = 0
+    if (v.carroceria) { v.carroceria.rotation.set(0, 0, 0); v.carroceria.position.y = 0 }
+    if (v.volante) v.volante.rotation.z = 0
     v.grupo.rotation.set(0, v.yaw, 0)
   }
 
@@ -539,14 +566,39 @@ export function criarVeiculos({ scene, camera, player, character, collision,
   function acelerar(v, e, dt) {
     const c = v.cfg
     if (v.impulso) {
-      // Skate: W nao e acelerador, e o pe empurrando o chao. Um impulso de cada
-      // vez, com intervalo — e o que faz o skate se sentir skate.
-      v.tImpulso -= dt
-      if (e.frente && v.tImpulso <= 0) {
-        v.tImpulso = IMPULSO_INTERVALO
-        v.vel += c.acel * 0.95
+      // SKATE: o W nao e acelerador, e o pe empurrando o chao — e empurrar leva
+      // TEMPO. Um ciclo inteiro (`ciclo` segundos) e: o pe sai do deck, desce,
+      // VARRE pra tras e volta. So o trecho da varredura (VARRE_INI..VARRE_FIM)
+      // poe velocidade, e por isso a velocidade do skate sobe em degraus com
+      // patamar entre eles, em vez de subir numa rampa como a de um carro.
+      //
+      // Quanto mais rapido ele ja esta, menos a empurrada rende: e a mesma
+      // razao da vida real (o pe nao consegue varrer mais rapido que o chao
+      // passa embaixo). E o que faz o skate ter uma velocidade de cruzeiro
+      // gostosa em vez de ir sempre ate o teto.
+      const ciclo = c.ciclo || 0.85
+      if (v.empurra >= 0) {
+        v.empurra += dt / ciclo
+        if (v.empurra >= 1) v.empurra = (e.frente && !e.tras) ? 0 : -1
+      } else if (e.frente && !e.tras && !v.noAr) {
+        v.empurra = 0
       }
-      if (e.tras) v.vel -= (v.vel > 0.2 ? c.freio : c.acel * 0.5) * dt
+      if (e.tras && v.empurra >= 0) v.empurra = -1
+      if (v.noAr) v.empurra = v.empurra >= 0 ? Math.min(0.99, v.empurra) : -1
+      if (v.empurra >= VARRE_INI && v.empurra <= VARRE_FIM) {
+        const rende = Math.pow(clamp01(1 - Math.abs(v.vel) / c.velMax), 1.4)
+        v.vel += (c.impulso || 2.4) * (0.10 + 0.90 * rende) * dt / (VARRE_FIM - VARRE_INI)
+      }
+      // S = pe raspando o chao. Freia devagar (e um pe, nao um disco) e a pose
+      // mostra o pe de fora do deck. PARADO, o mesmo S da RE: o pe continua no
+      // chao, so que empurrando pro outro lado. Nao ha ciclo de empurrada na
+      // re — quem anda de skate pra tras vai devagar e continuo, e e assim que
+      // se le na tela.
+      v.freando = damp(v.freando, e.tras ? 1 : 0, 9, dt)
+      if (e.tras) {
+        if (v.vel > 0.15) v.vel -= c.freio * dt
+        else v.vel -= c.acel * 0.45 * dt
+      }
     } else if (e.frente) {
       v.vel += c.acel * dt
     } else if (e.tras) {
@@ -587,10 +639,31 @@ export function criarVeiculos({ scene, camera, player, character, collision,
    */
   function andar(v, taxa, dt) {
     const c = v.cfg
-    // a curva pede aceleracao lateral; o que o pneu nao segura vira derrapagem
-    v.velLat += (1 - c.agarra) * taxa * v.vel * dt
-    v.velLat *= Math.exp(-c.agarra * ABSORVE_LAT * dt)
+    // ADERENCIA COM TETO, NAO COEFICIENTE FIXO.
+    //
+    // Antes toda curva escorregava um tiquinho (velLat += (1-agarra)*...), o
+    // que da uma flutuacao constante e nenhuma leitura: nao existia "estou no
+    // limite". Agora a curva PEDE uma aceleracao lateral (v x omega) e o pneu
+    // segura ate `limite` m/s^2. Abaixo disso o carro anda como se estivesse
+    // nos trilhos; passou, so o EXCEDENTE vira escorregada. E por isso que
+    // curva lenta gruda, curva rapida sai de lado, e o freio de mao (que
+    // derruba o teto) sai de lado na hora.
+    const pedida = taxa * v.vel
+    const teto = (c.limite || 60) * (v.freioMao ? 0.28 : 1)
+    const sobra = Math.abs(pedida) - teto
+    if (sobra > 0) v.velLat += Math.sign(pedida) * sobra * dt
+    // o pneu tambem morde de volta: quanto maior a agarra, mais rapido a
+    // velocidade lateral guardada morre (o freio de mao segura ela viva)
+    v.velLat *= Math.exp(-(v.freioMao ? 0.9 : c.agarra * ABSORVE_LAT) * dt)
     if (Math.abs(v.velLat) < 0.005) v.velLat = 0
+
+    // ALINHAMENTO: escorregando, o carro roda em direcao a trajetoria real —
+    // e o que faz a derrapagem TERMINAR sozinha em vez de virar piao, e o que
+    // da aquele rabinho saindo e voltando na saida da curva.
+    if (v.velLat !== 0 && Math.abs(v.vel) > 0.5) {
+      const deriva = Math.atan2(v.velLat, Math.abs(v.vel) + 0.6)
+      v.yaw -= deriva * DERIVA_ALINHA * Math.sign(v.vel) * dt
+    }
 
     // Eixos: frente = +Z girado por yaw. De pe olhando pra +Z com +Y pra cima,
     // a DIREITA e -X (mao direita), por isso o sinal invertido no lateral.
@@ -690,10 +763,16 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     // Nesse caso a roda dianteira nao pode estercar tambem: seria em dobro.
     const noPivo = !!v.pivoDirecao
     if (noPivo) v.pivoDirecao.rotation.y = v.giro
+    // O volante gira MAIS que as rodas (relacao de direcao). O eixo e o Z
+    // local do pivo que o modelo entregou — ele ja vem inclinado com a coluna.
+    if (v.volante) v.volante.rotation.z = -v.giro * v.voltaVolante
     for (let i = 0; i < v.rodas.length; i++) {
       const r = v.rodas[i]
-      // gira proporcional a velocidade: metro andado / raio = radianos
-      r.obj.rotation.x -= (v.vel * dt) / r.raio
+      // SINAL: com o eixo da roda em X e a frente em +Z, rolar pra frente e
+      // rotation.x CRESCENDO (o ponto de cima vai pra +Z e o de baixo, que
+      // toca o chao, vai pra tras). Estava negativo e as rodas giravam ao
+      // contrario — invisivel num pneu liso, obvio numa roda de cinco raios.
+      r.obj.rotation.x += (v.vel * dt) / r.raio
       if (r.esterca) r.obj.rotation.y = noPivo ? 0 : v.giro
     }
   }
@@ -713,7 +792,7 @@ export function criarVeiculos({ scene, camera, player, character, collision,
 
   /** Lanterna de freio e farol: acendem quando o motorista faz o que acende. */
   function animarLuzes(v, e, dt) {
-    const freando = !!e.tras || (v.vel < -0.2)
+    const freando = !!e.tras || v.freioMao || (v.vel < -0.2)
     for (let i = 0; i < v.luzesFreio.length; i++) {
       const l = v.luzesFreio[i]
       l.mat.emissiveIntensity = damp(l.mat.emissiveIntensity,
@@ -731,14 +810,38 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     // rolagem: o corpo rola PRA DENTRO da curva. Como a ordem e YXZ, o Z e o
     // eixo da frente, entao rotation.z e a inclinacao de verdade.
     const forca = clamp(taxa / c.giroMax, -1, 1) * clamp01(Math.abs(v.vel) / (c.velMax * 0.45))
-    const alvoRol = v.voa ? -clamp(taxa / c.giroMax, -1, 1) * c.inclina : -forca * c.inclina
+    let alvoRol = v.voa ? -clamp(taxa / c.giroMax, -1, 1) * c.inclina : -forca * c.inclina
+    // Escorregando, o carro rola MAIS: a carroceria vai pro lado de fora da
+    // curva junto com a derrapagem. E a leitura visual de "perdeu aderencia".
+    if (!v.voa && v.velLat) alvoRol += clamp(v.velLat * 0.05, -0.09, 0.09)
     v.rolagem = damp(v.rolagem, alvoRol, 7, dt)
     // mergulho no freio, levantada na aceleracao
-    const alvoMerg = v.voa ? v.inclFrente : clamp(-acelReal / c.acel, -1, 1) * MERGULHO
-    v.mergulho = damp(v.mergulho, alvoMerg, 8, dt)
+    let alvoMerg = v.voa ? v.inclFrente : clamp(-acelReal / c.acel, -1, 1) * MERGULHO
+    // No ar o skate faz o gesto do ollie: sobe de bico levantado e desce de
+    // bico baixo. E o mesmo numero que o resto usa (vy), so lido como pose.
+    if (v.impulso && v.noAr) alvoMerg = -clamp(v.vy * 0.055, -0.22, 0.22)
+    v.mergulho = damp(v.mergulho, alvoMerg, v.impulso && v.noAr ? 14 : 8, dt)
+
+    // A TREPIDACAO DO SKATE SAIU.
+    //
+    // Ela existia pra o deck nao parecer flutuando: um chacoalho de meio grau
+    // na frequencia da rodinha no asfalto. Na tela virou outra coisa — o dono
+    // viu como "ele ta tremendo, meio como se estivesse bugado", e com razao:
+    // o boneco e filho do deck, entao o chacoalho subia pela perna inteira e o
+    // corpo todo vibrava. O que faz o skate ler como skate e a EMPURRADA e o
+    // giro das rodas, nao o ruido. Se um dia voltar, tem que ser aplicado so
+    // na geometria do deck, nunca no pivo que carrega o piloto.
 
     v.grupo.position.copy(v.pos)
-    if (v.pivoInclina) {
+    if (v.carroceria) {
+      // as rodas ficam no chao; quem mergulha e rola e o CORPO
+      v.grupo.rotation.set(0, v.yaw, 0)
+      v.carroceria.rotation.set(v.mergulho, 0, v.rolagem)
+      // e ele tambem afunda na suspensao quando pesa (freio, curva forte)
+      const carga = Math.min(0.05, Math.abs(v.mergulho) * 0.20 + Math.abs(v.rolagem) * 0.18)
+      v.alturaCorpo = damp(v.alturaCorpo, -carga, 9, dt)
+      v.carroceria.position.y = v.alturaCorpo
+    } else if (v.pivoInclina) {
       v.grupo.rotation.set(v.mergulho, v.yaw, 0)
       v.pivoInclina.rotation.z = v.rolagem
     } else {
@@ -757,7 +860,8 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       v.assento.add(character.root)
     }
     character.root.visible = true
-    character.root.position.set(0, (v.quadrilNoAssento ? -HIPS_Y : 0) - v.afundar, 0)
+    const baixo = (v.quadrilNoAssento ? -HIPS_Y : 0) - v.afundar
+    character.root.position.set(0, baixo, 0)
     character.root.rotation.set(0, 0, 0)
     // pose: sentado no carro/moto/heli, em pe no skate. O animador recalcula
     // os deltas do zero a cada chamada, entao chamar de novo so troca a pose.
@@ -772,7 +876,344 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     if (typeof character.setHeadLook === 'function') {
       character.setHeadLook(0, clamp(v.giro * 0.8, -0.6, 0.6))
     }
+    posarPiloto(v, dt, baixo)
     character.root.updateMatrixWorld(true)
+  }
+
+  // =========================================================================
+  // 5b. POSE DO PILOTO
+  //
+  // O animador entrega a pose GENERICA (sentado ou em pe). O que faz alguem
+  // parecer que esta PILOTANDO e o que vem depois: o tronco inclinado, as maos
+  // no lugar certo do guidao e os pes na pedaleira — e, principalmente, as
+  // maos ACOMPANHANDO o guidao quando ele esterca.
+  //
+  // Por isso a mao nao e uma pose decorada: e IK. O modelo entrega quatro
+  // Object3D de destino (grupo.userData.piloto) e aqui o braco e a perna sao
+  // resolvidos como corrente de dois ossos. Como os alvos das maos sao filhos
+  // do pivo de direcao, girar o guidao arrasta a mao, o cotovelo se dobra
+  // sozinho e a moto passa a ser pilotada de verdade.
+  //
+  // POR QUE ISTO MORA AQUI E NAO NO ANIMADOR: o animador nao sabe (nem pode
+  // saber) o que e um guidao. Ele recalcula os deltas do ZERO a cada chamada e
+  // escreve as juntas; este bloco roda logo DEPOIS e escreve por cima. Nada
+  // acumula entre quadros, porque no quadro seguinte o animador reescreve tudo
+  // a partir da pose base de novo.
+  // =========================================================================
+
+  const _alvoW = new THREE.Vector3()
+  const _paiInv = new THREE.Matrix4()
+  const _local = new THREE.Vector3()
+  const _u = new THREE.Vector3()
+  const _q = new THREE.Quaternion()
+  const _qRoll = new THREE.Quaternion()
+
+  /**
+   * Corrente de dois ossos apontando para `alvo` (um Object3D no mundo).
+   *
+   * Convencao do character.js: todo membro pendura no -Y local, o filho fica
+   * em (0, -comprimento, 0) e rotation.x positivo joga pra TRAS. Entao o
+   * cotovelo dobra com x negativo (`sinal` = +1) e o joelho com x positivo
+   * (`sinal` = -1).
+   *
+   * `roll` gira a corrente inteira em volta da linha ombro->alvo: e o que
+   * decide pra onde aponta o cotovelo (pra fora, no guidao) ou o joelho (pra
+   * fora, abracando o tanque) sem tirar a mao do lugar.
+   */
+  function ikMembro(sup, inf, ponta, alvo, sinal, roll) {
+    if (!sup || !inf || !ponta || !alvo || !sup.parent) return
+    const L1 = inf.position.length()
+    const L2 = ponta.position.length()
+    if (!(L1 > 0) || !(L2 > 0)) return
+
+    alvo.getWorldPosition(_alvoW)
+    _paiInv.copy(sup.parent.matrixWorld).invert()
+    _local.copy(_alvoW).applyMatrix4(_paiInv).sub(sup.position)
+    let d = _local.length()
+    if (d < 1e-4) return
+    // nunca esticar 100%: braco travado no cotovelo le como manequim
+    const dMax = (L1 + L2) * 0.985
+    const dMin = Math.abs(L1 - L2) + 0.02
+    if (d > dMax) { _local.multiplyScalar(dMax / d); d = dMax }
+    else if (d < dMin) { _local.multiplyScalar(dMin / d); d = dMin }
+    _local.divideScalar(d)          // agora e a direcao unitaria ombro->alvo
+
+    // lei dos cossenos: quanto o cotovelo/joelho tem que dobrar
+    const cosG = clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1)
+    const dobra = Math.PI - Math.acos(cosG)
+    // onde a ponta cai no espaco do osso de cima, com essa dobra
+    _u.set(0, -(L1 + L2 * Math.cos(dobra)), sinal * L2 * Math.sin(dobra)).normalize()
+
+    _q.setFromUnitVectors(_u, _local)
+    if (roll) {
+      _qRoll.setFromAxisAngle(_local, roll)
+      _q.premultiply(_qRoll)
+    }
+    sup.quaternion.copy(_q)
+    inf.rotation.set(-sinal * dobra, 0, 0)
+  }
+
+  /** Soma um angulo numa junta (o animador ja escreveu a base neste quadro). */
+  function somar(p, rx, ry, rz) {
+    if (!p) return
+    p.rotation.x += rx || 0
+    p.rotation.y += ry || 0
+    p.rotation.z += rz || 0
+  }
+
+  /**
+   * Pose de quem esta dirigindo. Tres familias:
+   *   - com `piloto` no modelo (moto, carro): tronco + IK de mao (e de pe)
+   *   - skate: pose de skatista, com a empurrada e o pe no freio
+   *   - resto: a pose generica do animador basta
+   */
+  function posarPiloto(v, dt, baixo) {
+    const p = character.parts
+    if (!p) return
+
+    if (v.impulso) { posarSkatista(v, dt, p, baixo); return }
+    const cfg = v.piloto
+    if (!cfg) return
+
+    // TRONCO: a inclinacao pra frente e o que separa "sentado num banco" de
+    // "pilotando". Ela e dividida entre quadril, torso e peito pra a coluna
+    // curvar em vez de dobrar num ponto so; o pescoco desconta pra a cabeca
+    // continuar olhando pra frente.
+    const inc = cfg.tronco || 0
+    // acelerando ele se agacha um tico; freando, joga o corpo pra tras
+    const dinamica = clamp(-v.mergulho * 1.6, -0.14, 0.14)
+    somar(p.hips, cfg.quadril || 0)
+    somar(p.torso, inc * 0.55 + dinamica * 0.5)
+    somar(p.chest, inc * 0.45 + dinamica * 0.5)
+    somar(p.neck, -inc * 0.75 - dinamica * 0.6)
+
+    // Na curva o piloto de moto joga o corpo pra dentro alem da moto.
+    if (cfg.corpoNaCurva && Math.abs(v.rolagem) > 0.001) {
+      const extra = clamp(v.rolagem * cfg.corpoNaCurva, -0.16, 0.16)
+      somar(p.torso, 0, 0, extra)
+      somar(p.hips, 0, 0, -extra * 0.4)
+    }
+
+    // as juntas mudaram: as matrizes do mundo (que o IK le) tem que ser
+    // refeitas ANTES de resolver mao e pe
+    v.grupo.updateMatrixWorld(true)
+
+    // ATENCAO AO LADO. Em character.js o membro 'R' nasce em +X e o 'L' em -X
+    // (buildArm(1,'R')), e os modelos entregam maos[0]/pes[0] do lado +X. Casar
+    // errado cruza os bracos do boneco no peito — foi o primeiro erro daqui.
+    const maos = cfg.maos
+    if (maos && maos.length === 2) {
+      const co = cfg.cotovelo || 0
+      ikMembro(p.armRUpper, p.armRLower, p.handR, maos[0], 1, co)
+      ikMembro(p.armLUpper, p.armLLower, p.handL, maos[1], 1, -co)
+      // punho fechado no guidao em vez de pendurado
+      somar(p.handR, -0.22, 0, 0.18)
+      somar(p.handL, -0.22, 0, -0.18)
+    }
+    const pes = cfg.pes
+    if (pes && pes.length === 2) {
+      const jo = cfg.joelho || 0
+      ikMembro(p.legRUpper, p.legRLower, p.footR, pes[0], -1, jo)
+      ikMembro(p.legLUpper, p.legLLower, p.footL, pes[1], -1, -jo)
+      // o pe apoia PLANO na pedaleira: desconta o angulo da canela
+      p.footR.rotation.x = -p.legRLower.rotation.x * 0.55
+      p.footL.rotation.x = -p.legLLower.rotation.x * 0.55
+    }
+  }
+
+  // --- skate ----------------------------------------------------------------
+  //
+  // O skatista e o unico que nao "senta": ele fica de lado, de joelhos moles,
+  // e a perna de tras SAI DO DECK pra empurrar. Os alvos dos pes sao dois
+  // Object3D nossos, pendurados no pivo do skate — assim da pra levar o pe de
+  // trupe ate o chao e trazer de volta sem mexer no modelo.
+
+  /** Cria (uma vez) os dois alvos de pe presos ao deck. */
+  function alvosDePe(v) {
+    if (v.alvoPe) return v.alvoPe
+    const pai = v.pivoInclina || v.grupo
+    v.alvoPe = [new THREE.Object3D(), new THREE.Object3D()]
+    for (const a of v.alvoPe) { a.userData.dynamic = true; pai.add(a) }
+    return v.alvoPe
+  }
+
+  /** Interpolacao suave entre dois valores, com a curva do smoothstep. */
+  function suave(a, b, t) {
+    t = clamp01(t)
+    return a + (b - a) * t * t * (3 - 2 * t)
+  }
+
+  function posarSkatista(v, dt, p, baixo) {
+    const alvo = alvosDePe(v)
+    const cfg = v.piloto || {}
+    // repouso: onde o modelo disse que os pes ficam em cima da lixa
+    const rep = cfg.pes && cfg.pes.length === 2 ? cfg.pes : null
+    const topo = rep ? rep[0].position.y : 0.07
+    const solo = -(v.rodas[0] ? v.rodas[0].raio : 0.028)
+    // +X do modelo = pe da FRENTE (nariz do skate); -X = pe de tras, que empurra
+    const zFrente = rep ? rep[0].position.z : 0.15
+    const zTras = rep ? rep[1].position.z : -0.15
+
+    // o pe da frente nao sai do deck nunca
+    alvo[0].position.set(0, topo, zFrente)
+
+    // --- o pe de tras: deck -> chao -> varre -> volta ------------------------
+    let agacha = 0.085                 // joelhos sempre moles: skate nao e pose de pe
+    const f = v.empurra
+    if (v.freando > 0.02 && f < 0) {
+      // pe raspando o chao atras: arrasta e treme um pouco
+      const w = v.freando
+      alvo[1].position.set(
+        suave(0, -0.185, w),
+        suave(topo, solo, w),
+        suave(zTras, -0.30, w) + Math.sin(tempo * 40) * 0.006 * w,
+      )
+      agacha += 0.085 * w
+    } else if (f >= 0) {
+      // ATENCAO AO ALCANCE. A perna tem 75 cm do quadril ao tornozelo; com o
+      // quadril 80 cm acima do asfalto, um pe mandado 44 cm pra tras fica a
+      // 90 cm do quadril e o IK trava a meio caminho — o pe fica PENDURADO no
+      // ar e a empurrada nao le. Por isso a varredura e curta (30 cm) e vem
+      // junto com um agachamento: e agachando que o pe alcanca o chao, que e
+      // exatamente o que um skatista faz.
+      let x, y, z
+      if (f < VARRE_INI) {                       // sai do deck e desce
+        const t = f / VARRE_INI
+        x = suave(0, -0.185, t); y = suave(topo, solo, t); z = suave(zTras, 0.04, t)
+      } else if (f <= VARRE_FIM) {               // VARRE: e daqui que vem a velocidade
+        const t = (f - VARRE_INI) / (VARRE_FIM - VARRE_INI)
+        x = -0.185; y = solo; z = suave(0.04, -0.28, t)
+      } else {                                   // recolhe pro deck
+        const t = (f - VARRE_FIM) / (1 - VARRE_FIM)
+        x = suave(-0.185, 0, t); y = suave(solo, topo, t * 1.3); z = suave(-0.28, zTras, t)
+      }
+      alvo[1].position.set(x, y, z)
+      agacha += 0.115 * Math.sin(clamp01(f / 0.85) * Math.PI)
+    } else {
+      alvo[1].position.set(0, topo, zTras)
+    }
+    if (v.noAr) agacha += 0.05
+
+    character.root.position.y = baixo - agacha
+
+    // TRONCO: peito virado pro nariz do skate (que fica no +X do boneco) e um
+    // tanto pra frente. Sem essa torcao ele anda de lado olhando pra parede.
+    somar(p.torso, 0.17, 0.06)
+    somar(p.chest, 0.11, 0.30)
+    somar(p.neck, -0.22, 0.14)
+    // na curva o corpo tomba pra dentro junto com o deck
+    somar(p.hips, 0, 0.05, clamp(v.rolagem * 0.5, -0.10, 0.10))
+
+    // BRACOS abertos pra equilibrio, e balancando na empurrada
+    const bal = f >= 0 ? Math.sin(f * Math.PI * 2) * 0.55 : 0
+    somar(p.armRUpper, -0.30 - bal * 0.5, 0, 0.60)
+    somar(p.armLUpper, -0.30 + bal * 0.5, 0, -0.52)
+    somar(p.armRLower, -0.55, 0, 0)
+    somar(p.armLLower, -0.62, 0, 0)
+
+    v.grupo.updateMatrixWorld(true)
+
+    ikMembro(p.legRUpper, p.legRLower, p.footR, alvo[0], -1, 0.16)
+    ikMembro(p.legLUpper, p.legLLower, p.footL, alvo[1], -1, -0.16)
+    // pe da frente atravessado no deck (como todo skatista poe), pe de tras
+    // acompanhando a canela pra nao ficar de ponta quando raspa o chao
+    p.footR.rotation.set(-p.legRLower.rotation.x * 0.5, 0.38, 0)
+    p.footL.rotation.set(-p.legLLower.rotation.x * 0.5, 0.08, 0)
+
+    if (typeof character.setHeadLook === 'function') {
+      character.setHeadLook(0, 0.45 + clamp(v.giro * 0.4, -0.3, 0.3))
+    }
+  }
+
+  // =========================================================================
+  // 5c. FUMACA DE PNEU
+  //
+  // Derrapar sem deixar rastro nao le como derrapagem: le como um carro que
+  // escorregou de leve. Um punhado de sprites cinzas saindo debaixo da roda
+  // traseira e o que transforma a mesma fisica em "eu perdi a traseira".
+  //
+  // Pool fixo, criado na primeira derrapagem e nunca mais: sprite invisivel
+  // nao custa draw call, e alocar particula no meio de uma curva e a receita
+  // do engasgo. Elas ficam penduradas no grupo dos veiculos, que esta na cena
+  // sem transformacao — entao as posicoes sao as do mundo, direto.
+  // =========================================================================
+  const FUMACA_N = 20
+  let fumaca = null
+  let fumIdx = 0
+
+  function fazerFumaca() {
+    const mapa = tex('fumaca-pneu', 64, (g, s) => {
+      const r = s / 2
+      const grd = g.createRadialGradient(r, r, 0, r, r, r)
+      grd.addColorStop(0, 'rgba(226,226,230,0.7)')
+      grd.addColorStop(0.45, 'rgba(186,186,194,0.3)')
+      grd.addColorStop(1, 'rgba(180,180,190,0)')
+      g.fillStyle = grd
+      g.fillRect(0, 0, s, s)
+    })
+    const lista = []
+    for (let i = 0; i < FUMACA_N; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: mapa, transparent: true, depthWrite: false, opacity: 0,
+      })
+      const sp = new THREE.Sprite(mat)
+      sp.visible = false
+      sp.userData.dynamic = true
+      grupo.add(sp)
+      lista.push({ sp, mat, t: 0, dur: 1, vx: 0, vy: 0, vz: 0, esc: 0.3 })
+    }
+    return lista
+  }
+
+  function soltarFumaca(x, y, z, forca) {
+    if (!fumaca) fumaca = fazerFumaca()
+    const f = fumaca[fumIdx]
+    fumIdx = (fumIdx + 1) % FUMACA_N
+    f.t = 0
+    f.dur = 0.55 + Math.random() * 0.5
+    f.esc = 0.26 + forca * 0.34
+    f.vx = (Math.random() - 0.5) * 0.9
+    f.vz = (Math.random() - 0.5) * 0.9
+    f.vy = 0.5 + Math.random() * 0.7
+    f.sp.position.set(x, y + 0.03, z)
+    f.sp.scale.setScalar(f.esc)
+    f.sp.visible = true
+    f.mat.opacity = clamp01(0.26 + forca * 0.3)
+  }
+
+  function atualizarFumaca(dt) {
+    if (!fumaca) return
+    for (let i = 0; i < fumaca.length; i++) {
+      const f = fumaca[i]
+      if (!f.sp.visible) continue
+      f.t += dt
+      const k = f.t / f.dur
+      if (k >= 1) { f.sp.visible = false; f.mat.opacity = 0; continue }
+      f.sp.position.x += f.vx * dt
+      f.sp.position.y += f.vy * dt
+      f.sp.position.z += f.vz * dt
+      f.vy *= 1 - 1.4 * dt
+      f.sp.scale.setScalar(f.esc * (1 + k * 2.6))
+      f.mat.opacity = (1 - k) * (1 - k) * 0.46
+    }
+  }
+
+  /** Onde as rodas de tras tocam o chao, pra soltar a fumaca no lugar certo. */
+  const _rodaW = new THREE.Vector3()
+  function fumacaDaDerrapagem(v, dt) {
+    if (v.voa || v.impulso) return
+    const forca = clamp01((Math.abs(v.velLat) - 1.6) / 5)
+    if (forca <= 0) return
+    // uma pluma a cada ~35 ms, e nao uma por quadro: em 144 Hz seriam 4x mais
+    v.tFumaca = (v.tFumaca || 0) + dt
+    if (v.tFumaca < 0.035) return
+    v.tFumaca = 0
+    for (let i = 0; i < v.rodas.length; i++) {
+      const r = v.rodas[i]
+      if (r.esterca) continue                 // so as de tras fumegam
+      r.obj.getWorldPosition(_rodaW)
+      soltarFumaca(_rodaW.x, chaoEm(_rodaW.x, _rodaW.z), _rodaW.z, forca)
+    }
   }
 
   // =========================================================================
@@ -1019,7 +1460,8 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     if (!buf.length) {
       // parado na vaga: fica exatamente na pose que o servidor deu por ultimo
       v.grupo.position.copy(v.pos)
-      v.grupo.rotation.set(0, v.yaw, v.pivoInclina ? 0 : v.rolagem)
+      v.grupo.rotation.set(0, v.yaw, (v.pivoInclina || v.carroceria) ? 0 : v.rolagem)
+      if (v.carroceria) v.carroceria.rotation.z = v.rolagem
       animarLuzes(v, ENTRADA_PARADA, dt)
       animarRotores(v, dt, v.dono !== 0)
       return
@@ -1044,10 +1486,13 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     // nao viaja pela rede
     const andou = Math.hypot(v.pos.x - v.grupo.position.x, v.pos.z - v.grupo.position.z)
     for (let i = 0; i < v.rodas.length; i++) {
-      v.rodas[i].obj.rotation.x -= andou / v.rodas[i].raio
+      v.rodas[i].obj.rotation.x += andou / v.rodas[i].raio
     }
     v.grupo.position.copy(v.pos)
-    if (v.pivoInclina) {
+    if (v.carroceria) {
+      v.grupo.rotation.set(0, v.yaw, 0)
+      v.carroceria.rotation.set(0, 0, v.rolagem)
+    } else if (v.pivoInclina) {
       v.grupo.rotation.set(0, v.yaw, 0)
       v.pivoInclina.rotation.z = v.rolagem
     } else {
@@ -1081,6 +1526,8 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     if (conectadoAntes && !conectadoAgora) limparPorQueda()
     conectadoAntes = conectadoAgora
 
+    atualizarFumaca(dt)
+
     if (pedidoId) {
       pedidoT += dt
       if (pedidoT > TEMPO_PEDIDO) pedidoId = 0     // some sem barulho
@@ -1104,12 +1551,19 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     if (meu.voa) {
       taxa = voar(meu, e, dt)
     } else {
+      // Espaco: freio de mao SO NO CARRO, pulinho no skate, nada na moto.
+      // Na moto o dono reprovou ("retire apenas o derrapar com a tecla
+      // espaco"): moto de rabeira nao combina com o resto da pilotagem dela,
+      // que e agarrada e limpa.
+      meu.freioMao = meu.tipo === 'carro' && !!e.cima
       acelerar(meu, e, dt)
       taxa = estercar(meu, e, dt)
+      if (meu.freioMao) meu.vel = mover(meu.vel, 0, meu.cfg.freio * 0.55 * dt)
       andar(meu, taxa, dt)
       if (meu.impulso && e.cima && !meu.noAr) {   // o pulinho do skate
         meu.noAr = true
         meu.vy = PULO_SKATE
+        meu.empurra = -1
       }
       assentarNoChao(meu, dt)
     }
@@ -1117,6 +1571,7 @@ export function criarVeiculos({ scene, camera, player, character, collision,
 
     animarRodas(meu, dt)
     animarLuzes(meu, e, dt)
+    fumacaDaDerrapagem(meu, dt)
     animarRotores(meu, dt, true)
     aplicarPose(meu, taxa, acelReal, dt)
     prenderNoAssento(meu, dt)
@@ -1166,12 +1621,50 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     void interaction
   }
 
+  // =========================================================================
+  // VEICULO COMPRADO NA CONCESSIONARIA
+  // =========================================================================
+  //
+  // Faixa 4010..4089, e ela mora AQUI e nao em comum/mundo.js de proposito.
+  // mundo.js e a lista de ids que os DOIS LADOS precisam concordar, e veiculo
+  // comprado nao passa pela rede: ele e local, como a carteira e como a mobilia
+  // instalada na casa ("o protocolo de rede nao tem pacote de dinheiro e
+  // inventar um significaria mexer no servidor e no contrato", main.js).
+  //
+  // A faixa e escolhida pra nao encostar em nada: 4000..4002 sao os tres
+  // estacionados do mundo e 4100..4999 sao os helicopteros montados.
+  const COMPRADO_MIN = 4010
+  const COMPRADO_MAX = 4089
+  let proxComprado = COMPRADO_MIN
+
+  /**
+   * Poe no mundo um veiculo do tipo pedido, ja estacionado e pronto pra entrar.
+   * Devolve o id, ou 0 se o tipo nao tem modelo ou a faixa acabou.
+   *
+   * Assincrono por dentro (o modelo carrega por import dinamico, como os tres
+   * do mundo e o helicoptero), entao quem chama nao recebe o veiculo pronto —
+   * recebe o id que ele VAI ter. Nenhum caminho do jogo precisa dele no mesmo
+   * quadro: a concessionaria so avisa "seu veiculo esta na vaga da frente".
+   */
+  function criarComprado(tipo, x, z, yaw) {
+    if (proxComprado > COMPRADO_MAX) return 0
+    const nome = String(tipo || '').toLowerCase().replace(/[^a-z]/g, '')
+    if (!MODULOS['./' + nome + '.js']) return 0
+    const id = proxComprado++
+    carregar(nome).then((m) => {
+      if (!m) return
+      registrar(id, nome, { x, y: chaoEm(x, z), z, yaw: yaw || 0 }, m)
+    })
+    return id
+  }
+
   return {
     grupo,
     atualizar,
     entrarSair,
     aoEventoDeRede,
     criarHelicoptero,
+    criarComprado,
     veiculoPerto,
     dispose,
     get dirigindo() { return dirigindo },

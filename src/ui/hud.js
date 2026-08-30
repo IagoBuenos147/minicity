@@ -9,6 +9,16 @@ const CSS = `
 #hud {
   position: fixed; inset: 0; z-index: 20;
   pointer-events: none;
+  /* O TAMANHO DA VAGA MORA AQUI, no HUD inteiro, e nao em #hud-barra: quem
+     precisa dele nao e so a barra. A ajuda (#hud-help) se ancora ACIMA dela e
+     soma esta altura pra saber onde parar, e propriedade declarada na barra so
+     desce pros filhos DELA — a ajuda e irma, nao filha. Um numero, dois
+     leitores, nenhuma copia pra desencontrar depois.
+     Nove vagas de 66 com oito folgas de 10 dao ~670 px, largura que so sobra em
+     tela grande; por isso e vw com teto, cheia ate ~900 px e encolhendo abaixo
+     disso. */
+  --vaga: clamp(40px, 7.2vw, 66px);
+  --folga: clamp(4px, 1.1vw, 10px);
   font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
   color: #f2f5f8;
   -webkit-font-smoothing: antialiased;
@@ -39,6 +49,7 @@ const CSS = `
    justamente enquanto o jogador esta no menu. */
 #hud.fora-do-jogo #hud-status,
 #hud.fora-do-jogo #hud-canto,
+#hud.fora-do-jogo #hud-barra,
 #hud.fora-do-jogo #hud-help,
 #hud.fora-do-jogo #hud-cross,
 #hud.fora-do-jogo #hud-prompt,
@@ -98,14 +109,14 @@ const CSS = `
 }
 #hud-fps b { font-variant-numeric: tabular-nums; font-size: 14px; }
 
-/* --- CANTO INFERIOR DIREITO: mao, dinheiro e mochila ----------------------
-   A ordem da coluna, de cima pra baixo, e a que o dono do projeto pediu: o que
-   esta na mao, o dinheiro (na mao e no banco, lado a lado) e as vagas logo
-   abaixo.
-   A HOTBAR entra aqui como FILHA (main.js passa pai: hud.canto). Ela era fixa
-   em left:50%, e nove vagas de 48 px com oito folgas de 6 dao 480 px: abaixo de
-   ~1174 px de janela o bloco da direita encostava na barra centrada. Uma coluna
-   so acaba com a colisao em qualquer largura, sem media query. */
+/* --- CANTO INFERIOR DIREITO: so o dinheiro --------------------------------
+   Esta coluna ja empilhou tres coisas (a mao, o dinheiro e as vagas). Sobrou o
+   dinheiro: as vagas viraram a barra unica do rodape (ver #hud-barra) e o que
+   esta na mao passou a ser uma vaga dela como outra qualquer.
+   Continua sendo uma COLUNA, e nao uma linha solta, por dois motivos: o
+   #hud-money aparece e some sozinho (quem nunca viu uma ficha nao tem a linha
+   de fichas), e quem quiser pendurar outra coisa no canto so precisa fazer
+   appendChild em hud.canto — foi assim que a hotbar antiga entrava aqui. */
 #hud-canto {
   position: absolute; right: 18px; bottom: 18px;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
@@ -126,40 +137,119 @@ const CSS = `
 }
 #hud-money b { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 700; }
 
-/* --- MOCHILA: as nove vagas ----------------------------------------------
-   Elas NAO sao a hotbar. A hotbar e o que esta na mao (maos, revolver) e cada
-   entrada dela tem icone desenhado a mao e tecla numerica; a mochila guarda o
-   que foi comprado. Por isso ela nao rouba Digit1/Digit2: seleciona-se no
-   clique. */
-#hud-bag { display: none; gap: 6px; pointer-events: auto; }
+/* --- A BARRA DE ITENS: as nove vagas, centradas no rodape ------------------
+   Ate aqui eram DUAS barras empilhadas na coluna da direita: a hotbar (o que
+   esta na mao, teclas 1 e 2) e, embaixo dela, as nove vagas da mochila. A
+   mochila nao era centralizada por causa disso — duas barras disputando o meio
+   da tela nao cabiam, e jogar as duas pro canto era o jeito de nao deixar uma
+   por cima da outra em janela estreita.
+   Agora e UMA barra so, de 1 a 9, no meio do rodape. E onde o olho procura a
+   barra de itens em qualquer jogo, e o motivo da briga antiga morreu junto com
+   a segunda barra: a coluna da direita ficou so com o dinheiro. O visual e o
+   que a hotbar tinha (vaga de 66, canto de 12, vidro escuro com blur), porque
+   era ele que dizia "isto e o que voce tem na mao" — as vagas de 48 px, chapadas
+   no canto, pareciam um deposito.
+
+   Dois elementos e nao um: o PAI (#hud-barra) centraliza com translateX(-50%)
+   e faz o fade do 'off'; a FILHA (#hud-bag) e a fileira e fica com o tremor do
+   'negou'. Num elemento so, o transform do tremor apagaria o -50% e a barra
+   pularia pro canto da tela no meio da animacao.
+   O padding de baixo e a faixa onde cabe o nome do item da vaga selecionada,
+   que sai POR BAIXO da vaga: sem ela o nome nasceria fora da tela.
+
+   Tamanho: nove vagas de 66 com oito folgas de 10 dao 674 px. A vaga e vw com
+   teto de 66, entao fica cheia ate ~900 px de janela e encolhe abaixo disso.
+   Isso salva a janela estreita, mas nao a media: a coluna da ajuda (#hud-help)
+   tem 438 px fixos e vai quase ate o chao, e 674 px centrados so passam longe
+   dela acima de ~1550 px de janela. Entre esses dois numeros as duas se cruzam,
+   e nao ha tamanho de vaga que resolva isso sem encolher a barra a ponto de
+   ninguem enxergar o que tem dentro dela. A saida de verdade e a ajuda nao
+   morar no rodape, e essa decisao nao e deste bloco.
+   O que da pra fazer aqui e escolher QUEM fica por cima: a barra. Ela e
+   clicavel, e vaga escondida atras de um painel opaco continua recebendo o
+   clique — dos dois defeitos, esse e o que quebra o jogo. A ajuda e uma cola
+   que se fecha no Tab. */
+#hud-barra {
+  position: absolute; left: 50%; bottom: 18px;
+  transform: translateX(-50%);
+  padding-bottom: 20px;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity .18s ease, transform .18s ease;
+}
+#hud-barra.off { opacity: 0; transform: translateX(-50%) translateY(12px); }
+
+#hud-bag { display: none; gap: var(--folga); pointer-events: none; }
 #hud-bag.on { display: flex; }
 #hud-bag .vaga {
-  position: relative; width: 48px; height: 48px; border-radius: 9px;
-  background: rgba(10,12,16,.62); border: 1px solid rgba(255,255,255,.10);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
-  cursor: pointer; overflow: hidden;
-  transition: border-color .14s ease, transform .1s ease;
+  position: relative;
+  width: var(--vaga); height: var(--vaga);
+  border-radius: calc(var(--vaga) * .18);
+  background: rgba(14, 17, 24, 0.52);
+  border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(9px) saturate(1.1);
+  -webkit-backdrop-filter: blur(9px) saturate(1.1);
+  box-shadow: 0 6px 22px rgba(0,0,0,0.32);
+  display: flex; align-items: center; justify-content: center;
+  /* so a vaga recebe clique: a folga entre elas deixa passar (o botao direito
+     no meio da barra cancela o encaixe pelo mundo, e nao pela barra) */
+  pointer-events: auto; cursor: pointer;
+  transition: transform .14s ease, border-color .14s ease,
+              box-shadow .14s ease, background .14s ease, opacity .14s ease;
 }
-#hud-bag .vaga:hover { border-color: rgba(233,196,106,.5); }
-#hud-bag .vaga.cheia { background: rgba(20,24,30,.78); }
+#hud-bag .vaga:hover { border-color: rgba(255,255,255,.34); }
+#hud-bag .vaga.cheia { background: rgba(20, 24, 30, 0.72); }
+/* --- selecionada: sobe, cresce e acende, igual a hotbar fazia --- */
 #hud-bag .vaga.sel {
-  border-color: #e9c46a; transform: translateY(-3px);
-  box-shadow: 0 6px 18px rgba(233,196,106,.28), inset 0 1px 0 rgba(255,255,255,.08);
+  transform: translateY(-4px) scale(1.09);
+  border-color: rgba(255,255,255,0.78);
+  background: rgba(30, 38, 52, 0.62);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.30),
+              0 0 16px rgba(150,200,255,0.35),
+              0 10px 26px rgba(0,0,0,0.42);
 }
-#hud-bag .vaga img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* padding pra foto nao encostar na borda; o contain cuida do resto */
+#hud-bag .vaga img {
+  width: 100%; height: 100%; padding: 4px;
+  object-fit: contain; display: block;
+}
+/* numero da vaga, canto superior esquerdo. Vaga vazia mostra o numero apagado:
+   e ele que ensina que a tecla existe antes de haver o que guardar. */
+#hud-bag .vaga .i {
+  position: absolute; top: 3px; left: 6px;
+  font-size: 11px; font-weight: bold; line-height: 1;
+  color: #9fb6cc; opacity: .5;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
+#hud-bag .vaga.cheia .i { opacity: .95; }
+#hud-bag .vaga.sel .i { color: #ffffff; opacity: 1; }
 #hud-bag .vaga .n {
-  position: absolute; right: 3px; bottom: 2px;
-  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  position: absolute; right: 5px; bottom: 3px;
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
   color: #f2ece0; text-shadow: 0 1px 3px rgba(0,0,0,.95);
 }
-#hud-bag .vaga .i {
-  position: absolute; left: 4px; top: 2px; font-size: 9px;
-  color: rgba(255,255,255,.28); font-variant-numeric: tabular-nums;
+/* nome do item: so na vaga selecionada. Nove nomes ao mesmo tempo viram uma
+   parede de texto no rodape; um so e a legenda do que esta na mao. */
+#hud-bag .vaga .nome {
+  position: absolute; left: 50%; bottom: -20px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px; letter-spacing: .2px;
+  color: #dbe6f2;
+  text-shadow: 0 1px 3px rgba(0,0,0,.75);
+  opacity: 0; transition: opacity .14s ease;
+  pointer-events: none;
 }
+#hud-bag .vaga.sel .nome { opacity: 1; }
+/* a vaga que acabou de receber pisca dourado. A sombra de descanso entra nos
+   dois quadros: sem ela a vaga perde o relevo enquanto a piscada roda. */
 #hud-bag .vaga.piscou { animation: hudVagaPisca .55s ease; }
 @keyframes hudVagaPisca {
-  0% { border-color: #e9c46a; box-shadow: 0 0 0 0 rgba(233,196,106,.55); }
-  100% { border-color: rgba(255,255,255,.10); box-shadow: 0 0 0 14px rgba(233,196,106,0); }
+  0% { border-color: #e9c46a;
+       box-shadow: 0 0 0 0 rgba(233,196,106,.55), 0 6px 22px rgba(0,0,0,.32); }
+  100% { border-color: rgba(255,255,255,.10);
+         box-shadow: 0 0 0 14px rgba(233,196,106,0), 0 6px 22px rgba(0,0,0,.32); }
 }
 #hud-bag.negou { animation: hudBagNega .36s ease; }
 @keyframes hudBagNega {
@@ -207,10 +297,26 @@ const CSS = `
 #hud-debug span { color: #8fa5bb; }
 
 /* --- ajuda --- */
+/* --- ajuda ----------------------------------------------------------------
+   ELA SAIU DO RODAPE, e as duas mudancas abaixo sao a mesma decisao vista de
+   dois angulos.
+   O bloco da #hud-barra explica o aperto: a barra tem 674 px centrados e a
+   ajuda tinha 438 px colados no canto de baixo da esquerda; abaixo de ~1550 px
+   de janela as duas se cruzam, e nenhum tamanho de vaga resolve isso. Quem cede
+   e a ajuda: a barra e permanente e clicavel, a ajuda e uma cola que o Tab
+   fecha.
+   1. DUAS COLUNAS de par tecla/rotulo (o mesmo 'auto 1fr auto 1fr' da grade da
+      tela inicial). Dezenove linhas viram dez: o painel perde quase metade da
+      altura, que e o que permite ele subir sem bater no FPS do canto de cima.
+   2. ANCORADA ACIMA DA BARRA, e nao no chao: o 'bottom' dela soma a altura da vaga
+      (a mesma variavel que a barra usa, por isso ela mora em #hud e nao em
+      #hud-barra) mais o rodape dela e uma folga. Assim as duas nunca se tocam
+      em largura nenhuma, sem media query e sem numero repetido. */
 #hud-help {
-  position: absolute; left: 16px; bottom: 16px;
+  position: absolute; left: 16px;
+  bottom: calc(18px + var(--vaga) + 30px);
   padding: 12px 14px; font-size: 13px;
-  display: grid; grid-template-columns: auto 1fr; gap: 7px 11px;
+  display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 7px 11px;
   align-items: center;
   opacity: 1; transition: opacity .2s ease, transform .2s ease;
 }
@@ -221,8 +327,11 @@ const CSS = `
 #hud-help .keys { display: flex; gap: 4px; }
 
 /* --- tela inicial --- */
+/* O z-index e por causa do #hud-barra, que subiu pra passar por cima da ajuda:
+   sem um numero maior aqui, a barra de itens boiaria por cima do "clique para
+   jogar", que e a unica coisa na tela que tem de estar na frente de tudo. */
 #hud-start {
-  position: absolute; inset: 0; pointer-events: auto; cursor: pointer;
+  position: absolute; inset: 0; z-index: 3; pointer-events: auto; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 18px; text-align: center;
   background: radial-gradient(120% 90% at 50% 30%, rgba(24,36,58,0.72), rgba(6,8,13,0.94));
@@ -263,10 +372,10 @@ const HELP_ROWS = [
   [['E'], 'Interagir / entrar no veiculo'],
   [['V'], 'Trocar camera'],
   [['X'], 'Ver o personagem de frente (e o cenario atras)'],
-  // A barra de itens e o unico jeito de descobrir que o revolver existe: sem
-  // esta linha o jogador so acha por acidente. (O anel verde e a arma de
-  // portal sairam do jogo; estao em backup/poder/.)
-  [['1', '2'], 'Maos / revolver'],
+  // Esta linha e o unico jeito de descobrir que a barra responde ao TECLADO:
+  // as nove vagas parecem so clicaveis. E o segundo aperto guarda o que esta na
+  // mao, que e o gesto que ninguem adivinha sozinho.
+  [['1-9'], 'Pegar da barra (de novo: guarda)'],
   [['Bt.Esq'], 'Atirar'],
   [['Bt.Dir'], 'Mirar'],
   [['R'], 'Recarregar o revolver'],
@@ -343,7 +452,7 @@ export function createHUD() {
   const debug = el('div', 'panel', status)
   debug.id = 'hud-debug'
 
-  // --- canto inferior direito: hotbar (main.js pendura), dinheiro, mochila ---
+  // --- canto inferior direito: so o dinheiro (a barra de itens saiu daqui) ---
   const canto = el('div', null, root)
   canto.id = 'hud-canto'
 
@@ -362,7 +471,11 @@ export function createHUD() {
   el('i', null, fichaBox, 'ficha')
   const fichaVal = el('b', null, fichaBox, '0')
 
-  const bag = el('div', null, canto)
+  // --- a barra de itens, centrada no rodape (ver #hud-barra no CSS) ---------
+  // O container so posiciona e some/aparece; a fileira e quem treme no 'negou'.
+  const barra = el('div', null, root)
+  barra.id = 'hud-barra'
+  const bag = el('div', null, barra)
   bag.id = 'hud-bag'
   const vagas = []
   for (let i = 0; i < 9; i++) {
@@ -373,12 +486,14 @@ export function createHUD() {
     img.style.display = 'none'
     const n = el('span', 'n', v)
     n.style.display = 'none'
+    // o nome existe em toda vaga; o CSS so mostra o da selecionada
+    const nome = el('span', 'nome', v)
     v.addEventListener('click', () => { if (aoClicarVaga) aoClicarVaga(i) })
     v.addEventListener('contextmenu', (e) => {
       e.preventDefault()
       if (aoClicarVaga) aoClicarVaga(-1)
     })
-    vagas.push({ el: v, img, n })
+    vagas.push({ el: v, img, n, nome })
   }
   let aoClicarVaga = null
 
@@ -569,16 +684,23 @@ export function createHUD() {
       if (f > 0) money.dataset.viuFicha = '1'
     },
 
-    /** A coluna do canto, pro main pendurar a hotbar dentro dela. */
+    /** A coluna do canto (dinheiro). Quem quiser pendurar algo la usa isto. */
     get canto() { return canto },
 
     /**
-     * Redesenha a mochila. `slots` e a copia do inventario (9 posicoes, null =
+     * Redesenha a barra. `slots` e a copia do inventario (9 posicoes, null =
      * vazia), `fotos` responde a foto de cada id e `sel` e a vaga escolhida.
+     *
+     * `nomeDe` e OPCIONAL de proposito: e so uma funcao (id) => texto pra
+     * escrever o nome embaixo da vaga selecionada. Sem ela nenhum nome aparece
+     * e nada mais muda — as chamadas de tres argumentos que existem por ai
+     * continuam valendo, e quem so quer repintar a barra nao precisa carregar
+     * o catalogo pra dentro do HUD.
      */
-    setMochila(slots, fotos, sel) {
+    setMochila(slots, fotos, sel, nomeDe) {
       if (!Array.isArray(slots)) { bag.classList.remove('on'); return }
       bag.classList.add('on')
+      const temNome = typeof nomeDe === 'function'
       for (let i = 0; i < vagas.length; i++) {
         const v = vagas[i]
         const s = slots[i]
@@ -587,6 +709,7 @@ export function createHUD() {
         if (!s) {
           v.img.style.display = 'none'
           v.n.style.display = 'none'
+          v.nome.textContent = ''
           v.el.title = ''
           continue
         }
@@ -595,8 +718,21 @@ export function createHUD() {
         v.img.style.display = url ? '' : 'none'
         v.n.style.display = s.qtd > 1 ? '' : 'none'
         v.n.textContent = String(s.qtd)
+        // o nome vai em toda vaga cheia (o CSS mostra so o da selecionada) e
+        // vira tambem o tooltip, que e o unico jeito de ler o nome das outras
+        const nome = temNome ? (nomeDe(s.id) || '') : ''
+        v.nome.textContent = nome
+        v.el.title = nome
       }
     },
+
+    /**
+     * Esconde/mostra a barra inteira, com fade. Chamado pelo main ao abrir
+     * menu, provador ou cutscene: e o mesmo mostrar(v) que a hotbar tinha, e
+     * some por transparencia (e nao por display) pra barra voltar deslizando
+     * em vez de aparecer estalada no meio da tela.
+     */
+    mostrarBarra(v) { barra.classList.toggle('off', !v) },
 
     /** A vaga que acabou de receber pisca dourado. */
     piscarVaga(i) {

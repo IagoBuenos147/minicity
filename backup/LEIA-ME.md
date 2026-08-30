@@ -13,6 +13,7 @@ projeto disse, com todas as letras, que pode querer usá-los de novo.
 | `poder/efeitos.js` | Os efeitos compartilhados do anel e do portal |
 | `veiculos/helicoptero.js` | O helicóptero — ele só existia porque o anel o montava |
 | `world/agarraveis.js` | Os objetos que o anel levitava (vasos, caixotes), com id estável |
+| `ui/hotbar-antiga.js` | A barra separada de "o que está na mão" (2 slots, teclas 1 e 2, ícones desenhados em canvas). Saiu quando as duas barras viraram uma só: as 9 vagas da mochila, centradas no rodapé, nas teclas 1 a 9. Os **ícones em canvas** são o que vale guardar aqui — revólver, mão, anel e arma de portal desenhados à mão, 30 linhas cada |
 
 O **zumbi** (`src/npc/zumbi.js`) não está aqui: o pedido foi apagar. Ele
 continua no histórico do git, no commit anterior a esta remoção, se um dia

@@ -18,6 +18,8 @@ import * as Proto from '../src/comum/protocolo.js'
 import { criarSala } from '../servidor/sala.js'
 import { normalizarAparencia } from '../src/rede/cliente-rede.js'
 import { VERSAO_PROTOCOLO } from '../src/comum/mundo.js'
+import * as AP from '../src/player/appearance.js'
+import * as RP from '../src/player/roupas.js'
 
 const casos = []
 function ok(nome, passou, detalhe) {
@@ -189,7 +191,11 @@ ok('VERSAO_PROTOCOLO subiu por causa da aparencia de 20 bytes (>= 3)',
   const n = normalizarAparencia(alto)
   const esperado = Proto.APARENCIA_OPCOES.map((o) => (o > 0 ? o - 1 : 99))
   const deu = C.map((k) => n[k])
-  ok('clamp por campo: cabeca para em 7, olhos em 4, chapeu em 5...',
+  // O NOME NAO CITA MAIS OS NUMEROS. Ele dizia "cabeca para em 7, olhos em 4"
+  // e virou mentira na primeira vez que um catalogo cresceu — o teste continuou
+  // passando (ele compara com APARENCIA_OPCOES, nao com o texto) e so o nome
+  // ficou errado, que e o pior tipo de documentacao: a que parece conferida.
+  ok('clamp por campo: cada indice para na ultima opcao do proprio catalogo',
     deu.join(',') === esperado.join(','), deu.join(','))
 }
 {
@@ -201,9 +207,13 @@ ok('VERSAO_PROTOCOLO subiu por causa da aparencia de 20 bytes (>= 3)',
 {
   // A UI e o personagem ainda podem falar os nomes de 6 bytes enquanto a
   // reforma acontece. Perder isso seria o cabelo escolhido virar 0 no pacote.
-  const n = normalizarAparencia({ hair: 2, eyes: 3, brows: 1, mouth: 2, hairColor: 4, skinIdx: 3 })
+  // eyes: 2 e nao 3 — o catalogo de olho caiu pra tres itens (so os de
+  // desenho), e normalizarAparencia CORTA pelo tamanho do catalogo. Com 3 aqui
+  // o teste falhava reclamando de apelido quebrado quando o apelido estava
+  // certo e o fora-de-faixa e que tinha mudado.
+  const n = normalizarAparencia({ hair: 2, eyes: 2, brows: 1, mouth: 2, hairColor: 4, skinIdx: 3 })
   ok('nomes antigos (hair/eyes/brows/mouth/hairColor/skinIdx) ainda entram',
-    n.cabelo === 2 && n.olhos === 3 && n.sobrancelha === 1 && n.boca === 2
+    n.cabelo === 2 && n.olhos === 2 && n.sobrancelha === 1 && n.boca === 2
     && n.corCabelo === 4 && n.pele === 3,
     'cabelo ' + n.cabelo + ' olhos ' + n.olhos + ' pele ' + n.pele)
 }
@@ -283,6 +293,45 @@ sala.entrar(A2, { versao: VERSAO_PROTOCOLO, nome: 'Ana', aparencia: {} })
   const r = V.ultimo(Proto.P.RECUSA, Proto.lerRecusa)
   ok('cliente da versao 2 e RECUSADO (o pacote mudou de tamanho)',
     r && r.motivo === Proto.RECUSA_VERSAO, 'motivo ' + (r && r.motivo))
+}
+
+// ---------------------------------------------------------------------------
+// A TABELA DE OPCOES TEM QUE ESPELHAR OS CATALOGOS DE VERDADE.
+//
+// APARENCIA_OPCOES e escrita a mao e vive em protocolo.js, que roda TAMBEM no
+// servidor — por isso ela nao pode ser derivada dos catalogos (eles importam
+// three e geometria). O preco de ser a mao e que ela sai de sincronia calada,
+// e nos DOIS sentidos:
+//
+//   tabela MENOR que o catalogo -> os itens novos chegam CORTADOS na tela dos
+//   outros jogadores: quem escolhe a barba 14 aparece com a 12 pra todo mundo.
+//
+//   tabela MAIOR que o catalogo -> pior: o indice passa pelo corte e, la no
+//   fundo do render, `catalogo[i]` volta undefined no meio de um frame e o
+//   boneco SOME.
+//
+// Ja aconteceu nos dois sentidos: catalogos que cresceram e catalogos de onde
+// o dono mandou apagar peca. Este caso e a rede que faltava.
+// ---------------------------------------------------------------------------
+{
+  const CATALOGO = {
+    cabeca: AP.CABECAS, olhos: AP.OLHOS, boca: AP.BOCAS, barba: AP.BARBAS,
+    cabelo: AP.CABELOS, sobrancelha: AP.SOBRANCELHAS,
+    chapeu: RP.CHAPEUS, calcado: RP.CALCADOS, blusa: RP.BLUSAS, calca: RP.CALCAS,
+    colar: RP.COLARES, anelAcess: RP.ANEIS, tatuagem: RP.TATUAGENS,
+    relogio: RP.RELOGIOS,
+  }
+  const fora = []
+  for (const campo in CATALOGO) {
+    const i = C.indexOf(campo)
+    if (i < 0) { fora.push(campo + ' nao esta em CAMPOS_APARENCIA'); continue }
+    const cat = (CATALOGO[campo] || []).length
+    const tab = Proto.APARENCIA_OPCOES[i] | 0
+    if (cat !== tab) fora.push(campo + ': catalogo ' + cat + ', tabela ' + tab)
+  }
+  ok('APARENCIA_OPCOES bate com o tamanho de cada catalogo',
+    fora.length === 0,
+    fora.join(' | ') || Object.keys(CATALOGO).length + ' catalogos conferidos')
 }
 
 // ---------------------------------------------------------------------------

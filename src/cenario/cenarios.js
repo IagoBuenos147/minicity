@@ -268,9 +268,28 @@ export function criarCenarios({
       if (lighting) {
         const luzes = reg.luzes || []
         const mats = reg.materiaisLuz || []
+        // CADA MATERIAL VOLTA PRO BRILHO DELE, e nao todos pro mesmo 1.6.
+        //
+        // O 1.6 fixo funcionava quando "material de lampada" queria dizer uma
+        // coisa so: a lente do poste. Hoje o poste tem quatro pecas acesas com
+        // brilhos calibrados entre si — lente 2.6, halo 2.2, poca 1.9 e o facho
+        // do cone 1.35 (ver props.makeStreetLight) — e achatar as quatro no
+        // mesmo numero desmonta o efeito: o facho, que e o mais fraco de todos,
+        // subia pra perto da lampada.
+        //
+        // O valor de origem ja estava guardado: claimLampMat() de city.js grava
+        // `userData.baseEmissive` justamente na primeira vez que ve o material.
+        // O 1.6 continua aqui como padrao pra material que veio de outro lugar
+        // e nunca passou por la.
         lighting.onNight = (noite) => {
           for (const l of luzes) l.visible = noite
-          for (const m of mats) m.emissiveIntensity = noite ? 1.6 : 0.12
+          for (const m of mats) {
+            const base = (m.userData && m.userData.baseEmissive !== undefined)
+              ? m.userData.baseEmissive : 1.6
+            // 0.075 e nao zero: de dia a lente continua sendo uma peca clara
+            // dentro da luminaria, so que apagada. Zerar deixa um buraco preto.
+            m.emissiveIntensity = noite ? base : base * 0.075
+          }
         }
         if (typeof lighting.isNight === 'boolean') lighting.onNight(lighting.isNight)
       }

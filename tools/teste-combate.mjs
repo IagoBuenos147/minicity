@@ -107,10 +107,16 @@ try {
     const G = window.__game
     const it = G.interaction.items.find((i) => i.id === 'revolver')
     it.onInteract(G)
-    return { equipado: G.revolver.equipado, slot: G.hotbar.selecionado }
+    // A barra virou UMA SO (as nove vagas da mochila, teclas 1 a 9) e o
+    // revolver deixou de ter um numero reservado: ele cai na primeira vaga
+    // livre, como qualquer item pego no mundo.
+    return {
+      equipado: G.revolver.equipado,
+      vaga: G.inventario.slots.findIndex((v) => v && v.id === 'revolver'),
+    }
   })
   check('pegar o revolver equipa na mao', pego.equipado === true)
-  check('revolver ocupa o slot 4 da barra', pego.slot === 3, 'slot=' + pego.slot)
+  check('revolver entra na mochila', pego.vaga >= 0, 'vaga=' + pego.vaga)
 
   // --- 2) o NPC da mercearia adoece e vira zumbi ----------------------------
   const npc = await page.evaluate(() => {

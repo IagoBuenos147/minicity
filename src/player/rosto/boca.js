@@ -74,8 +74,8 @@ function quad(idx, a, b, c, d) { idx.push(a, b, c, a, c, d) }
  * partir de ~79 graus fora do eixo da cara o verso ja aparece, e o pitch da
  * camera vai a 57 graus antes de somar a rotacao da cabeca.
  *
- * E a mesma escolha que olhos.js (matPele/matCilio) e nariz.js (matPele) ja
- * fazem pelos retalhos deles. So o `traco` fica de fora: aquele e casca FECHADA
+ * E a mesma escolha que os retalhos de pele do olho ja fazem. So o `traco`
+ * fica de fora: aquele e casca FECHADA
  * (volume com sinal positivo nos seis cranios), entao o verso e sempre invisivel
  * e descartar ele e de graca.
  */

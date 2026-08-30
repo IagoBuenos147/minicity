@@ -66,10 +66,16 @@ import { soldarNormais, tecelagem, fio, peloMat, smoothstep, rng } from '../rost
 // Ele SO morde nos cranios altos (o comprido para em 0.335). Quando morde, o
 // que sobra de folga sobre a cabeca encolhe, e por isso todo detalhe que
 // consome altura pra dentro — o vinco do chapeu 1 — mede quanto ainda tem.
-const TETO_COPA = 0.352
+export const TETO_COPA = 0.352
 
 // ---------------------------------------------------------------------------
 // MEDIDA DO CRANIO ATIVO
+//
+// cranio(), boca(), altoDaCopa(), noCranio() e os quatro geradores de
+// superficie (grade, paineis, loft, doAltoPraBaixo) mais nervurar() saem
+// EXPORTADOS: chapeus-extra.js importa daqui em vez de reimplementar a mesma
+// medida. Duas copias da tabela de raio por altura e duas chances de uma
+// divergir da outra — e a extra e quem furaria no cranio comprido.
 // ---------------------------------------------------------------------------
 
 // Faixas da tabela de raio. 22 sobre ~0.28 m da 1,3 cm por faixa — mais fino
@@ -100,7 +106,7 @@ function malhaDoCranio(c) {
  * a superficie ainda incha, e uma faixa vazia (a malha e esparsa perto do alto)
  * zeraria o raio no meio da copa e o chapeu afundaria ali.
  */
-function cranio(c) {
+export function cranio(c) {
   const A = N.apoio(c)
   const K = {
     A, topo: A.ry, y0: -0.030, dy: (A.ry + 0.030) / FAIXAS,
@@ -153,7 +159,7 @@ const _r = { rx: 0, rz: 0 }
 
 /** Raio do cranio na altura y. ZERO acima do alto da cabeca — e assim que a
  *  copa sabe que dali pra cima a forma e so dela. */
-function noCranio(K, y) {
+export function noCranio(K, y) {
   const t = (y - K.y0) / K.dy
   if (t <= 0) { _r.rx = K.rx[0]; _r.rz = K.rz[0]; return _r }
   if (t >= FAIXAS) { _r.rx = 0; _r.rz = 0; return _r }
@@ -169,7 +175,7 @@ function noCranio(K, y) {
  * O piso em A.rx * 0.80 existe pro cranio achatado, cujo alto para em 0.14: sem
  * ele um chapeu que assenta em 0.10 nasceria com 4 cm de boca.
  */
-function boca(K, y, folga) {
+export function boca(K, y, folga) {
   const r = noCranio(K, y)
   return {
     rx: Math.max(r.rx * folga, K.A.rx * 0.80),
@@ -178,7 +184,7 @@ function boca(K, y, folga) {
 }
 
 /** Onde a copa fecha: acima do cranio medido, nunca alem do teto. */
-function altoDaCopa(K, yBase, folgaTopo, alturaMin) {
+export function altoDaCopa(K, yBase, folgaTopo, alturaMin) {
   return Math.min(TETO_COPA, Math.max(K.topo + folgaTopo, yBase + alturaMin))
 }
 
@@ -218,7 +224,7 @@ function quad(idx, pos, a, b, c, d) {
  * descendo, isso poe a normal PRA FORA. Trocar os dois vira o chapeu do avesso
  * e ele some quando a camera passa por fora.
  */
-function grade(nu, nv, fn) {
+export function grade(nu, nv, fn) {
   const cu = nu + 1
   const cv = nv + 1
   const pos = new Float32Array(cu * cv * 3)
@@ -258,7 +264,7 @@ function grade(nu, nv, fn) {
  * painel e um pedaco de superficie fechado em si, e a costura entre eles fica
  * marcada porque as normais de um nao entram na media do outro.
  */
-function paineis(n, nu, nv, fn) {
+export function paineis(n, nu, nv, fn) {
   const cu = nu + 1
   const cv = nv + 1
   const porPainel = cu * cv
@@ -299,7 +305,7 @@ function paineis(n, nu, nv, fn) {
  * proprios (a cartola muda a superelipse subindo), o que um perfil revolvido
  * nao consegue expressar.
  */
-function loft(nLado, secoes) {
+export function loft(nLado, secoes) {
   const cu = nLado + 1
   const cv = secoes.length
   const pos = new Float32Array(cu * cv * 3)
@@ -338,14 +344,14 @@ function loft(nLado, secoes) {
  * Foi um bug de verdade: os cinco primeiros perfis deste arquivo nasceram do
  * avesso e so o teste de volume com sinal pegou.
  */
-function doAltoPraBaixo(perfil, seg, kz, phi0, phiLen) {
+export function doAltoPraBaixo(perfil, seg, kz, phi0, phiLen) {
   return N.revolver(perfil.slice().reverse(), seg, kz, phi0, phiLen)
 }
 
 /** Nervura: multiplica x e z por um cosseno do azimute. Vale pra qualquer
  *  geometria ja pronta — e assim que a nervura do gorro atravessa a dobra da
  *  barra, que e um lathe e nao uma grade. */
-function nervurar(geo, n, amp, desde, ate) {
+export function nervurar(geo, n, amp, desde, ate) {
   const p = geo.attributes.position
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i)
@@ -381,17 +387,27 @@ export const CHAPEUS = [
       const cor = 0x4b4136
       const feltro = N.tecido2(cor, 0.88)
 
-      // A aba assenta 1,6 cm acima da sobrancelha. Foi o unico jeito de o
-      // chapeu ficar em cima da testa nos seis cranios: a sobrancelha e o unico
-      // traco cuja altura quase nao muda entre eles.
-      const yA = 0.100
-      const B = boca(K, yA, 1.10)
+      // A aba tampava o olho: a bola de desenho do olho (8 cm, character.js)
+      // tem o topo em y = 0.132 e a aba assentava em 0.100, por dentro dela.
+      // A REGRA DO CATALOGO: nenhum pano por cima do olho abaixo de y = 0.136
+      // (tools/diag-chapeu.mjs mede exatamente isso, coluna panoAcimaDoOlho).
+      //
+      // yFit fica na altura ANTIGA — e so pra MEDIR a largura da cabeca
+      // (boca()), e subir a aba nao pode afinar o chapeu. yA e que sobe de
+      // verdade: e ele que posiciona o perfil inteiro (aba, fita, carneira).
+      // alturaMin caiu o mesmo tanto que yA subiu, entao yA + alturaMin fica
+      // IGUAL a antes e o TOPO DA COPA NAO SE MEXE (continua vindo so do
+      // cranio medido); quem cede altura e a PAREDE da copa, que fica mais
+      // baixa pra abrir espaco pra aba subir sem tocar no topo.
+      const yFit = 0.100
+      const yA = 0.136
+      const B = boca(K, yFit, 1.10)
       const rb = B.rx
       const kz = B.rz / rb
       // 6,2 cm acima do cranio e nao 2 cm: o VINCO come 20% da altura da copa,
       // e com a folga apertada ele afundava a copa dentro do cranio comprido —
       // o furo aparecia como um naco de cabeca saindo pelo alto do chapeu.
-      const yT = altoDaCopa(K, yA, 0.062, 0.140)
+      const yT = altoDaCopa(K, yA, 0.062, 0.104)
       const hc = yT - yA
       const ro = rb * 1.60
 
@@ -604,17 +620,26 @@ export const CHAPEUS = [
       const NERVOS = 10
       const AMP = 0.020
 
-      const yB = 0.062              // a barra desce ate aqui: tapa a testa
+      // A barra tampava o olho — descia quase ate a bochecha. A REGRA DO
+      // CATALOGO: nenhum pano por cima do olho abaixo de y = 0.136.
+      //
+      // yBFit fica na altura ANTIGA so pra medir a largura da cabeca; subir a
+      // barra nao pode afinar o gorro. yB e quem sobe de verdade — e ele que
+      // posiciona a barra inteira e o inicio da casca (yC). alturaMin caiu o
+      // mesmo tanto que yB subiu, entao o TOPO da casca continua vindo so do
+      // cranio medido; quem cede e o CORPO da casca entre a barra e a ponta.
+      const yBFit = 0.062
+      const yB = 0.127              // a barra desce ate aqui: tapa a testa
       const yC = yB + 0.014         // onde a casca comeca (por dentro da barra)
-      const Bb = boca(K, yB - 0.012, 1.085)
-      const Bc = boca(K, yC, 1.075)
+      const Bb = boca(K, yBFit - 0.012, 1.085)
+      const Bc = boca(K, yBFit + 0.014, 1.075)
       const rb = Bb.rx
       const kzB = Bb.rz / rb
       const rc = Bc.rx
       const kzC = Bc.rz / rc
       // 3,2 cm e nao 1,6: o TOMBO desce a ponta da casca mais 1,4 cm, e com a
       // folga curta o alto do cranio quadrado raspava na la por dentro
-      const yT = altoDaCopa(K, yB, 0.032, 0.152)
+      const yT = altoDaCopa(K, yB, 0.032, 0.087)
 
       const casca = grade(40, 11, (u, v, out) => {
         const az = u * Math.PI * 2
@@ -673,11 +698,17 @@ export const CHAPEUS = [
       const cor = 0x9b7a49
       const feltro = N.tecido(cor, 0.92)
 
-      const yA = 0.098
-      const B = boca(K, yA, 1.09)
+      // A aba tampava o olho. yFit fica na altura antiga so pra medir a
+      // largura da cabeca; yA sobe de verdade pra tirar o pano de cima do
+      // olho (regra: nada por cima do olho abaixo de 0.136). alturaMin caiu
+      // o mesmo tanto que yA subiu, entao o topo da copa continua vindo so
+      // do cranio medido — so a parede da copa fica mais baixa.
+      const yFit = 0.098
+      const yA = 0.131
+      const B = boca(K, yFit, 1.09)
       const rb = B.rx
       const kz = B.rz / rb
-      const yT = altoDaCopa(K, yA, 0.030, 0.175)
+      const yT = altoDaCopa(K, yA, 0.030, 0.142)
       const hc = yT - yA
 
       // COPA. q = 1 no alto, 0 na carneira. A silhueta e quase reta ate 60% e
@@ -757,15 +788,22 @@ export const CHAPEUS = [
       const cor = 0xd8cfbc
       const la = N.tecido(cor, 0.99)
 
-      const yB = 0.076
+      // A barra tampava o olho. yBFit fica na altura antiga so pra medir a
+      // largura da cabeca; yB sobe de verdade pra tirar a barra de cima do
+      // olho (regra: nada por cima do olho abaixo de 0.136). alturaMin caiu
+      // o mesmo tanto que yB subiu: o pompom fica EXATAMENTE onde estava
+      // (yPom sai de yT, e yT continua vindo so do cranio medido) — quem
+      // encolhe e so o corpo da touca entre a barra e a base do pompom.
+      const yBFit = 0.076
+      const yB = 0.148
       const yC = yB + 0.012
-      const Bb = boca(K, yB - 0.010, 1.085)
-      const Bc = boca(K, yC, 1.075)
+      const Bb = boca(K, yBFit - 0.010, 1.085)
+      const Bc = boca(K, yBFit + 0.012, 1.075)
       const rb = Bb.rx
       const kzB = Bb.rz / rb
       const rc = Bc.rx
       const kzC = Bc.rz / rc
-      const yT = altoDaCopa(K, yB, 0.020, 0.130)
+      const yT = altoDaCopa(K, yB, 0.020, 0.058)
 
       // A casca aqui e de proposito LISA e curta: o interesse desta peca sao os
       // fios, e uma casca canelada por baixo de um pompom peludo vira poluicao.
@@ -858,11 +896,17 @@ export const CHAPEUS = [
       const seda = solid(0x1d1a20, 0.34, 0.06)
       const sedaAberta = solid(0x1d1a20, 0.34, 0.06, { side: THREE.DoubleSide })
 
-      const yA = 0.096
-      const B = boca(K, yA, 1.07)
+      // A aba tampava o olho. yFit fica na altura antiga so pra medir a
+      // largura da cabeca; yA sobe de verdade pra tirar o pano de cima do
+      // olho (regra: nada por cima do olho abaixo de 0.136). alturaMin caiu
+      // o mesmo tanto que yA subiu, entao o topo da copa continua vindo so
+      // do cranio medido — so a parede da copa fica mais baixa.
+      const yFit = 0.096
+      const yA = 0.134
+      const B = boca(K, yFit, 1.07)
       const rb = B.rx
       const kz0 = B.rz / rb
-      const yT = altoDaCopa(K, yA, 0.028, 0.215)
+      const yT = altoDaCopa(K, yA, 0.028, 0.177)
       const hc = yT - yA
 
       // COPA. Doze secoes ate o alto mais tres pro arremate. Cada secao sabe

@@ -1,10 +1,17 @@
 // ---------------------------------------------------------------------------
 // src/inventario/inventario.js — a mochila do jogador: 9 vagas.
 //
-// O QUE ELE NAO E: nao e a hotbar. A hotbar (src/ui/hotbar.js) e o que esta na
-// MAO — maos, revolver — e cada entrada dela tem um icone desenhado a mao e uma
-// tecla numerica. A mochila guarda o que foi COMPRADO: mesa de sinuca, jukebox,
-// baralho. Nada aqui equipa nada, e por isso nada aqui rouba Digit1/Digit2.
+// ELE E A BARRA DE ITENS. Ate ontem nao era: havia uma hotbar separada (o que
+// estava na mao — maos, revolver — nas teclas 1 e 2) e, embaixo dela, estas nove
+// vagas, que so respondiam a clique. O dono do projeto pediu UMA BARRA SO, de 1
+// a 9, e as duas viraram esta: as nove vagas ganharam as teclas numericas e o
+// revolver passou a ocupar uma vaga como qualquer outra coisa.
+//
+// O QUE MUDOU AQUI DENTRO POR CAUSA DISSO: NADA. Continua sendo `{ id, qtd }`
+// por vaga e nada mais. Quem decide o que acontece ao selecionar uma vaga
+// (movel vai pro encaixe, revolver equipa, bebida vai pra mao) e o main, em
+// aplicarVaga() — este modulo nao equipa nada e nao conhece item nenhum de
+// nome, que e o que o mantem do tamanho que ele tem.
 //
 // O QUE CADA VAGA GUARDA: `{ id, qtd }` e mais nada. Nem Object3D, nem posicao
 // no mundo, nem preco. E o que faz o save ser quatro linhas de JSON em vez de
@@ -33,7 +40,8 @@
 // ---------------------------------------------------------------------------
 
 /** Quantas vagas. Nove porque foi o que o dono do projeto pediu, e porque nove
- *  cabem numa fileira de 480 px no canto da tela sem encostar na hotbar. */
+ *  e o que cabe nas teclas de 1 a 9 sem inventar um segundo gesto pra chegar na
+ *  decima. O 480 px que este comentario citava era da epoca das duas barras. */
 export const VAGAS = 9
 
 /** Teto por vaga. Fichas de sinuca empilham; movel nao (ver empilha()). */

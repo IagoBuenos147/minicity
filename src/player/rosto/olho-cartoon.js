@@ -46,17 +46,24 @@ const S = HEAD_S
 // A BOLA. Mais alta que larga, como nas fotos; a profundidade e menor que as
 // duas (a bola e um pouco achatada contra a cara, senao ela vira uma esfera
 // pendurada e o perfil fica de inseto).
-const BOLA = { rx: 0.0500 * S, ry: 0.0560 * S, rz: 0.0430 * S }
+//
+// ESTES NUMEROS JA SAO 20% MENORES que a primeira versao. Ela nasceu com
+// rx 0.0500, e o dono pediu pra diminuir cerca de 20% — "os olhos ficaram bons,
+// porem muito grandes". Diminuir a BOLA e a unica coisa que muda aqui: a
+// pupila, o brilho, o contorno e as palpebras sao todos medidos em RAIOS DA
+// BOLA, entao encolhem junto e a proporcao interna do olho fica intacta.
+const BOLA = { rx: 0.0400 * S, ry: 0.0448 * S, rz: 0.0344 * S }
 
 // Quanto da bola fica DENTRO da cabeca. Nos outros olhos do jogo isso fica
 // entre 0.62 e 0.84 (olho encaixado na orbita); aqui e 0.40 de proposito — nas
 // fotos a bola SALTA da cara, e e esse salto que faz metade da semelhanca.
 const AFUNDA = 0.40
 
-// Os dois ovais quase se tocam no meio do rosto. 1.02 sobre a ancora padrao os
-// afasta o tanto que as fotos mostram sem colar na tempora nos cranios largos
-// (faceSpread ja cuida da largura da cabeca).
-const ESPACO = 1.02
+// Os dois ovais quase se tocam no meio do rosto.
+// Caiu de 1.02 pra 0.93 junto com a bola: os CENTROS dos olhos sao fixos
+// (EYE_ANCHOR), entao encolher a bola sem aproximar os centros abriria uma
+// faixa de rosto entre os dois que nao existe na referencia.
+const ESPACO = 0.93
 
 // Camadas, em raios da bola. Com 5.6 cm de raio, 1% = 0.56 mm — longe o
 // bastante pra o z-buffer separar, perto o bastante pra nada boiar.
@@ -111,7 +118,7 @@ function calotaZ(arco, wSeg = 20, hSeg = 8) {
  * topo (nao cobre nada), -1 e embaixo (cobre tudo). A conta e cos(tilt + arco),
  * entao tilt = acos(alturaRim) - arco.
  */
-function palpebra(concha, alturaRim, arco, peleM, fioM, baixo) {
+function palpebra(concha, alturaRim, arco, peleM, fioM, baixo, roll) {
   // A calota nasce em volta de +Y com meio-angulo ARCO; girar em X por `base`
   // leva o polo dela. A borda que interessa e a que cruza a FRENTE do olho, e
   // ela fica a ARCO do polo — do lado de dentro pra palpebra de cima, do lado
@@ -126,21 +133,49 @@ function palpebra(concha, alturaRim, arco, peleM, fioM, baixo) {
   // segundo render desta peca.
   const a = Math.acos(Math.max(-1, Math.min(1, alturaRim)))
   const base = baixo ? a + arco : a - arco
+  // `roll` INCLINA a linha da palpebra. O polo da calota esta em +Y; girar em Z
+  // leva o polo pro lado, e com isso a borda deixa de ser horizontal. Positivo
+  // derruba o canto de FORA (cara cansada, sarcastica); negativo levanta ele
+  // (cara desperta). E a diferenca entre os tres olhos deste arquivo que mais
+  // muda a EXPRESSAO — mexer so no tamanho da bola muda a idade do personagem,
+  // mexer no roll muda o humor dele.
+  const r = roll || 0
 
   const fio = flatPiece(new THREE.Mesh(
     new THREE.SphereGeometry(1, 28, 12, 0, Math.PI * 2, 0, arco + 0.075), fioM))
   fio.scale.setScalar(L_FIO)
-  fio.rotation.x = base
+  fio.rotation.set(base, 0, r)
   concha.add(fio)
 
   const pele = flatPiece(new THREE.Mesh(
     new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, arco), peleM))
   pele.scale.setScalar(L_PALPEBRA)
-  pele.rotation.x = base
+  pele.rotation.set(base, 0, r)
   concha.add(pele)
 }
 
-function build(ctx) {
+/**
+ * OS TRES OLHOS DESTE ARQUIVO SAO O MESMO MODELO com a tabela trocada.
+ *
+ * O dono pediu "mais 2 olhos similares a ele, o mesmo olho porem com aspectos
+ * diferentes pra diferenciar, pois o olho ja ficou bom". Entao aqui NAO se
+ * inventa metodo novo: `fabricar()` e a peca inteira, e cada entrada do
+ * catalogo e so um conjunto de numeros. Assim os tres continuam sendo o mesmo
+ * desenho, e qualquer conserto num deles conserta nos tres.
+ *
+ * Os campos que diferenciam, e o que cada um faz na CARA:
+ *   escala   tamanho da bola. Muda a idade que o personagem aparenta
+ *   achata   ry / rx. > 1 e oval em pe (Rick), 1 e redondo (Morty), < 1 e
+ *            oval deitado, que le como olho apertado
+ *   afunda   quanto a bola entra na cabeca. Baixo = esbugalhado
+ *   espaco   distancia entre os dois
+ *   pupila   raio angular da pupila, em radianos
+ *   olhaY    quanto a pupila desce (positivo) ou sobe (negativo)
+ *   olhaX    quanto ela converge pro nariz
+ *   roll     inclinacao da linha da palpebra (ver palpebra())
+ *   linha    espessura do contorno preto
+ */
+function fabricar(cfg, ctx) {
   useHead(ctx)
   const pele = skinOf(ctx)
   const k = fechamentoOlho(ctx)
@@ -158,16 +193,31 @@ function build(ctx) {
   const spread = faceSpread()
 
   for (const sgn of [1, -1]) {
+    // ASSIMETRIA: o unico campo que faz os dois olhos serem DIFERENTES.
+    //
+    // Todos os outros ajustes valem igual pros dois, e e por isso que os tres
+    // primeiros olhos sairam parecidos demais por mais que os numeros mudassem:
+    // um par de bolas simetricas com pupila simetrica sempre le como "o mesmo
+    // olho, um pouco maior ou menor". Quebrar a simetria muda a CARA, e nao o
+    // olho — e o efeito e desproporcional ao tamanho do numero.
+    //
+    // Por isso o raio sai de dentro do laco: com ele fora, os dois olhos
+    // obrigatoriamente compartilham o mesmo tamanho.
+    const fator = sgn < 0 ? (cfg.assim || 1) : 1
+    const rx = BOLA.rx * cfg.escala * fator
+    const ry = BOLA.ry * cfg.escala * cfg.achata * fator
+    const rz = BOLA.rz * cfg.escala * fator
+
     const olho = new THREE.Group()
-    const x = EYE_ANCHOR.x * ESPACO * spread
+    const x = EYE_ANCHOR.x * cfg.espaco * spread
     const y = EYE_ANCHOR.y + 0.004 * S
-    olho.position.set(sgn * x, y, surfaceZ(sgn * x, y) - BOLA.rz * AFUNDA)
+    olho.position.set(sgn * x, y, surfaceZ(sgn * x, y) - rz * cfg.afunda)
 
     // A concha carrega a escala; tudo dentro dela tem raio 1 e so ROTACAO.
     // Como o three compoe pai*filho, a escala entra DEPOIS da rotacao — entao
     // qualquer calota girada cai exatamente sobre o elipsoide, sem deformar.
     const concha = new THREE.Group()
-    concha.scale.set(BOLA.rx, BOLA.ry, BOLA.rz)
+    concha.scale.set(rx, ry, rz)
     olho.add(concha)
 
     // 1) o branco
@@ -175,7 +225,7 @@ function build(ctx) {
 
     // 2) o contorno, por casca invertida
     const contorno = new THREE.Mesh(new THREE.SphereGeometry(1, 26, 20), contornoM)
-    contorno.scale.setScalar(L_CONTORNO)
+    contorno.scale.setScalar(1 + (L_CONTORNO - 1) * cfg.linha)
     contorno.castShadow = false
     contorno.receiveShadow = false
     concha.add(contorno)
@@ -185,10 +235,14 @@ function build(ctx) {
     // olhar pro mesmo ponto em vez de pra frente cada um.
     // 0.22 rad de meio-angulo = 22% do raio da bola. Nas fotos a pupila do Rick
     // tem por volta disso; passar de 0.30 ja le como olho de gato assustado.
-    const pupila = flatPiece(new THREE.Mesh(calotaZ(0.22), tracoM))
+    // No olho assimetrico a pupila do lado menor olha um pouco pra outro lado
+    // (`desvio`). E ela que fecha a leitura: com os dois olhares paralelos, um
+    // olho maior le so como erro de modelagem; com o olhar torto, le como cara.
+    const desvio = sgn < 0 ? (cfg.desvio || 0) : 0
+    const pupila = flatPiece(new THREE.Mesh(calotaZ(cfg.pupila), tracoM))
     pupila.scale.setScalar(L_PUPILA)
-    pupila.rotation.x = 0.20
-    pupila.rotation.y = -sgn * 0.16
+    pupila.rotation.x = cfg.olhaY + desvio * 0.55
+    pupila.rotation.y = -sgn * cfg.olhaX + desvio
     concha.add(pupila)
 
     // 4) um ponto de brilho minusculo. Nas fotos ele nao existe (e desenho
@@ -196,8 +250,8 @@ function build(ctx) {
     // que diz "molhado". Fica no canto de cima, fora da pupila.
     const brilho = flatPiece(new THREE.Mesh(calotaZ(0.085, 12, 6), brilhoM))
     brilho.scale.setScalar(L_PUPILA + 0.02)
-    brilho.rotation.x = -0.42
-    brilho.rotation.y = -sgn * 0.44
+    brilho.rotation.x = cfg.olhaY - 0.62
+    brilho.rotation.y = -sgn * (cfg.olhaX + 0.28)
     concha.add(brilho)
 
     // 5) as palpebras.
@@ -215,23 +269,118 @@ function build(ctx) {
     // As duas bordas se CRUZAM no fim (-0.10 contra +0.02): sobrepor e o que
     // garante que nao sobre uma nesga de branco entre elas no ultimo degrau.
     const arco = mix(ARCO_ABERTO, ARCO_FECHADO, k)
-    palpebra(concha, mix(0.94, -0.10, k), arco, peleM, fioM, false)
-    palpebra(concha, mix(-0.99, 0.02, k), arco, peleM, fioM, true)
+    // O roll some conforme o olho fecha: com as duas palpebras encostando, uma
+    // inclinada e a outra tambem deixaria as bordas se cruzarem em X em vez de
+    // se encontrarem, e sobraria uma fresta branca numa das pontas.
+    const roll = -sgn * cfg.roll * (1 - k)
+    // `tampa` e onde a palpebra de CIMA descansa com o olho aberto. 0.94 e o
+    // padrao (so um fio escuro encostando no alto do branco). Baixar isso e a
+    // outra forma de mudar a cara sem mexer na bola: com 0.45 a palpebra cobre
+    // um terco do olho o tempo todo e o personagem passa a ter olhar pesado,
+    // seja qual for o tamanho da pupila. O fim do curso continua em -0.10, entao
+    // a barra de fechar os olhos segue funcionando igual.
+    palpebra(concha, mix(cfg.tampa, -0.10, k), arco, peleM, fioM, false, roll)
+    palpebra(concha, mix(-0.99, 0.02, k), arco, peleM, fioM, true, roll * 0.45)
 
     g.add(olho)
   }
   return g
 }
 
-export const OLHO_CARTOON = {
-  id: 'cartoon',
-  nome: 'Desenho',
-  name: 'Desenho',
-  metodo: 'bola branca saliente + contorno por casca invertida + pupila chapada; a palpebra e uma calota tombada que varre do topo ao fim pela barra da aba',
-  // Ele desenha a propria palpebra e nao quer a persiana generica por cima.
-  propriaPalpebra: true,
-  globo: { rx: BOLA.rx, ry: BOLA.ry, rz: BOLA.rz, x: EYE_ANCHOR.x * ESPACO, y: EYE_ANCHOR.y + 0.004 * S, sink: AFUNDA },
-  build,
+const BASE = {
+  escala: 1, achata: 1, afunda: AFUNDA, espaco: ESPACO,
+  pupila: 0.22, olhaY: 0.20, olhaX: 0.16, roll: 0, linha: 1,
+  // Os tres campos "ousados", todos neutros por padrao — os tres primeiros
+  // olhos nao mudam em nada com eles aqui:
+  //   tampa   altura de descanso da palpebra de cima (0.94 = so um fio)
+  //   assim   quanto o olho ESQUERDO e maior/menor que o direito (1 = iguais)
+  //   desvio  quanto a pupila desse olho olha pra outro lado
+  tampa: 0.94, assim: 1, desvio: 0,
 }
+
+function item(id, nome, metodo, cfg) {
+  const c = Object.assign({}, BASE, cfg)
+  return {
+    id,
+    nome,
+    name: nome,
+    metodo,
+    // Os tres desenham a propria palpebra e nao querem a persiana generica.
+    propriaPalpebra: true,
+    globo: {
+      rx: BOLA.rx * c.escala,
+      ry: BOLA.ry * c.escala * c.achata,
+      rz: BOLA.rz * c.escala,
+      x: EYE_ANCHOR.x * c.espaco,
+      y: EYE_ANCHOR.y + 0.004 * S,
+      sink: c.afunda,
+    },
+    build(ctx) { return fabricar(c, ctx) },
+  }
+}
+
+// O da referencia, ja 20% menor que a primeira versao.
+export const OLHO_CARTOON = item(
+  'cartoon', 'Desenho',
+  'bola branca saliente + contorno por casca invertida + pupila chapada; a palpebra e uma calota tombada que varre do topo ao fim pela barra da aba',
+  {},
+)
+
+// REDONDO — o outro personagem da mesma referencia. A bola e circular de frente
+// (achata 1), a pupila e proporcionalmente MAIOR, os dois olhos ficam mais
+// juntos e a bola salta menos. Isso sozinho ja tira uns quinze anos da cara: o
+// oval em pe com pupila pequena le como adulto, o redondo com pupila grande le
+// como garoto.
+export const OLHO_CARTOON_REDONDO = item(
+  'cartoon-redondo', 'Desenho redondo',
+  'o mesmo desenho com a bola circular, pupila grande e os olhos mais juntos — a leitura jovem da referencia',
+  { escala: 0.96, achata: 0.90, afunda: 0.48, espaco: 0.88, pupila: 0.30, olhaY: 0.16, olhaX: 0.20 },
+)
+
+// CAIDO — a cara da segunda foto: olho um pouco mais deitado, pupila menor e
+// mais alta (o branco aparece embaixo dela, que e o que da o ar de tedio) e a
+// linha da palpebra INCLINADA, com o canto de fora caindo. O contorno e um
+// pouco mais grosso, que pesa o olhar.
+export const OLHO_CARTOON_CAIDO = item(
+  'cartoon-caido', 'Desenho caido',
+  'o mesmo desenho com a linha da palpebra inclinada (canto de fora pra baixo), pupila pequena e alta e contorno mais grosso — a leitura entediada da referencia',
+  { escala: 0.98, achata: 0.86, afunda: 0.44, espaco: 0.95, pupila: 0.19, olhaY: -0.06, olhaX: 0.13, roll: 0.30, linha: 1.35 },
+)
+
+// ---------------------------------------------------------------------------
+// OS DOIS OUSADOS
+//
+// "os 3 estao muito parecidos". Estavam mesmo, e o motivo e estrutural: ate
+// aqui todo campo do catalogo era um NUMERO aplicado IGUALMENTE nos dois olhos
+// — tamanho, achatamento, pupila, espaco. Mexer nesses numeros faz o mesmo olho
+// ficar maior, menor ou mais deitado, mas nunca faz uma CARA diferente, porque
+// a estrutura (duas bolas iguais, olhando pro mesmo ponto, com a palpebra
+// encostada no alto) nunca muda.
+//
+// Estes dois mexem na estrutura, cada um de um jeito:
+//   TORTO   quebra a SIMETRIA entre os dois olhos
+//   FENDA   tira a palpebra do repouso e a joga por cima do olho
+// ---------------------------------------------------------------------------
+
+// TORTO — um olho 26% maior que o outro, e a pupila do menor olhando pro lado.
+// E o recurso mais forte que existe num rosto de desenho e o mais barato de
+// errar: com 1.5 vira deformidade e com 1.1 ninguem percebe. 1.26 e o ponto em
+// que o olhar fica esquisito de proposito e o rosto continua sendo um rosto.
+export const OLHO_CARTOON_TORTO = item(
+  'cartoon-torto', 'Desenho torto',
+  'quebra a simetria: um olho 26% maior que o outro e a pupila do menor desviada — o unico do catalogo em que os dois olhos nao sao iguais',
+  { escala: 1.02, achata: 0.96, afunda: 0.38, espaco: 0.90, pupila: 0.20, olhaY: 0.14, olhaX: 0.10, assim: 1.26, desvio: 0.30, linha: 1.1 },
+)
+
+// FENDA — a palpebra de cima descansa em 0.42 em vez de 0.94, entao ela cobre
+// permanentemente o terco de cima da bola, e o `roll` alto joga o canto de fora
+// pra baixo. A bola e deitada (achata 0.78) e a pupila e minuscula (0.13). O
+// conjunto le como olhar pesado — e a barra de fechar os olhos continua indo
+// ate o fim normalmente, porque o fim do curso nao mudou.
+export const OLHO_CARTOON_FENDA = item(
+  'cartoon-fenda', 'Desenho em fenda',
+  'a palpebra de cima descansa cobrindo um terco do olho e o canto de fora cai — bola deitada e pupila minuscula completam o olhar pesado',
+  { escala: 1.04, achata: 0.78, afunda: 0.46, espaco: 0.97, pupila: 0.13, olhaY: 0.08, olhaX: 0.12, roll: 0.52, linha: 1.25, tampa: 0.42 },
+)
 
 export default OLHO_CARTOON

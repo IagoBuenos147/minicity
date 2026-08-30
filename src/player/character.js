@@ -661,6 +661,28 @@ function construirMao() {
   return ma.geo()
 }
 
+/**
+ * A FERRAMENTA DE MAO, pra quem precisa de OUTRA pose da mesma mao.
+ *
+ * Quem usa: src/player/mao.js, que monta um PUNHO FECHADO em volta da bebida.
+ * Ele nao podia usar `geoMao()` (aquela e a mao de REPOUSO, de dedo quase reto)
+ * nem copiar as funcoes pra la — mao copiada e mao que diverge: no dia em que
+ * alguem arrumar a superelipse aqui, a que segura a garrafa continua errada.
+ *
+ * O que sai daqui e a MAQUINARIA, nao a mao: os aneis, a costura, o tubo curvo
+ * do dedo e as tabelas de proporcao. A POSE quem escreve e quem chama — e a
+ * unica diferenca entre a mao de repouso e o punho e o quanto `curva` vale.
+ *
+ * NAO EXPORTE geometria por aqui. As duas geometrias de mao sao compartilhadas
+ * pelo modulo inteiro (ver geoMao) e dar dispose numa delas apagaria a mao de
+ * todos os bonecos da cena.
+ */
+export const MALHA_MAO = {
+  malha, anel, costurar, tampa, dedo,
+  EIXO_DEDO, EIXO_POLEGAR,
+  PALMA_ANEIS, TENAR, DEDOS,
+}
+
 /** Espelha em X e inverte a volta dos triangulos (senao a mao vira do avesso). */
 function espelharX(geo) {
   const g = geo.clone()
@@ -694,7 +716,7 @@ export function createCharacter(opts = {}) {
   // Ordem do merge: padrao de roupa -> catalogo -> o que o chamador pediu.
   const app = Object.assign(
     {
-      cabeca: 0, olhos: 0, palpebra: 0, nariz: 1, boca: 0, barba: 0, cabelo: 0,
+      cabeca: 0, olhos: 0, palpebra: 0, nariz: 0, boca: 0, barba: 0, cabelo: 0,
       pele: 0, corCabelo: 1, corBarba: 0, sobrancelha: 0, skin: corPele(0),
       chapeu: 0, calcado: 1, blusa: 1, calca: 0, colar: 0, anelAcess: 0,
       tatuagem: 0, relogio: 0,
@@ -800,35 +822,8 @@ export function createCharacter(opts = {}) {
   const headPivot = joint('headPivot', 0, HEADPIVOT_Y, 0, neckLook)
   const head = joint('head', 0, HEAD.ry, 0, headPivot)
 
-  // orelhas: a posicao e recalculada a cada troca de cabeca (ver posOrelhas)
-  const earGeo = track(new THREE.SphereGeometry(1, 14, 10))
-  const orelhas = []
-  for (const sgn of [1, -1]) {
-    const ear = part(earGeo, 'skinDark', false)
-    ear.scale.set(0.019 * HEAD_S, 0.045 * HEAD_S, 0.033 * HEAD_S)
-    ear.rotation.z = sgn * 0.12
-    ear.userData.sgn = sgn
-    head.add(ear)
-    orelhas.push(ear)
-  }
-
-  /**
-   * Poe a orelha NA superficie do cranio ativo. Sao 8 formatos de cabeca: uma
-   * posicao fixa deixaria a orelha flutuando na cabeca estreita e enterrada na
-   * quadrada. eggSurface conhece o cranio que acabou de ser montado.
-   */
-  function posOrelhas() {
-    for (const ear of orelhas) {
-      const sgn = ear.userData.sgn
-      if (typeof AP.eggSurface === 'function') {
-        // theta 1.61 = pouco abaixo do equador; az +-1.75 = lateral, ja indo
-        // pra tras (no lugar antigo a orelha nascia no meio da bochecha)
-        AP.eggSurface(1.61, sgn * 1.75, 0.985, ear.position)
-      } else {
-        ear.position.set(sgn * 0.1225 * HEAD_S, -0.008 * HEAD_S, -0.045 * HEAD_S)
-      }
-    }
-  }
+  // Orelhas removidas a pedido do dono (eram esfera escalada + posOrelhas()
+  // grudando na pele via eggSurface; ver git log deste arquivo pra recuperar).
 
   // face: ancora dos slots faciais, olhando pra +Z
   const face = new THREE.Group()
@@ -1270,7 +1265,6 @@ export function createCharacter(opts = {}) {
     }
     headMesh = part(geoDaCabeca(), 'skin')
     head.add(headMesh)
-    posOrelhas()
   }
 
   // Nariz de reserva enquanto appearance.js nao publica o catalogo de 5.
@@ -1338,9 +1332,9 @@ export function createCharacter(opts = {}) {
 
   // As caixas sao de modulo, e nao locais: acomodar() roda a cada troca de
   // aparencia e alocar dois Box3 por clique so pra medir seria lixo de graca.
-  const _cxCabelo = new THREE.Box3()
-  const _cxChapeu = new THREE.Box3()
-  const _cxCranio = new THREE.Box3()
+  // As caixas de cabelo/chapeu/cranio sairam junto com a versao por BOUNDING
+  // BOX de acomodarCabeloSobOChapeu: a conta agora e por vertice contra o pano
+  // medido, e caixa nao diz nada sobre a forma do que esta dentro dela.
   const _pontoJunta = new THREE.Vector3()
 
   /**
@@ -1371,51 +1365,248 @@ export function createCharacter(opts = {}) {
    * O piso de 0.55 existe pra um caso so: peca rasa marcada como copa. Sem ele
    * a conta mandaria k = 0.2 e o cabelo viraria uma pelicula pintada no cranio.
    */
+  // Tabela da CAVIDADE do chapeu: raio do pano por direcao. Sao AZ_N x TH_N
+  // amostras, medidas por raio contra a malha, uma vez por acomodacao. Um raio
+  // por vertice de cabelo seria o certo e e caro demais (o cabelo passa de 10
+  // mil vertices e isto roda a cada clique no customizador); uma tabela de 336
+  // direcoes com busca pelo vizinho mais permissivo da o mesmo resultado
+  // visual por 3% do custo.
+  const CAV_AZ = 24
+  const CAV_TH = 14
+  const CAV_TH_MAX = 1.95           // um pouco abaixo do equador do cranio
+  const _cav = new Float32Array(CAV_AZ * CAV_TH)
+  const _malhasCabelo = []
+  const _mParaJunta = new THREE.Matrix4()
+  const _mDaJunta = new THREE.Matrix4()
+  const _mJuntaInv = new THREE.Matrix4()
+  const _cxOlhos = new THREE.Box3()
+  const _pw = new THREE.Vector3()
+
+  /** Junta as malhas visiveis de um slot (o chapeu monta varias pecas). */
+  function malhasDe(kind, saida) {
+    saida.length = 0
+    for (const o of pecasDe(kind)) {
+      o.traverse((x) => {
+        if (x.isMesh && x.visible && x.geometry && x.geometry.attributes.position) saida.push(x)
+      })
+    }
+    return saida
+  }
+
+  /**
+   * Mede o pano do chapeu em CAV_AZ x CAV_TH direcoes em volta da junta da
+   * cabeca. Guarda o raio do primeiro toque vindo DE FORA (a parede de dentro
+   * da copa) ou 0 onde o chapeu nao cobre. O raio vem de fora e nao de dentro
+   * pela mesma razao do colar e da sobrancelha: o pano tem uma face so, e um
+   * raio saindo do cranio o atravessaria sem ver nada.
+   */
+  function medirCavidade(malhas) {
+    for (let ti = 0; ti < CAV_TH; ti++) {
+      const th = (ti / (CAV_TH - 1)) * CAV_TH_MAX
+      const st = Math.sin(th), ct = Math.cos(th)
+      for (let ai = 0; ai < CAV_AZ; ai++) {
+        const az = (ai / CAV_AZ) * Math.PI * 2
+        _rDir.set(st * Math.sin(az), ct, st * Math.cos(az))
+        _rOrig.copy(_pontoJunta).addScaledVector(_rDir, 0.9)
+        _rDirNeg.copy(_rDir).negate()
+        _raio.set(_rOrig, _rDirNeg)
+        _raio.far = 1.4
+        const toques = _raio.intersectObjects(malhas, false)
+        let R = 0
+        for (let k = 0; k < toques.length; k++) {
+          _pv.copy(toques[k].point).sub(_pontoJunta)
+          // do MESMO lado: o raio atravessa a cabeca inteira e sai pela nuca,
+          // e o pano de la nao diz nada sobre este lado
+          if (_pv.dot(_rDir) <= 0) continue
+          R = _pv.length()
+          break
+        }
+        _cav[ti * CAV_AZ + ai] = R
+      }
+    }
+  }
+
+  /**
+   * Raio do pano na direcao (theta, az), ou 0 se o chapeu nao cobre ali.
+   *
+   * Pega o MAIOR dos quatro vizinhos, e nao a media: na BORDA do chapeu metade
+   * dos vizinhos vale 0 ("sem pano"), e interpolar contra o zero puxaria o
+   * limite pra dentro do cranio bem na aba — o cabelo da testa sumiria. Sendo
+   * permissivo na borda, o unico erro possivel e deixar passar um fio a mais
+   * onde o pano acaba, que e exatamente onde cabelo aparecendo E o certo.
+   */
+  function raioCavidade(theta, az) {
+    if (theta > CAV_TH_MAX) return 0
+    const ft = (theta / CAV_TH_MAX) * (CAV_TH - 1)
+    const fa = (az / (Math.PI * 2)) * CAV_AZ
+    const t0 = Math.max(0, Math.min(CAV_TH - 1, Math.floor(ft)))
+    const t1 = Math.min(CAV_TH - 1, t0 + 1)
+    let a0 = Math.floor(fa) % CAV_AZ
+    if (a0 < 0) a0 += CAV_AZ
+    const a1 = (a0 + 1) % CAV_AZ
+    const r = Math.max(
+      _cav[t0 * CAV_AZ + a0], _cav[t0 * CAV_AZ + a1],
+      _cav[t1 * CAV_AZ + a0], _cav[t1 * CAV_AZ + a1],
+    )
+    return r
+  }
+
+  /**
+   * O CHAPEU NAO PODE CORTAR O OLHO.
+   *
+   * A queixa do dono, com todas as letras: "as vezes alguns chapeus tampam um
+   * pouco o olho, e o olho passa um pouco acima do chapeu aparecendo um olho
+   * dentro do chapeu".
+   *
+   * A causa e geometrica e nao e culpa de nenhum chapeu em particular: o olho
+   * deste personagem e uma BOLA DE DESENHO de 8 cm que se projeta bem alem da
+   * superficie do cranio, e todo chapeu assenta NO cranio. Aba de bone e barra
+   * de gorro passam entao por dentro da bola, e o pedaco de olho que fica do
+   * lado de fora do pano aparece flutuando sobre o chapeu.
+   *
+   * Empurrar o OLHO (que e o que se faz com a sobrancelha, logo abaixo) esta
+   * fora de questao: olho e a cara do boneco, nao um acessorio. Quem cede e o
+   * chapeu — ele SOBE ate a beirada dele passar acima do topo da bola.
+   *
+   * O teste olha so o pano que esta POR CIMA DO OLHO em planta (a menos de
+   * 5 cm do centro da bola em X e Z). Sem esse recorte, a aba comprida de um
+   * chapeu de cowboy — que fica longe do rosto e nao encosta em nada —
+   * levantaria o chapeu inteiro 4 cm sem precisar.
+   */
+  function levantarChapeuAcimaDosOlhos() {
+    const cha = slots.chapeu
+    if (!cha) return
+    cha.position.y = 0                    // sempre do zero: a conta e idempotente
+    const olh = slots.olhos
+    if (!cha.children.length || !olh || !olh.children.length) return
+    if (!malhasDe('chapeu', _malhasChapeu).length) return
+
+    root.updateWorldMatrix(true, true)
+    head.getWorldPosition(_pontoJunta)
+    _mJuntaInv.copy(head.matrixWorld).invert()
+
+    // topo da bola do olho e o centro dela, no espaco da JUNTA da cabeca
+    _cxOlhos.setFromObject(olh)
+    if (_cxOlhos.isEmpty()) return
+    _pa.copy(_cxOlhos.max).applyMatrix4(_mJuntaInv)
+    _pb.copy(_cxOlhos.min).applyMatrix4(_mJuntaInv)
+    const topoOlho = Math.max(_pa.y, _pb.y)
+    const zOlho = (_pa.z + _pb.z) / 2
+    const xOlho = Math.max(Math.abs(_pa.x), Math.abs(_pb.x)) * 0.6
+
+    // menor Y do pano que passa POR CIMA do olho, no mesmo espaco
+    let baixoChapeu = Infinity
+    for (let mi = 0; mi < _malhasChapeu.length; mi++) {
+      const m = _malhasChapeu[mi]
+      _mParaJunta.multiplyMatrices(_mJuntaInv, m.matrixWorld)
+      const pos = m.geometry.attributes.position
+      for (let i = 0; i < pos.count; i++) {
+        _pv.fromBufferAttribute(pos, i).applyMatrix4(_mParaJunta)
+        if (_pv.y > topoOlho + 0.09) continue           // teto: pano bem acima nao conta
+        if (Math.abs(_pv.z - zOlho) > 0.05) continue
+        if (Math.abs(Math.abs(_pv.x) - xOlho) > 0.05) continue
+        if (_pv.y < baixoChapeu) baixoChapeu = _pv.y
+      }
+    }
+    if (!isFinite(baixoChapeu)) return                  // nada por cima do olho
+
+    // 4 mm de folga: encostar exato deixa o pano e a bola brigando no z-buffer
+    const falta = (topoOlho + 0.004) - baixoChapeu
+    if (falta <= 0) return
+    // TETO DE 2,5 cm, e ele e uma REDE DE SEGURANCA, nao a correcao.
+    //
+    // A medida (tools/diag-chapeu.mjs) diz que o topo da bola do olho fica em
+    // y = 0.132 e que os chapeus assentavam entre 0.083 e 0.122 — ou seja,
+    // faltavam de 1 a 5 cm em TODOS eles. Levantar 5 cm um gorro faria o gorro
+    // flutuar acima do cranio, que e um defeito pior que o que se conserta.
+    //
+    // Entao a regra do catalogo passou a ser: TODO CHAPEU NASCE COM A BORDA
+    // ACIMA DE y = 0.136 (o topo do olho mais folga). Este empurrao existe pro
+    // caso que sobra — a cabeca 'comprida' e mais alta que a media e leva o
+    // olho junto — e pra um chapeu novo que erre a medida por pouco.
+    cha.position.y = Math.min(falta, 0.025)
+  }
+
+  /**
+   * O CHAPEU TAPA TUDO QUE ESTA ACIMA DELE.
+   *
+   * O pedido do dono: "o chapeu deve servir como algo que tampa tudo,
+   * aparecendo apenas os cabelos e a forma lateral do cabelo".
+   *
+   * A versao anterior achatava o penteado inteiro em Y (uma escala no slot) ate
+   * o topo dele passar por baixo do topo do chapeu. Resolvia o espeto que
+   * aponta pra CIMA e nao o que aponta pra FORA, encolhia junto o cabelo que
+   * deveria aparecer pelos lados, e desistia de agir em qualquer chapeu cuja
+   * copa nao passasse de 62% da altura do cranio — ou seja, justamente nos
+   * bones e chapeus de aba, que sao os que o cabelo furava.
+   *
+   * Agora a conta e por VERTICE e contra o PANO DE VERDADE: mede-se a cavidade
+   * do chapeu por raio (medirCavidade) e cada vertice de cabelo que estiver
+   * mais longe do centro do cranio do que o pano naquela direcao e trazido pra
+   * 4 mm por dentro dele. Onde nao ha chapeu (os lados, a nuca, abaixo da aba)
+   * a tabela devolve 0 e o vertice fica exatamente onde estava — que e o que
+   * faz o cabelo continuar aparecendo por baixo e pelos lados.
+   *
+   * A POSICAO ORIGINAL FICA GUARDADA na geometria. Trocar de chapeu NAO
+   * reconstroi o cabelo (ver DEPENDE), entao sem a copia o penteado herdaria o
+   * aperto do chapeu anterior e iria encolhendo a cada troca.
+   */
   function acomodarCabeloSobOChapeu() {
+    levantarChapeuAcimaDosOlhos()
+
     const cab = slots.cabelo
     if (!cab) return
-    cab.scale.set(1, 1, 1)                // sempre do zero: a conta e idempotente
+    cab.scale.set(1, 1, 1)                // a escala da versao antiga saiu
+    if (!cab.children.length) return
+    if (!malhasDe('cabelo', _malhasCabelo).length) return
+
     const cha = slots.chapeu
-    if (!cha || !cha.children.length || !cab.children.length || !headMesh) return
+    const temChapeu = !!(cha && cha.children.length
+      && malhasDe('chapeu', _malhasChapeu).length)
 
-    cab.updateWorldMatrix(true, true)
-    cha.updateWorldMatrix(true, true)
-    _cxCabelo.setFromObject(cab)
-    _cxChapeu.setFromObject(cha)
-    _cxCranio.setFromObject(headMesh)
-    if (_cxCabelo.isEmpty() || _cxChapeu.isEmpty() || _cxCranio.isEmpty()) return
-
-    // Tudo em Y de MUNDO e relativo a junta: assim a conta nao muda quando o
-    // personagem esta com opts.scale (o boneco das miniaturas usa) nem quando
-    // o pedestal girou (giro em Y nao mexe em altura).
+    root.updateWorldMatrix(true, true)
     head.getWorldPosition(_pontoJunta)
-    const base = _pontoJunta.y
-    const topoChapeu = _cxChapeu.max.y - base
-    const topoCabelo = _cxCabelo.max.y - base
-    const topoCranio = _cxCranio.max.y - base
-    // Copa ou faixa? A conta so faz sentido pra peca que tem COPA. A primeira
-    // versao exigia que o topo do chapeu passasse do topo do cranio, e isso
-    // reprovava o chapeu de aba e o bone - a copa deles fica ABAIXO do alto da
-    // cabeca (a cabeca e um ovo, o chapeu assenta no ovo) e os dois voltaram a
-    // deixar o espeto do cabelo furar o pano. O corte em 62% da altura do
-    // cranio separa o que se quer separar: copa de um lado, faixa de cabelo e
-    // viseira do outro.
-    if (topoChapeu < topoCranio * 0.62) return
-    if (topoCabelo <= 0) return
+    _mJuntaInv.copy(head.matrixWorld).invert()
+    if (temChapeu) medirCavidade(_malhasChapeu)
 
-    // 1,5 cm pra dentro do pano: encostar exatamente no topo deixa a mecha
-    // brigando com a casca do chapeu e piscando conforme a camera anda.
-    const alvo = topoChapeu - 0.015
-    const k = alvo / topoCabelo
-    if (k >= 1) return                    // ja cabia
-    const ky = Math.max(0.55, k)
-    cab.scale.y = ky
-    // Achatar so em Y resolve o espeto que aponta pra CIMA e nao o que aponta
-    // pra fora: no bone vermelho sobrava um espeto furando o pano na testa. O
-    // aperto lateral e de proposito mais fraco que o de cima (60%), porque
-    // cabelo saindo pelos LADOS de um bone e o que acontece de verdade - o que
-    // nao pode e sair por cima.
-    cab.scale.x = cab.scale.z = 1 - (1 - ky) * 0.6
+    for (let mi = 0; mi < _malhasCabelo.length; mi++) {
+      const m = _malhasCabelo[mi]
+      const geo = m.geometry
+      const pos = geo.attributes.position
+      // copia pristina: a conta parte SEMPRE dela, nunca do estado anterior
+      let orig = geo.userData.posSemChapeu
+      if (!orig || orig.length !== pos.array.length) {
+        orig = geo.userData.posSemChapeu = Float32Array.from(pos.array)
+      }
+      if (!temChapeu) {
+        // sem chapeu: devolve o penteado inteiro e vai pro proximo
+        pos.array.set(orig)
+        pos.needsUpdate = true
+        continue
+      }
+      _mParaJunta.multiplyMatrices(_mJuntaInv, m.matrixWorld)
+      _mDaJunta.copy(_mParaJunta).invert()
+      let mexeu = false
+      for (let i = 0; i < pos.count; i++) {
+        const o = i * 3
+        _pv.set(orig[o], orig[o + 1], orig[o + 2]).applyMatrix4(_mParaJunta)
+        const r = _pv.length()
+        if (r < 0.02) { pos.setXYZ(i, orig[o], orig[o + 1], orig[o + 2]); continue }
+        const theta = Math.acos(Math.max(-1, Math.min(1, _pv.y / r)))
+        let az = Math.atan2(_pv.x, _pv.z)
+        if (az < 0) az += Math.PI * 2
+        const R = raioCavidade(theta, az)
+        if (R <= 0 || r <= R - 0.004) {
+          pos.setXYZ(i, orig[o], orig[o + 1], orig[o + 2])
+          continue
+        }
+        _pv.multiplyScalar((R - 0.004) / r).applyMatrix4(_mDaJunta)
+        pos.setXYZ(i, _pv.x, _pv.y, _pv.z)
+        mexeu = true
+      }
+      pos.needsUpdate = true
+      if (mexeu) geo.computeBoundingSphere()
+    }
   }
 
   // --- colar por cima da roupa ---------------------------------------------
@@ -1747,9 +1938,26 @@ export function createCharacter(opts = {}) {
   let bodyVisible = true
   function setVisibleBody(v) {
     bodyVisible = !!v
-    // em 1a pessoa some so a cabeca (com cabelo e face); os bracos continuam
-    head.visible = bodyVisible
-    neckMesh.visible = bodyVisible
+    // EM 1a PESSOA SOME O BONECO INTEIRO, e nao so a cabeca.
+    //
+    // A versao anterior escondia cabeca e pescoco e deixava tronco, bracos e
+    // pernas — a escolha classica de FPS, "voce ve os seus bracos". Nao funciona
+    // com ESTE boneco: a cabeca dele e uma esfera de 49 cm e a camera nasce
+    // DENTRO dela, entao olhar pra baixo mostrava o tronco visto de dentro do
+    // crânio, com o avesso do olho aparecendo pelo buraco do pescoco. E o que o
+    // dono fotografou.
+    //
+    // Esconder o `root` (e nao cada malha) e de proposito: e uma linha so, pega
+    // tambem tudo que os slots penduraram — chapeu, colar, relogio — e sobretudo
+    // RESTAURA exato. Percorrer as malhas uma a uma com `visible = true` na volta
+    // acenderia o cabelo escondido debaixo do chapeu e a peca que um `esconde`
+    // tinha apagado de proposito.
+    //
+    // O preco: com `root.visible = false` o three pula o boneco tambem no mapa
+    // de sombra, entao em 1a pessoa nao ha sombra do jogador no chao. Se ela
+    // fizer falta, o caminho e um proxy simples so pra sombra — nao ha como
+    // manter a sombra e sumir com a malha na mesma peca.
+    root.visible = bodyVisible
   }
 
   function dispose() {

@@ -91,7 +91,7 @@ game = {
 | `src/cena/abertura.js` | `criarAbertura(opts)` | a cutscene: o porao com o elenco no sofa, o dialogo, e o corte pra frente da casa |
 | `src/world/casa-velha.js` | `buildCasaVelha(game)` | a casa velha (casca + miolo em L) e a pose de onde a cutscene a encara |
 | `src/ui/customizer.js` | `createCustomizer(game)` | 19 abas: 10 de rosto (barbeiro) + 9 de roupa (provador) |
-| `src/ui/hotbar.js` | `criarHotbar(opts)` | barra de 2 itens: mãos e revólver. Mora dentro de `#hud-canto`, empilhada com o dinheiro e a mochila |
+| `src/player/mao.js` | `criarMao(dep)` | **o que o jogador segura em 1ª pessoa.** Recebe um `build()` e uma ficha e segura o que vier — não conhece bebida nenhuma de nome. Pose da PEGA (não da peça), balanço tirado do `bobPhase` do controller e pose própria pra correr. Substituiu `ui/hotbar.js`, que era a barra separada de 2 itens (mãos/revólver) e está em `backup/ui/` |
 | `src/render/luzes-efeito.js` | `criarPoolDeEfeito(scene, n, camera)` | 2 PointLight compartilhadas por TODOS os efeitos; ver a armadilha do recompile de shader no cabecalho do arquivo |
 | `src/world/clima.js` | `criarClima(opts)` | as tres estacoes: sol, chuva e neve. Gotas (1 LineSegments com cor por vertice), respingos + coroa (2 InstancedMesh), flocos (1 Points), rajada de vento, relampago. Nao acumula nada no chao — quem faz isso e `neve.js`, que le `clima.cobertura` |
 | `src/world/neve.js` | `criarNeve({groundY, ancoras})` | a neve PARADA: manto do chao, telhados, copas, arbustos, postes, lixeiras, bancos e pingentes de gelo. 5 InstancedMesh, construidas uma vez e reveladas por `setCobertura(0..1)` |
@@ -103,10 +103,13 @@ game = {
 | `src/cassino/slots.js` | `criarSlots({rng})` | 3 roletes, tabela de pagamentos, RTP calculado (92%) |
 | `src/ui/cassino-ui.js` | `criarCassinoUI(opts)` | os 4 paineis (caixa, blackjack, poker, caca-niquel). E quem DEBITA e CREDITA a carteira |
 | `src/armas/revolver.js` | `criarRevolver(opts)` | revólver de 6 balas, mira, recarga tambor a tambor, `aoAcerto` |
-| `src/inventario/inventario.js` | `criarInventario(opts)` | as 9 vagas da mochila. `adicionar` é **atômico**: simula antes e só escreve se couber inteiro |
+| `src/inventario/inventario.js` | `criarInventario(opts)` | as 9 vagas da mochila, que **são a barra de itens** (teclas 1–9, centrada no rodapé). `adicionar` é **atômico**: simula antes e só escreve se couber inteiro |
+| `src/mobilia/bebidas.js` | `BEBIDAS`, `CATEGORIAS_BEBIDAS`, `bebidaDe`, `lataCerveja`, `garrafaVodka`, `garrafaWhiskey` | as bebidas: peças de MÃO, em pé com a base em y=0. Cada uma traz `mao: { pegaY, pegaR }`, que é o contrato com `player/mao.js` |
 | `src/mobilia/catalogo.js` | `MOBILIA`, `itemDe`, `limiteDe` | os 9 itens da loja (geometria + preço + pegada em metros). Um item = um `build()` que devolve um `Object3D` |
 | `src/world/loja-jogos.js` | `buildLojaJogos(game)` | a loja TACO DE OURO: fachada, salão, balcão, mostruário e a Wanda atrás do balcão |
-| `src/ui/loja-ui.js` | `criarLojaUI(opts)` | a janela da loja: abas, grade de cards com −/0/+, carrinho e o botão comprar |
+| `src/world/hotel.js` | `buildHotel(game)` | o HOTEL PARAÍSO: casca própria (fachada em z0, marquise, 3 andares de sacada, letreiro de cobertura), porta de vidro automática, saguão com recepção, sala de espera, escada simbólica, elevador e a Íris |
+| `src/world/concessionaria.js` | `buildConcessionaria(game)`, `CATALOGO_AUTO`, `criarGaragem`, `fotoDeVeiculo` | a GARAGEM DO NANDO: showroom com os quatro veículos de verdade em exposição, prato giratório, cavaletes de preço e o Nando. O catálogo e a "garagem" (o inventário de forma compatível com `loja-ui.js`) saem daqui, e é assim que ela usa a MESMA janela de loja do Taco de Ouro |
+| `src/ui/loja-ui.js` | `criarLojaUI(opts)` | a janela de loja, usada por TRÊS lojas: abas, grade de cards com −/0/+, carrinho e o botão comprar. O catálogo, as abas, o título e as falas vêm de fora (`catalogo`, `categorias`, `kicker`, `titulo`, `falas`); sem eles, é a loja de jogos. Instâncias: Taco de Ouro (móveis), mercearia (bebidas) e Garagem do Nando (veículos) |
 | `src/ui/miniatura3d.js` | `criarFotografo(renderer)` | fotografa um `build()` do catálogo num render target de 384 px e devolve um data URL. Cacheado por id |
 | `src/systems/encaixe.js` | `criarEncaixe(opts)` | pôr e tirar móvel: fantasma verde/vermelho, pegada no chão, R/Q gira, segurar E guarda |
 | `src/cenario/cenarios.js` | `criarCenarios(opts)` | os DOIS mundos e a troca entre eles. Grava o que cada cenário cria (grupos, colisores, occluders, interações, updates) e liga/desliga tudo de uma vez |
@@ -123,6 +126,11 @@ game = {
 | `src/save/save.js` | `criarSave(fontes)` | os 5 lugares de jogo salvo. Não conhece módulo nenhum: recebe funções que leem e escrevem cada pedaço |
 | `src/ui/save-ui.js` | `criarSaveUI(opts)` | a tela dos 5 lugares, nos modos `continuar` e `salvar`, com exportar/importar/apagar |
 | `src/veiculos/veiculos.js` | `criarVeiculos(opts)` | carro, moto, skate e helicóptero: entrar/sair com E |
+| `src/world/adega.js` | `buildAdega(game)` | a ADEGA 100: casca cega própria (chapa soldada, janelas emparedadas, a placa 100), porta de aço no beco com postigo, vestíbulo em cotovelo, salão com chopeira, e a operação atrás da tela de arame. Devolve `casca` e `miolo` separados — o miolo some por LOD, porque o prédio não tem por onde ser visto de fora |
+| `src/mobilia/barril.js` | `barrilDeMadeira`, `criarTorneira`, `criarChopeira` | o barril de chope e a torneira que jorra. A coluna CRESCE pra baixo ao abrir e ENCOLHE PELO TOPO ao fechar; `cortar(true)` faz ela terminar dentro do copo |
+| `src/mobilia/copos.js` | `COPOS`, `copoDe`, `ehCopo` | os três copos (americano, tulipa, caneca) e o líquido dentro deles. O corpo é UM lathe fechado; o líquido é REGERADO a cada mudança de nível, nunca escalado |
+| `src/mobilia/destilados.js` | `ADEGA_CATALOGO`, `ADEGA_CATEGORIAS` | o que a adega vende além do chope: gin, pinga de alambique, garrafão, long neck e a GARRAFA BATIZADA. Importa a vodka, o whiskey e a lata de `bebidas.js` e só troca o preço |
+| `src/player/copo.js` | `criarCopo(opts)` | o copo na mão: ocioso → esticado → cheio → bebendo → vazio, num botão só. `mirar()` põe o copo no espaço de câmera do bico da torneira, que é o que faz o jorro cair DENTRO dele |
 
 ## Uma laje por metro quadrado
 
@@ -189,6 +197,71 @@ As **miniaturas** dos cards saem do mesmo palco: cada peca e renderizada de
 verdade, no corpo e no tom de pele do jogador, num render target de 192 px, e
 cacheada por `campo:indice`. Antes eram formas de CSS, e por isso a aba de roupa
 mostrava seis pilulas cinzas identicas.
+
+## A ADEGA 100 — o estabelecimento que nao pode parecer um
+
+O pedido foi "uma adega de bebidas que NAO represente uma loja de bebidas". Isso
+nao e um tema: e uma restricao de construcao, e ela decidiu tudo.
+
+**A casca nao anuncia nada.** O predio 100 (que era o `FILLERS[0]`, e de onde
+vem o nome — `city.js` numerava os predios de cenario com `100 + bi * 17`)
+continua sendo o galpao cinza que sempre foi da rua do anel. A porta de carga e
+uma chapa de enrolar com dois cordoes de solda em X; as janelas do terreo estao
+emparedadas com tijolo NOVO, que e o unico material limpo do predio inteiro
+(reparo recente le como escondido); a placa do numero pende de um parafuso so.
+Nao ha letreiro, e `signColor` e cinza — a unica cor de letreiro do mapa que nao
+e cor nenhuma, num mapa em que cada casa grita a sua.
+
+**A porta e no beco, e ela pergunta.** A entrada fica na face z1, na fresta de
+3,1 m entre este predio e os fundos da barbearia. Na primeira vez a abertura tem
+duas etapas: o postigo corre, alguem olha por um segundo, o postigo fecha e SO
+ENTAO a tranca corre. Da segunda em diante ela e so uma porta.
+
+**Entra-se de lado.** O vestibulo nao da pro salao: da numa parede. O vao fica
+na quina noroeste, com cortina de tiras. E um COTOVELO, e ele existe pra que o
+beco nunca enxergue o balcao quando alguem entra.
+
+**A mercadoria nao se esconde de quem ja entrou.** Atras do barman ha uma tela
+de arame e, atras dela, o alambique no fogo, as bombonas, a mesa de envase e as
+garrafas de rotulo arrancado. Quem pede um chope pede olhando pra dentro daquilo.
+
+### Duas contas que moldaram o arquivo
+
+**Luz.** Quatro PointLight, nenhuma com sombra: balcao (ambar forte), estante
+(ambar), fundos (verde-fria) e vestibulo (vermelha fraca). A terceira nao
+ilumina — ela CONTRASTA, e e o unico truque de luz do lugar. A quarta foi paga
+com uma foto: o vestibulo, so com o bulbo emissivo, saiu preto de verdade. As
+PointLight moram na RAIZ e nao no miolo, porque o miolo some por LOD e luz que
+some muda a contagem de luzes da cena — que e a recompilacao de shader que
+`render/luzes-efeito.js` foi escrito pra evitar.
+
+**Draw calls.** O predio e uma caixa fechada: de fora ninguem ve o miolo, nunca.
+Mas o three so tem frustum, nao oclusao — parado no cruzamento central, a 45 m,
+o jogador desenhava as 309 malhas de dentro atras de uma parede de concreto, e o
+teste de fumaca pegou (318 draw calls a mais, teto de 1200). Por isso a casca e
+o miolo sao grupos separados, cada um vai pro forno sozinho, e o miolo so fica
+visivel com o jogador dentro do lote mais 5 m de folga. Depois disso a adega
+custa 41 draw calls vistos da rua.
+
+### O ciclo do copo (um botao so)
+
+```
+ocioso  --clique (copo vazio)-->  esticado
+esticado --clique-------------->  ocioso            (abaixa sem receber)
+esticado --embaixo do jorro---->  ocioso, copo CHEIO
+ocioso (cheio) --clique-------->  um gole a menos
+...ate zerar, e ai o clique volta a esticar a mao.
+```
+
+`player/copo.js` e um modulo proprio e nao um caso dentro de `player/mao.js`
+pela mesma razao que o revolver tambem nao esta la: a mao generica SEGURA o que
+vier, e um copo se USA. A mecanica de camera (matriz montada a mao, troca de pai
+por modo de camera) e copiada dos dois, de proposito.
+
+A peca que faz o gesto funcionar e `copo.mirar(ponto)`: com o copo colado na
+camera e a torneira no mundo a um metro, sem ela o jorro cai ao lado do copo.
+`mirar` poe o alvo da pose no ESPACO DE CAMERA do bico, e `torneira.cortar(true)`
+encurta a coluna pra ela terminar dentro do vidro.
 
 ## As tres estacoes (tecla `C`)
 

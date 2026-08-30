@@ -1,13 +1,24 @@
 import * as THREE from 'three'
 import * as N from './rosto/nucleo.js'
-import { OLHOS as OLHOS_BASE, OLHO_GLOBO } from './rosto/olhos.js'
-import { NARIZES as NARIZES_BASE } from './rosto/nariz.js'
-import { OLHO_CARTOON } from './rosto/olho-cartoon.js'
-import { NARIZ_CARTOON } from './rosto/nariz-cartoon.js'
-import { BOCAS } from './rosto/boca.js'
-import { BARBAS } from './rosto/barba.js'
-import { CABELOS } from './rosto/cabelo.js'
-import { SOBRANCELHAS } from './rosto/sobrancelha.js'
+import {
+  OLHO_CARTOON, OLHO_CARTOON_REDONDO, OLHO_CARTOON_CAIDO,
+  OLHO_CARTOON_TORTO, OLHO_CARTOON_FENDA,
+} from './rosto/olho-cartoon.js'
+import { BOCAS as BOCAS_BASE } from './rosto/boca.js'
+import { BOCAS_EXTRA } from './rosto/boca-extra.js'
+import { BARBAS as BARBAS_BASE } from './rosto/barba.js'
+import { BARBAS_EXTRA } from './rosto/barba-extra.js'
+import { BARBAS_EXTRA2 } from './rosto/barba-extra2.js'
+import { BARBAS_EXTRA3 } from './rosto/barba-extra3.js'
+import { CABELOS as CABELOS_BASE } from './rosto/cabelo.js'
+import { CABELOS_EXTRA } from './rosto/cabelo-extra.js'
+import { CABELOS_CORTE } from './rosto/cabelo-corte.js'
+import { CABELOS_CORTE2 } from './rosto/cabelo-corte2.js'
+import { OLHOS_EXTRA } from './rosto/olho-extra.js'
+import { OLHOS_EXTRA2 } from './rosto/olho-extra2.js'
+import { SOBRANCELHAS as SOBRANCELHAS_BASE } from './rosto/sobrancelha.js'
+import { SOBRANCELHAS_EXTRA } from './rosto/sobrancelha-extra.js'
+import { SOBRANCELHAS_EXTRA2 } from './rosto/sobrancelha-extra2.js'
 
 // ---------------------------------------------------------------------------
 // src/player/appearance.js — AGREGADOR do rosto.
@@ -31,12 +42,16 @@ import { SOBRANCELHAS } from './rosto/sobrancelha.js'
 //    (esfera UV, cubo esferificado, aneis empilhados, duas conchas soldadas) —
 //    ver rosto/nucleo.js.
 //
-// 2. NAO EXISTE MAIS CATALOGO DE PUPILA. A iris virou parte do olho: cada um
-//    dos cinco olhos traz a propria solucao de iris, pupila e brilho, com um
-//    metodo diferente em cada. PUPILAS continua exportado como array VAZIO
-//    porque o customizer monta as abas a partir do catalogo e aba vazia ele
-//    esconde sozinha — a aba some sem ninguem tocar na UI. O byte 'pupila'
-//    segue no pacote de rede, valendo sempre 0.
+// 2. NAO EXISTE MAIS CATALOGO DE PUPILA. A iris virou parte do olho: cada olho
+//    traz a propria solucao de iris, pupila e brilho. PUPILAS continua
+//    exportado como array VAZIO porque o customizer monta as abas a partir do
+//    catalogo e aba vazia ele esconde sozinha — a aba some sem ninguem tocar na
+//    UI. O byte 'pupila' virou 'palpebra' no pacote de rede.
+//
+// 2b. NAO EXISTE MAIS CATALOGO DE NARIZ, pelo mesmo mecanismo: NARIZES e um
+//    array vazio e a aba some. O personagem ficou com o rosto da referencia,
+//    que nao tem nariz desenhado — sao os olhos que carregam a cara. Os tres
+//    narizes antigos e o de desenho estao em backup/personagem/.
 //
 // 3. COR DE BARBA E UM CATALOGO PROPRIO (CORES_BARBA), separado do cabelo. O
 //    indice 0 quer dizer "igual ao cabelo", que e o que 80% dos jogadores quer
@@ -66,42 +81,143 @@ export const {
 export const shadeColor = N.shade
 
 // --- os catalogos -----------------------------------------------------------
-export { BOCAS, BARBAS, CABELOS, SOBRANCELHAS }
 
 /**
- * A BARRA DE FECHAR OS OLHOS vale pros SEIS olhos, e nao so pro da referencia.
+ * BARBA — DEZESSEIS. As quatro primeiras (nenhuma, aparada, bigode, cheia)
+ * continuam onde estavam; as doze de barba-extra.js sao a metade de cima de um
+ * cartaz de 24 estilos de barbearia que o dono mandou como referencia, na
+ * ordem em que aparecem la: por fazer, curta aparada, cortina, costeletas,
+ * cavanhaque, Van Dyke, ancora, Balbo, mosca, Zappa, bigode guidao e circular.
  *
- * O olho 'cartoon' desenha a propria palpebra: ela e parte da copia que o dono
- * pediu, e varre do topo ate embaixo por dentro do proprio modelo. Os cinco
- * olhos que ja existiam foram escritos cada um com a palpebra dele, em
- * geometrias completamente diferentes — calota tombada, rolo de tubo, moldura
- * extrudada, leque radial. Mexer na abertura de cada um por dentro seriam cinco
- * reformas, cada uma com o proprio jeito de quebrar, e nenhuma delas e o que o
- * dono pediu.
- *
- * Entao eles ganham a PERSIANA (nucleo.js): uma casca de pele que desce por
- * cima do olho inteiro, seguindo a curvatura do proprio globo — por isso ela
- * precisa das medidas dele, que olhos.js publica em OLHO_GLOBO. Com a barra em
- * zero ela nao cria malha nenhuma, entao os cinco continuam exatamente como
- * estavam.
+ * Elas entram DEPOIS das quatro antigas, e nao no meio: indice de catalogo e
+ * o que esta salvo no save e o que viaja na rede. Inserir um item no comeco
+ * trocaria a barba de todo mundo que ja jogou.
  */
-function comPersiana(olho, i) {
-  if (olho.propriaPalpebra) return olho
-  const globo = OLHO_GLOBO[i]
-  return Object.assign({}, olho, {
-    build(ctx) {
-      const g = olho.build(ctx)
-      const k = N.fechamentoOlho(ctx)
-      if (!g || !(k > 0.001)) return g
-      const tampa = N.persianaOlho(globo, k, N.skinOf(ctx))
-      if (tampa) g.add(tampa)
-      return g
-    },
-  })
-}
+//
+// TRES SAIRAM POR RECUSA DO DONO, e por isso a lista e FILTRADA em vez de
+// editada nos arquivos de origem: 'cheia' (a barba cheia antiga), 'stubble'
+// ("por fazer") e 'costeletas'. Filtrar aqui deixa o codigo delas intacto no
+// catalogo de origem — se ele mudar de ideia, e uma linha pra voltar — e e o
+// mesmo caminho que o 'raspado' do cabelo ja tinha aberto.
+//
+// O PRECO DE APAGAR: indice de catalogo e o que esta salvo no save e o que
+// viaja na rede. Tirar um item do MEIO desloca todos os seguintes, entao quem
+// jogou antes desta mudanca vai abrir o jogo com a barba do vizinho. Foi
+// pedido explicitamente; se um dia o custo pesar, o caminho e substituir a
+// peca por uma entrada com build() nulo em vez de tira-la da lista.
+const BARBAS_FORA = ['cheia', 'stubble', 'costeletas']
 
-export const OLHOS = OLHOS_BASE.map(comPersiana).concat([OLHO_CARTOON])
-export const NARIZES = NARIZES_BASE.concat([NARIZ_CARTOON])
+// A METADE DE BAIXO DO CARTAZ veio em DOIS arquivos (as de bigode em
+// barba-extra2, as cheias em barba-extra3) porque foram escritas em paralelo
+// por duas maos — mas o catalogo tem que sair na ORDEM DO CARTAZ, que e como o
+// dono le a lista. Por isso a ordem e declarada aqui, e nao herdada da ordem
+// dos arquivos: linha 4 (imperial, mosqueteiro, rabo de pato, garfo frances),
+// linha 5 (as duas costeletas, verdi, pirata) e linha 6 (as quatro cheias).
+const ORDEM_CARTAZ = [
+  'imperial', 'mosqueteiro', 'rabo-de-pato', 'garfo-frances',
+  'costeleta-larga', 'costeleta-ligada', 'verdi', 'pirata',
+  'cheia-classica', 'old-dutch', 'garibaldi', 'bandholz',
+]
+const BARBAS_CARTAZ = BARBAS_EXTRA2.concat(BARBAS_EXTRA3)
+  .slice()
+  .sort((a, b) => ORDEM_CARTAZ.indexOf(a.id) - ORDEM_CARTAZ.indexOf(b.id))
+
+export const BARBAS = BARBAS_BASE
+  .concat(BARBAS_EXTRA, BARBAS_CARTAZ)
+  .filter((b) => BARBAS_FORA.indexOf(b.id) < 0)
+
+/**
+ * SOBRANCELHA — NOVE. As tres primeiras (uma por metodo de construcao) ficaram
+ * como estavam: o dono aprovou ("essa aba as 3 ficaram boas"). As seis do
+ * extra variam DUAS coisas ao mesmo tempo, que foi o pedido — o FORMATO (reta,
+ * arqueada, caida nas pontas, grossa e curta, fina e longa, quebrada) e a
+ * ESPESSURA/densidade do fio. Variar so uma das duas daria seis irmas.
+ */
+export const SOBRANCELHAS = SOBRANCELHAS_BASE
+  .concat(SOBRANCELHAS_EXTRA, SOBRANCELHAS_EXTRA2)
+
+/**
+ * BOCA — DEZESSETE, e todas sao LINHA.
+ *
+ * Ficou UMA das antigas: o 'traco' da referencia. As outras duas de boca.js (o
+ * labio cheio e a cavidade escavada) sairam junto com as tres primeiras
+ * tentativas de boca-extra.js — sorriso com canto em bolota, fileira de dentes,
+ * cavidade com lingua. Todas recusadas, e pelo mesmo motivo:
+ *
+ *   PECA COM VOLUME NAO CONVIVE COM ROSTO DE TRACO.
+ *
+ * A cara e feita de linhas chapadas (o olho e uma bola branca com contorno
+ * preto de espessura constante). Do lado disso, qualquer coisa com sombra
+ * propria vira um objeto COLADO no rosto em vez de virar parte do desenho.
+ *
+ * O catalogo cresceu em levas, e cada leva nasceu de uma recusa da anterior —
+ * a historia inteira, com o motivo de cada uma, esta no cabecalho de
+ * rosto/boca-extra.js. As duas antigas de boca.js (labio cheio e cavidade
+ * escavada) continuam no arquivo, so nao entram mais no catalogo.
+ */
+export const BOCAS = BOCAS_BASE.filter((b) => b.id === 'traco').concat(BOCAS_EXTRA)
+
+// Os cortes novos (topete, arrepiado, coque samurai) vao no fim. Eles moram
+// noutro arquivo porque a regra deles e outra: os primeiros sao casca colada no
+// cranio e estes tem que MUDAR A SILHUETA. O 'raspado' saiu: sem silhueta
+// propria e sem franja, ele lia como "careca" e nao como corte — trocar pra ele
+// no customizador parecia que o cabelo tinha sumido por bug.
+// E depois vieram os oito CORTES (cabelo-corte.js), tirados de um cartaz de
+// cortes masculinos que o dono mandou. A regra deles e a mesma dos tres do
+// extra e vale a pena repetir: corte que so muda a TEXTURA do topo nao conta —
+// o que o jogador ve no card e a SILHUETA. Por isso o mullet desce na nuca, a
+// cortina abre no meio e o undercut tem degrau na lateral.
+// 'undercut' e 'trancinhas' sairam pela mesma porta do 'raspado' e da mesma
+// leva de recusa das barbas — ver o comentario de BARBAS acima.
+const CABELOS_FORA = ['raspado', 'undercut', 'trancinhas']
+export const CABELOS = CABELOS_BASE
+  .concat(CABELOS_EXTRA, CABELOS_CORTE, CABELOS_CORTE2)
+  .filter((c) => CABELOS_FORA.indexOf(c.id) < 0)
+
+/**
+ * OLHOS — CINCO, TODOS DE DESENHO.
+ *
+ * Os cinco olhos anteriores (cada um por um metodo de construcao diferente)
+ * estao em backup/personagem/olhos-antigo.js. Eles nao foram cortados por
+ * defeito: o personagem escolheu um estilo, e olho realista de 2 cm no mesmo
+ * catalogo que olho de desenho de 8 cm nao e escolha de gosto, e duas caras
+ * diferentes com o mesmo corpo.
+ *
+ * Com eles saiu tambem a PERSIANA (a palpebra generica de nucleo.js, que
+ * dependia das medidas publicadas em OLHO_GLOBO): os cinco desenham a propria
+ * palpebra por dentro, varrendo do topo ate embaixo, que e o que a barra
+ * "abrir e fechar" da aba controla. persianaOlho() continua em nucleo.js pra
+ * quem for escrever o proximo olho sem palpebra propria.
+ *
+ * Os dois ultimos ('torto' e 'fenda') sao os OUSADOS: os tres primeiros eram
+ * o mesmo desenho com numeros diferentes e ficaram parecidos demais, entao
+ * estes dois mexem na ESTRUTURA — um quebra a simetria entre os dois olhos, o
+ * outro tira a palpebra do repouso. Ver rosto/olho-cartoon.js.
+ */
+export const OLHOS = [
+  OLHO_CARTOON, OLHO_CARTOON_REDONDO, OLHO_CARTOON_CAIDO,
+  OLHO_CARTOON_TORTO, OLHO_CARTOON_FENDA,
+].concat(OLHOS_EXTRA, OLHOS_EXTRA2)
+  // A 'iris raiada' (o 15 da aba) saiu por recusa do dono. Filtro, e nao
+  // exclusao do arquivo: o codigo dela continua em olho-extra2.js.
+  .filter((o) => o.id !== 'cartoon-iris-raiada')
+
+// Os quatro do olho-extra.js sao a leva que o dono pediu depois: "mantendo a
+// semelhanca entre eles, porem faca detalhes novos e algo que va diferenciar os
+// npcs". Entao eles NAO mexem na estrutura (como fizeram o torto e a fenda) —
+// e o MESMO desenho com um detalhe chapado a mais cada: olheira, segundo ponto
+// de brilho, cilios e anel na iris. E o detalhe, e nao a forma, que separa um
+// NPC do outro quando os dois estao na mesma calcada.
+
+/**
+ * NARIZ — CATALOGO VAZIO, DE PROPOSITO (ver item 2b do cabecalho).
+ *
+ * Nao e um array esquecido: e o mecanismo. O customizador monta as abas a
+ * partir do catalogo (abaTemCatalogo) e character.js sai do rebuild antes de
+ * construir qualquer coisa quando o catalogo nao tem itens. Deixando ele vazio,
+ * a aba some da tela e o slot para de existir sem tocar em UI nem em rede.
+ */
+export const NARIZES = []
 export const PALPEBRAS = N.PALPEBRAS
 
 /**
@@ -156,10 +272,11 @@ export function defaultAppearance() {
     // 0 = olho aberto. E a barra da aba OLHOS (ver PALPEBRAS em rosto/nucleo.js);
     // ela ocupa o byte que era do catalogo de pupila.
     palpebra: 0,
-    // 1, e nao 0: o indice 0 do catalogo de nariz e "sem nariz". Um padrao todo
-    // zerado entregaria um jogador novo com a cara lisa, e ele leria isso como
-    // bug, nao como estilo.
-    nariz: 1,
+    // 0 obrigatoriamente: o catalogo de nariz esta VAZIO (ver NARIZES). O
+    // padrao era 1 quando existiam quatro narizes; deixar o 1 aqui nao
+    // quebraria nada hoje (o rebuild sai antes de indexar), mas seria um valor
+    // que nao aponta pra lugar nenhum viajando nos 20 bytes da rede.
+    nariz: 0,
     boca: 0,
     barba: 0,
     cabelo: 0,

@@ -450,6 +450,77 @@ export function createAnimator(character) {
     if (k >= 1) { blinkT = -1; setBlink(1) }
   }
 
+  // --- BALANCO DO COLAR ------------------------------------------------------
+  //
+  // Pedido do dono: "o colar precisa ser algo que tenha um pouco de balancar
+  // suave quando o jogador se movimenta; o colar nao deve ficar apenas como um
+  // negocio paradao". E, no mesmo folego, o medo certo: "talvez isso possa ate
+  // gerar bugs, se gerar nao precisa nem fazer".
+  //
+  // COMO SE EVITA O BUG. Um colar que balanca de verdade e um pendulo com
+  // colisao — e colisao contra o proprio peito, a cada quadro, em ate 20
+  // bonecos, e caro e quebra fácil (o pingente entra no torax e fica preso
+  // dentro dele). Aqui nao ha colisao nenhuma: o que balanca e o SLOT INTEIRO,
+  // girando em volta da junta do pescoco, que e mais ou menos onde um colar
+  // pivota de verdade. Girando o conjunto, o cordao acompanha o pingente e a
+  // distancia entre colar e peito nao muda — nao ha como enterrar nada.
+  //
+  // E a amplitude e travada em 7 graus. No pingente, 15 cm abaixo do pescoco,
+  // 7 graus dao 1,8 cm de deslocamento: da pra ver, e nao chega perto do pano.
+  //
+  // O motor e uma mola amortecida (K/C) empurrada por duas coisas: a MUDANCA
+  // de velocidade (o colar fica pra tras quando o boneco arranca e vai pra
+  // frente quando ele freia) e a PASSADA (o solavanco de cada pisada). E por
+  // isso que ele balanca ao andar e para sozinho quando o boneco para.
+  const COLAR_K = 90        // rigidez: ~1.5 Hz, a frequencia de um cordao curto
+  const COLAR_C = 11        // amortecimento (zeta ~0.58): balanca e assenta
+  const COLAR_MAX = 0.12    // teto do angulo, em radianos (7 graus)
+  let colarAngX = 0, colarAngZ = 0
+  let colarVelX = 0, colarVelZ = 0
+  let colarVelAnt = 0
+
+  function balancarColar(dt, speed, grounded, vy) {
+    const slot = character && character.slots && character.slots.colar
+    if (!slot) return
+    // Sem peca no slot nao ha o que girar — e, mais importante, nao da pra
+    // deixar um angulo velho gravado num slot vazio: o proximo colar nasceria
+    // torto.
+    if (!slot.children.length) {
+      colarAngX = colarAngZ = colarVelX = colarVelZ = 0
+      slot.rotation.x = 0
+      slot.rotation.z = 0
+      return
+    }
+
+    const passo = dt > 0.05 ? 0.05 : dt     // dt gordo (aba em segundo plano)
+    const dv = passo > 0 ? (speed - colarVelAnt) / passo : 0
+    colarVelAnt = speed
+    const forte = clamp01(speed / 2.5)
+
+    // Alvo do pendulo. Tres somas, e cada uma responde por uma coisa que se ve:
+    //   arranque/freada -> o colar fica pra tras / joga pra frente
+    //   passada         -> o solavanco vertical de cada pisada
+    //   queda           -> no ar ele sobe; ao pousar, desce de uma vez
+    let alvoX = -dv * 0.010 + Math.sin(stride * 2) * 0.030 * forte
+    if (!grounded) alvoX += (vy > 0 ? -0.02 : 0.03)
+    // O lado a lado vem do quadril, que desliza pro pe de apoio: meia
+    // frequencia da vertical, e por isso o movimento resultante nao e um
+    // vaivem chapado, e um oito.
+    const alvoZ = Math.sin(stride) * 0.022 * forte
+
+    colarVelX += (COLAR_K * (alvoX - colarAngX) - COLAR_C * colarVelX) * passo
+    colarVelZ += (COLAR_K * (alvoZ - colarAngZ) - COLAR_C * colarVelZ) * passo
+    colarAngX += colarVelX * passo
+    colarAngZ += colarVelZ * passo
+    if (colarAngX > COLAR_MAX) { colarAngX = COLAR_MAX; colarVelX = 0 }
+    else if (colarAngX < -COLAR_MAX) { colarAngX = -COLAR_MAX; colarVelX = 0 }
+    if (colarAngZ > COLAR_MAX) { colarAngZ = COLAR_MAX; colarVelZ = 0 }
+    else if (colarAngZ < -COLAR_MAX) { colarAngZ = -COLAR_MAX; colarVelZ = 0 }
+
+    slot.rotation.x = colarAngX
+    slot.rotation.z = colarAngZ
+  }
+
   // deltas do frame, zerados e recalculados sempre do zero
   const d = Object.create(null)
   for (let i = 0; i < PARTS.length; i++) {
@@ -466,6 +537,8 @@ export function createAnimator(character) {
   let wSit = 0      // peso da pose de sentado
   let leanCur = 0
   let amp = 1            // encolhimento do gesto em velocidade baixa
+  let segurando = false  // tem coisa na mao direita? (garrafa, lata, revolver)
+  let wSegura = 0        // ...e a rampa dele, pra a troca nao ser um tranco
   let waveT = -1      // < 0 = aceno desligado
 
   function capture() {
@@ -766,6 +839,77 @@ export function createAnimator(character) {
     if (d.chest) d.chest.rx += 0.05 * w
   }
 
+  /**
+   * SEGURANDO ALGUMA COISA NA DIREITA: garrafa, lata, revolver.
+   *
+   * Sem isto, o boneco CORRIA BOMBEANDO OS DOIS BRACOS com uma garrafa de um
+   * litro presa na mao direita — e a garrafa, que e filha da junta handR,
+   * acompanhava o bombeamento inteiro. Em 1a pessoa ninguem ve; em 3a pessoa e
+   * a primeira coisa que se ve.
+   *
+   * O braco direito e PUXADO pra uma pose de carregar (cotovelo dobrado, mao na
+   * altura do quadril, encostada no corpo) em vez de sobrescrito: sobra 18% do
+   * balanco da passada, e sao esses 18% que impedem o braco de virar um pedaco
+   * de madeira colado no tronco enquanto o esquerdo balanca. O esquerdo nao e
+   * tocado — quem carrega com uma mao balanca a outra normalmente, e o
+   * contraste entre os dois e o que vende o gesto.
+   *
+   * Usa o mesmo mecanismo do aceno (mix sobre os deltas ja calculados), que era
+   * o unico precedente de "um braco tem dono" neste arquivo.
+   */
+  function poseSegurando() {
+    if (wSegura <= 0.001) return
+    const w = wSegura * 0.82
+    const set = (part, rx, ry, rz) => {
+      const k = d[part]
+      if (!k) return
+      k.rx = mix(k.rx, rx, w)
+      k.ry = mix(k.ry, ry, w)
+      k.rz = mix(k.rz, rz, w)
+    }
+    // rx < 0 leva o braco pra FRENTE (ver o swing() da locomocao); no antebraco
+    // rx < 0 e o cotovelo dobrando, que e a mesma convencao do poseIdle.
+    //
+    // O COTOVELO DOBRA POUCO (-0.50, ~29 graus), e nao os -1.05 da primeira
+    // tentativa. Com 60 graus de dobra a garrafa ia parar NA FRENTE DA BARRIGA
+    // e sumia atras do tronco — e a camera de 3a pessoa deste jogo fica ATRAS do
+    // personagem, entao o item que ele carrega simplesmente deixava de existir
+    // na tela. Quem carrega uma garrafa pela rua leva o braco quase esticado,
+    // com ela batendo na coxa: la ela aparece na silhueta, que e o ponto.
+    // O BRACO FICA QUASE PENDIDO, e essa e a correcao que so uma MEDIDA achou.
+    //
+    // As duas primeiras tentativas dobravam o cotovelo (-1.05 e depois -0.50),
+    // que e como se imagina "carregando uma garrafa". Medindo a posicao de
+    // mundo da peca antes e depois da pose, o cotovelo dobrado empurrava a
+    // garrafa 28 cm PRA FRENTE do corpo e 7 cm pra dentro — e a camera de 3a
+    // pessoa deste jogo fica ATRAS do personagem, entao a garrafa ia parar
+    // exatamente atras do tronco. Ela existia e nao aparecia, nas duas fotos.
+    //
+    // Quem anda na rua com uma garrafa leva o braco caido, a garrafa batendo na
+    // coxa. Fica ao lado do corpo, aparece na silhueta, e o balanco de corrida
+    // (que e o que esta pose existe pra matar) morre do mesmo jeito: o que
+    // segura o braco e o mix, nao o angulo.
+    //
+    // O ALVO E QUASE A POSE DE REPOUSO DO BRACO, de proposito. A pergunta certa
+    // nao e "que angulo tem quem carrega uma garrafa" — e "onde a garrafa
+    // precisa estar pra aparecer". Parado, o braco em repouso ja poe a peca
+    // 17 cm ao lado do corpo, que e onde ela le. Entao carregar copia esse
+    // repouso e o rz abre mais um pouco.
+    //
+    // Repetir o repouso NAO deixa a pose inutil: o que segura o braco enquanto
+    // o outro balanca e o MIX (82% de alvo fixo contra a passada), e nao o
+    // angulo. E isso que mata o bombeamento de corrida, que e o defeito que
+    // esta funcao existe pra corrigir.
+    //
+    // O SINAL DO rz FOI MEDIDO, nao lido: o comentario do poseIdle diz que
+    // positivo no braco direito e "encostar no corpo", mas medindo a posicao de
+    // mundo da garrafa e o contrario — positivo AFASTA. Com -0.06 (a tentativa
+    // anterior) a peca vinha 6,5 cm pra dentro e sumia na coxa.
+    set('armRUpper', 0.00, 0, 0.10)
+    set('armRLower', -0.16, 0, -0.04)
+    set('handR', 0.00, 0, 0.06)
+  }
+
   // Aceno: sobrescreve o braco direito por ~1.9 s com envelope suave.
   function poseWave() {
     if (waveT < 0) return
@@ -820,6 +964,9 @@ export function createAnimator(character) {
     wLoco = damp(wLoco, locoT, 11, dt)
     wRun = damp(wRun, runT, 7, dt)
     wAir = damp(wAir, airT, grounded ? 9 : 16, dt)
+    // 7 de lambda: a mesma faixa da rampa andar<->correr. Mais rapido que isso
+    // e o braco dando um tranco no quadro em que a garrafa aparece.
+    wSegura = damp(wSegura, segurando ? 1 : 0, 7, dt)
 
     // CADENCIA DERIVADA DO PASSO (ver passoMetros).
     //
@@ -870,13 +1017,32 @@ export function createAnimator(character) {
     if (d.chest) d.chest.rx += leanCur * 0.35
     if (d.neck) d.neck.rx += -leanCur * 0.8   // mantem a cabeca no eixo
 
+    // A ordem importa: carregar vem ANTES do aceno, porque acenar com a mao que
+    // segura a garrafa e o aceno que ganha (e o gesto de erguer a mao, com a
+    // garrafa junto). Depois de poseWave nada mais mexe no braco direito.
+    poseSegurando()
     poseWave()
     apply()
+    // DEPOIS do apply(): o balanco nao mexe em junta nenhuma (ele gira o slot
+    // do colar), entao a ordem nao importa pro resultado — mas rodar por
+    // ultimo deixa claro que ele nao participa da pose.
+    balancarColar(dt, speed, grounded, vy)
   }
 
   function playWave() { waveT = 0 }
 
-  return { update, playWave, isWaving: () => waveT >= 0 }
+  return {
+    update,
+    playWave,
+    isWaving: () => waveT >= 0,
+    /**
+     * Liga/desliga a pose de "tem coisa na mao direita". Quem chama e o main, a
+     * cada quadro, com `mao.segurando || revolver.equipado`. A rampa e feita
+     * aqui dentro (ver wSegura no update): quem chama nao precisa saber que a
+     * transicao existe, e chamar todo quadro com o mesmo valor nao custa nada.
+     */
+    segurarNaDireita(v) { segurando = !!v },
+  }
 }
 
 export default createAnimator

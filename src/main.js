@@ -51,7 +51,10 @@ import { createCustomizer } from './ui/customizer.js'
 import { criarRede } from './rede/cliente-rede.js'
 import { criarAvatares } from './rede/avatares.js'
 import { criarVeiculos } from './veiculos/veiculos.js'
-import { criarHotbar } from './ui/hotbar.js'
+import { criarMao } from './player/mao.js'
+import { criarCopo } from './player/copo.js'
+import { criarPisos } from './systems/pisos.js'
+import { criarLegenda } from './ui/legenda.js'
 import { criarClima } from './world/clima.js'
 import { criarNeve } from './world/neve.js'
 import { buildCasino } from './world/casino.js'
@@ -60,6 +63,12 @@ import { criarCassinoUI } from './ui/cassino-ui.js'
 import { criarLojaUI } from './ui/loja-ui.js'
 import { buildCasaVelha } from './world/casa-velha.js'
 import { buildLojaJogos } from './world/loja-jogos.js'
+import { buildHotel } from './world/hotel.js'
+import { buildAdega } from './world/adega.js'
+import { buildCortico } from './world/cortico.js'
+import {
+  buildConcessionaria, CATALOGO_AUTO, CATEGORIAS_AUTO, fotoDeVeiculo, criarGaragem,
+} from './world/concessionaria.js'
 import { criarCenarios } from './cenario/cenarios.js'
 import { buildQuadraHudson } from './world/hudson/quadra.js'
 import { criarProvador } from './ui/provador.js'
@@ -67,14 +76,17 @@ import { criarCriacao } from './ui/criacao.js'
 import { criarMenu, lerOpcoes } from './ui/menu.js'
 import { criarAbertura } from './cena/abertura.js'
 import { criarTutorial, MISSOES_INICIAIS } from './ui/tutorial.js'
-import { criarRevolver } from './armas/revolver.js'
+import { criarRevolver, ITEM_REVOLVER } from './armas/revolver.js'
 import { criarDialogo } from './ui/dialogo.js'
 import { criarInventario } from './inventario/inventario.js'
 import { criarEncaixe } from './systems/encaixe.js'
 import { criarSave } from './save/save.js'
 import { criarSaveUI } from './ui/save-ui.js'
 import { criarFotografo } from './ui/miniatura3d.js'
-import { itemDe, limiteDe } from './mobilia/catalogo.js'
+import { itemDe, limiteDe, registrarItem } from './mobilia/catalogo.js'
+import { BEBIDAS, CATEGORIAS_BEBIDAS } from './mobilia/bebidas.js'
+import { COPOS, ehCopo, copoDe } from './mobilia/copos.js'
+import { ADEGA_CATALOGO, ADEGA_CATEGORIAS } from './mobilia/destilados.js'
 import { TICK_HZ, NPCS } from './comum/mundo.js'
 
 // ---------------------------------------------------------------------------
@@ -109,9 +121,16 @@ player.teleport(2, 9, 0) // rua principal, olhando para o cruzamento e as lojas
 const moduleUpdates = []
 const propUpdates = []
 
+// O CHAO DE VARIOS ANDARES e a LEGENDA nascem antes dos builders porque e o
+// builder que se registra neles: o cortico entrega as lajes e as rampas dos
+// tres pisos dele, e os moradores falam pela legenda. Ver systems/pisos.js.
+const pisos = criarPisos(() => 0)
+const legenda = criarLegenda()
+
 const game = {
   scene, camera, renderer, engine, input, collision, interaction,
   hud, lighting, poolLuz, player, character, appearance,
+  pisos, legenda,
   time: 0,
 
   addColliders(list) { collision.add(list) },
@@ -343,11 +362,29 @@ function fotoDe(id) {
 }
 game.fotoDe = fotoDe
 
+// O revolver nao esta a venda em loja nenhuma, mas ocupa uma vaga da mochila
+// como qualquer outra coisa desde que a barra virou uma so — entao o registro
+// de ids precisa conhecer a ficha dele (nome, foto, quanto empilha). Ver
+// ITEM_REVOLVER em armas/revolver.js e registrarItem() no catalogo.
+registrarItem(ITEM_REVOLVER)
+
+// A ADEGA 100 vende coisa que nao nasce em MOBILIA nem em BEBIDAS: os tres
+// copos (mobilia/copos.js) e os destilados de contrabando (mobilia/destilados.js).
+// Eles entram no registro pelo MESMO caminho do revolver, e pelo mesmo motivo —
+// a garrafa comprada la vai pra mesma mochila, entao itemDe() tem que responder
+// por ela (nome, foto, quanto empilha).
+for (const c of COPOS) registrarItem(c)
+for (const b of ADEGA_CATALOGO) registrarItem(b)
+
 let vagaSelecionada = -1
-function pintarMochila() {
-  hud.setMochila(inventario.slots, fotoDe, vagaSelecionada)
+/** Nome do item pra barra escrever embaixo da vaga selecionada. */
+function nomeDoItem(id) {
+  const m = itemDe(id)
+  return m ? m.nome : ''
 }
-inventario.aoMudar(pintarMochila)
+function pintarMochila() {
+  hud.setMochila(inventario.slots, fotoDe, vagaSelecionada, nomeDoItem)
+}
 
 // TUDO daqui ate o fecharGravacao() la embaixo vira propriedade do cenario
 // 'cidade': os grupos, os colisores, os occluders, os pontos de interacao e os
@@ -393,6 +430,72 @@ const lojaJogos = buildLojaJogos(game)
 mount(lojaJogos, 'loja-jogos')
 game.lojaMundo = lojaJogos
 
+// O HOTEL PARAISO, na esquina noroeste do anel (era o predio de cenario que
+// o letreiro procedural chamava de "BAR DO TITO"). Como o cassino, ele traz a
+// PROPRIA casca: a fachada dele olha pra -Z e o buildShell de city.js so sabe
+// desenhar vitrine virada pra +Z. Por isso tambem e daqui que saem os occluders
+// de camera dele — registerCameraOccluders() so conhece FILLERS e as duas lojas
+// de fachada em z1.
+const hotel = buildHotel(game)
+mount(hotel, 'hotel')
+game.hotel = hotel
+if (hotel && Array.isArray(hotel.occluders)) {
+  for (const o of hotel.occluders) {
+    collision.addOccluder(o.minX, o.minY, o.minZ, o.maxX, o.maxY, o.maxZ, o.tag || 'hotel')
+  }
+}
+// NAO chamar bakeStatic(hotel.group) aqui: o hotel assa a casca e o saguao
+// SEPARADAMENTE, dentro do proprio modulo, porque o LOD dele depende de os dois
+// grupos continuarem existindo (ver o comentario do forno em world/hotel.js).
+
+// A GARAGEM DO NANDO, vizinha do hotel na mesma calcada do anel (era o predio
+// de cenario do letreiro "CHAVEIRO 24H"). Mesmo desenho do hotel: casca
+// propria porque a fachada olha pra -Z, occluders daqui, e o forno roda dentro
+// do modulo por causa do LOD do showroom.
+const auto = buildConcessionaria(game)
+mount(auto, 'concessionaria')
+game.autoMundo = auto
+if (auto && Array.isArray(auto.occluders)) {
+  for (const o of auto.occluders) {
+    collision.addOccluder(o.minX, o.minY, o.minZ, o.maxX, o.maxY, o.maxZ, o.tag || 'auto')
+  }
+}
+
+// A ADEGA 100, no predio de cenario cego atras da barbearia (o que city.js
+// numerava 100). Como o cassino, o hotel e a garagem, ela traz a PROPRIA casca:
+// a fachada dela olha pra -Z e, mais que isso, ela NAO TEM fachada de loja —
+// buildShell de city.js desenha vitrine e letreiro, e este predio nao pode ter
+// nem uma coisa nem outra. Os occluders tambem saem daqui pelo mesmo motivo:
+// registerCameraOccluders() so conhece FILLERS e as duas lojas de fachada z1, e
+// este lote saiu de FILLERS.
+const adega = buildAdega(game)
+mount(adega, 'adega')
+game.adegaMundo = adega
+if (adega && Array.isArray(adega.occluders)) {
+  for (const o of adega.occluders) {
+    collision.addOccluder(o.minX, o.minY, o.minZ, o.maxX, o.maxY, o.maxZ, o.tag || 'adega')
+  }
+}
+// NAO chamar bakeStatic(adega.group) aqui, pela MESMA razao do hotel: a adega
+// assa a casca e o miolo separadamente, dentro do proprio modulo, porque o LOD
+// dela depende de os dois grupos continuarem existindo (o predio e cego, entao
+// o miolo some inteiro quando ninguem esta dentro). Assar aqui dissolveria os
+// dois grupos na raiz e o LOD deixaria de esconder qualquer coisa.
+
+// O CORTICO 117, o predio de cenario ao lado da adega (o que city.js numerava
+// 117). E o primeiro predio do jogo com ANDAR: tres pisos, escada em U de
+// verdade e dois apartamentos que abrem. Casca propria pelo mesmo motivo dos
+// outros — a fachada olha pra -Z — e o forno roda dentro do modulo, porque o
+// LOD dele depende de os grupos de cada andar continuarem existindo.
+const cortico = buildCortico(game)
+mount(cortico, 'cortico')
+game.cortico = cortico
+if (cortico && Array.isArray(cortico.occluders)) {
+  for (const o of cortico.occluders) {
+    collision.addOccluder(o.minX, o.minY, o.minZ, o.maxX, o.maxY, o.maxZ, o.tag || 'cortico')
+  }
+}
+
 const casa = buildCasaVelha(game)
 game.casa = casa
 
@@ -418,9 +521,25 @@ if (casa && casa.group) console.info('casa velha:', bakeStatic(casa.group))
 
 // Altura do chao: calcada (0.16), parque, beco e piso das lojas. Sem isso o
 // personagem anda com os pes enterrados no concreto.
+// O CHAO DA CIDADE PASSA A SER O DE systems/pisos.js.
+//
+// `pisos` embrulha o chao da cidade: onde nao ha laje registrada (ou seja, no
+// mapa inteiro menos os poucos metros quadrados do cortico) ele repassa a
+// pergunta pro city.groundY de sempre. Onde ha, ele escolhe a laje pela altura
+// em que o jogador esta — a terceira entrada que uma funcao (x, z) nao tem como
+// receber, e sem a qual nao da pra responder 0,16 e 3,16 pro mesmo ponto.
+//
+// O AMOSTRADOR NAO E INSTALADO AQUI, e sim no REGISTRO DO CENARIO logo abaixo.
+// Vale escrever por que: `cenarios.mostrar()` chama player.setGroundSampler()
+// com o `groundY` do cenario toda vez que ele entra em cena, e ele entra em
+// cena DEPOIS desta linha (no fim do arquivo) e de novo a cada F6. Instalando
+// so aqui, o cenario sobrescrevia o amostrador de andares no boot e o predio
+// ficava com tres lajes registradas que ninguem consultava — o jogador
+// atravessava o cortico inteiro no nivel da rua.
+const chaoComAndares = pisos.amostrador(() => player.position.y)
 if (city && typeof city.groundY === 'function') {
-  game.groundY = city.groundY
-  if (typeof player.setGroundSampler === 'function') player.setGroundSampler(city.groundY)
+  pisos.setBase(city.groundY)
+  game.groundY = chaoComAndares
 } else {
   game.groundY = () => 0
 }
@@ -455,39 +574,134 @@ game.revolver = revolver
 if (revolver.grupoNoMundo) scene.add(revolver.grupoNoMundo)
 if (revolver.interactable) interaction.add(revolver.interactable)
 
-// 1 maos, 2 revolver. O slot do revolver fica travado ate acharem a arma.
-// (Os slots do anel verde e da arma de portal sairam junto com os modulos.)
-const hotbar = criarHotbar({
-  // Pendurada na coluna do canto (ver #hud-canto em ui/hud.js): e la que ficam,
-  // de cima pra baixo, a mao, o dinheiro e a mochila.
-  pai: hud.canto,
-  aoTrocar(indice, chave) {
-    if (chave !== 'revolver' && revolver.equipado) revolver.desequipar()
-    if (chave === 'revolver' && !revolver.equipado) revolver.equipar()
-  },
-})
-game.hotbar = hotbar
+// ---------------------------------------------------------------------------
+// A MAO e A BARRA DE ITENS
+//
+// ERAM DUAS BARRAS: a hotbar (teclas 1 e 2, "maos" e "revolver") e, embaixo
+// dela no canto da tela, as nove vagas da mochila, que so respondiam a clique.
+// O dono do projeto pediu UMA SO, de 1 a 9, centrada no rodape — e a decisao
+// que segue disso e a que importa aqui: NAO EXISTE MAIS UM SLOT "MAOS". Mao
+// vazia e uma VAGA VAZIA selecionada, ou nenhuma vaga selecionada. Foi o que
+// permitiu o revolver deixar de ter um numero reservado (que furava uma das
+// nove vagas do jogador pra sempre) e virar um item da mochila como os outros.
+//
+// TRES DESTINOS, e a vaga escolhida decide qual:
+//
+//   movel (naCasa)  -> modo de ENCAIXE: o movel vai pro CHAO da casa, nao pra
+//                      mao. E o que ja acontecia no clique.
+//   revolver        -> armas/revolver.js. Tem mira, coice, recarga e pose
+//                      propria; nunca passa pela mao generica.
+//   o resto         -> player/mao.js, que segura o que vier.
+//
+// A mao nasce aqui, DEPOIS do revolver, porque as duas disputam a mesma tela:
+// quem pega uma larga a outra.
+const mao = criarMao({ scene, camera, player, character, aparencia: appearance })
+game.mao = mao
 
-// A vaga clicada entra no modo de ENCAIXE (ver systems/encaixe.js). Clique com
-// o botao direito, ou clique na mesma vaga de novo, cancela. -1 chega do botao
-// direito em qualquer vaga.
-hud.aoClicarVaga((i) => {
-  if (i < 0 || i === vagaSelecionada) {
-    vagaSelecionada = -1
-    if (game.encaixe) game.encaixe.sair()
-    pintarMochila()
+// E O COPO TEM MAO PROPRIA. Nao e capricho: player/copo.js e uma maquina de
+// estados (ocioso -> esticado -> cheio -> bebendo) com quatro poses e um nivel
+// de liquido, e player/mao.js e um modulo que SEGURA o que vier. Enfiar o copo
+// la dentro obrigaria a mao generica a saber o que e chope. Ver o cabecalho de
+// player/copo.js — e o mesmo argumento que ja tinha tirado o revolver de la.
+//
+// As duas nunca aparecem juntas: quem pega uma larga a outra, em aplicarVaga().
+const copo = criarCopo({ scene, camera, player, character, aparencia: appearance, hud })
+game.copo = copo
+
+/**
+ * Poe na mao (ou tira dela) o que a vaga selecionada manda.
+ *
+ * `entrarNoEncaixe` separa as duas origens da chamada: a TECLA/CLIQUE quer o
+ * efeito inteiro, inclusive abrir o modo de encaixe do movel; toda MUDANCA do
+ * inventario (comprou, guardou, o encaixe tirou a mesa da vaga) so quer que a
+ * mao pare de segurar o que nao esta mais ali. Sem essa separacao, guardar um
+ * movel reabria o modo de encaixe no mesmo quadro em que ele fechou.
+ */
+function aplicarVaga(entrarNoEncaixe) {
+  const s = vagaSelecionada >= 0 ? inventario.ver(vagaSelecionada) : null
+  const m = s ? itemDe(s.id) : null
+
+  if (m && m.naCasa) {
+    if (revolver.equipado) revolver.desequipar()
+    mao.largar()
+    copo.largar()
+    if (entrarNoEncaixe && game.encaixe) game.encaixe.entrar(vagaSelecionada, s.id)
     return
   }
-  const s = inventario.ver(i)
-  if (!s) return
-  const m = itemDe(s.id)
-  if (!m || !m.naCasa) {
-    hud.toast(m ? (m.nome + ' nao e movel: fica no bolso.') : 'Vaga vazia.')
+  if (game.encaixe && game.encaixe.ativo) game.encaixe.sair()
+
+  if (m && m.id === 'revolver') {
+    mao.largar()
+    copo.largar()
+    if (!revolver.equipado) revolver.equipar()
     return
   }
-  vagaSelecionada = i
+
+  if (revolver.equipado) revolver.desequipar()
+  // COPO -> player/copo.js; o resto -> player/mao.js.
+  if (m && ehCopo(m.id)) {
+    mao.largar()
+    copo.segurar(m.id, copoDe(m.id) || m)
+    return
+  }
+  copo.largar()
+  if (m) mao.segurar(m.id, m)
+  else mao.largar()
+}
+
+/**
+ * Seleciona a vaga `i` da barra. -1, ou a vaga que ja estava selecionada,
+ * ESVAZIA A MAO — apertar 3 duas vezes guarda a garrafa, que e o gesto que todo
+ * mundo tenta antes de procurar uma tecla pra isso.
+ */
+function selecionarVaga(i) {
+  const alvo = (i === vagaSelecionada || i < 0 || i >= inventario.vagas) ? -1 : i
+  vagaSelecionada = alvo
+  aplicarVaga(true)
   pintarMochila()
-  if (game.encaixe) game.encaixe.entrar(i, s.id)
+}
+game.selecionarVaga = selecionarVaga
+
+/**
+ * A BARRA E O QUE ESTA NA MAO ANDAM JUNTOS.
+ *
+ * Os dois somem no menu, na criacao de personagem, no provador e na cutscene, e
+ * voltam quando o jogo volta. Antes era so a barra (hotbar.mostrar), porque nao
+ * havia nada de 3D preso a camera fora o revolver — que tem o proprio caminho.
+ * Agora ha: sem esta funcao, sair pro menu com uma garrafa na mao deixava a
+ * garrafa na tela por cima do letreiro do cassino.
+ */
+function mostrarItens(v) {
+  hud.mostrarBarra(v)
+  if (mao && typeof mao.mostrarNaTela === 'function') mao.mostrarNaTela(v)
+}
+
+/**
+ * A loja avisa o que acabou de entrar na mochila (a PRIMEIRA vaga que recebeu).
+ *
+ * Bebida vai pra mao no ato — foi o pedido: "ao comprar, a bebida vai pro
+ * primeiro slot vazio e o personagem segura ela na mao". Movel NAO: a vitrine
+ * continua aberta depois da compra, e selecionar uma vaga de movel abre o modo
+ * de encaixe, que poria o fantasma da mesa de sinuca numa tela tapada pela
+ * propria loja.
+ */
+game.aoComprar = (vaga, id) => {
+  const m = itemDe(id)
+  if (!m || m.naCasa) return
+  selecionarVaga(vaga)
+}
+
+// O clique na vaga faz o mesmo que a tecla. O botao direito manda -1 (o HUD
+// converte), e -1 e "mao vazia".
+hud.aoClicarVaga(selecionarVaga)
+
+// Toda mudanca no inventario repinta a barra E confere a mao: a vaga que a
+// pessoa segurava pode ter esvaziado (o encaixe tirou a mesa dali, a compra
+// empurrou tudo, o save carregou outra mochila).
+inventario.aoMudar(() => {
+  if (vagaSelecionada >= 0 && !inventario.ver(vagaSelecionada)) vagaSelecionada = -1
+  aplicarVaga(false)
+  pintarMochila()
 })
 pintarMochila()
 
@@ -508,14 +722,83 @@ game.cassino = cassinoUI
 const lojaUI = criarLojaUI({ game, carteira, inventario, fotoDe })
 game.loja = lojaUI
 
-hotbar.marcarDisponivel(1, false)   // revolver: so depois de achar no beco
+// O MERCADO. E o MESMO modulo de janela da loja de jogos, com outro catalogo e
+// outras falas — nao uma segunda janela copiada. Copiar teria duplicado a regra
+// de compra (espaco -> ouro -> entrega), que e justamente a parte que nao pode
+// existir em duas versoes: um dia uma delas seria corrigida e a outra nao.
+// Quem abre e world/grocery.js, por 'game.mercado', do mesmo jeito que o
+// interior da loja de jogos chama 'game.loja'.
+const mercadoUI = criarLojaUI({
+  game, carteira, inventario, fotoDe,
+  catalogo: BEBIDAS,
+  categorias: CATEGORIAS_BEBIDAS,
+  kicker: 'MERCEARIA CENTRAL',
+  titulo: 'Geladeira do fundo',
+  falas: {
+    abertura: 'Atendente: gelada e a de cima. A de baixo e a de ontem.',
+    semOuro: 'Atendente: fiado so pra quem paga o de antes.',
+    comprou: 'Atendente: leva, leva. E nao bebe dirigindo.',
+  },
+})
+game.mercado = mercadoUI
 
-/** Chamado quando um item e pego: libera o slot e ja poe na mao. */
-game.pegouItem = (chave) => {
-  const i = hotbar.indiceDe ? hotbar.indiceDe(chave) : 1
-  if (i < 0) return
-  hotbar.marcarDisponivel(i, true)
-  hotbar.selecionar(i)
+// A CONCESSIONARIA usa A MESMA JANELA da loja de jogos — outro catalogo, outras
+// abas, outro titulo e outro "inventario". A garagem tem a forma que loja-ui.js
+// espera (slots / livres / adicionar) mas as vagas dela sao a calcada da frente:
+// `adicionar` chama veiculos.criarComprado e o carro aparece estacionado.
+// Ver o cabecalho de world/concessionaria.js.
+const garagem = criarGaragem({ veiculos, hud })
+game.garagem = garagem
+const autoUI = criarLojaUI({
+  game, carteira, inventario: garagem, fotoDe: fotoDeVeiculo,
+  catalogo: CATALOGO_AUTO, categorias: CATEGORIAS_AUTO,
+  kicker: 'CONCESSIONARIA', titulo: 'Garagem do Nando',
+  falas: {
+    abertura: 'Nando: entra, olha, senta dentro. Comprar so se gostar.',
+    semOuro: 'Nando: com esse dinheiro eu te vendo o retrovisor.',
+    comprou: 'Nando: bom negocio. Ta na vaga da frente, chave no contato.',
+    semEspaco: 'Nao ha mais vaga na frente da loja.',
+  },
+})
+game.autoLoja = autoUI
+
+// A ADEGA usa A MESMA JANELA das outras tres. O catalogo dela e a soma de dois
+// arquivos — os copos e os destilados de contrabando —, e essa soma acontece
+// AQUI e nao dentro de destilados.js de proposito: copo nao e bebida, e o dia em
+// que outro lugar vender copo o catalogo dele nao vai querer a pinga junto.
+const adegaUI = criarLojaUI({
+  game, carteira, inventario, fotoDe,
+  catalogo: COPOS.concat(ADEGA_CATALOGO),
+  categorias: ADEGA_CATEGORIAS,
+  kicker: 'SEM PLACA, SEM NOTA',
+  titulo: 'O Cem',
+  falas: {
+    abertura: 'Dico: fala baixo. O que voce quer ta tudo aqui atras.',
+    semOuro: 'Dico: aqui nao tem fiado. Fiado e como a policia sabe seu nome.',
+    comprou: 'Dico: sai pelo beco, e nao para na esquina com isso na mao.',
+    semEspaco: 'Nao cabe mais nada na mochila.',
+  },
+})
+game.adega = adegaUI
+
+/**
+ * Chamado quando um item e PEGO no mundo (hoje so o revolver, no beco): guarda
+ * na primeira vaga livre e ja poe na mao.
+ *
+ * Devolve a vaga, ou -1 quando a mochila esta cheia — e nesse caso NADA
+ * aconteceu (garantia do inventario), entao quem chamou pode deixar o item no
+ * chao. E a mesma ordem da loja: conferir a vaga antes de entregar.
+ */
+game.pegouItem = (id, qtd) => {
+  const i = inventario.adicionar(id, Math.max(1, qtd | 0) || 1)
+  if (i < 0) {
+    hud.negarMochila()
+    hud.toast('A mochila esta cheia.')
+    return -1
+  }
+  hud.piscarVaga(i)
+  selecionarVaga(i)
+  return i
 }
 
 // Occluders da camera: caixas COM altura, so do que realmente tapa a visao.
@@ -547,7 +830,9 @@ cenarios.fecharGravacao()
 // na altura da calcada da outra cidade, e o ciclo dia/noite acenderia postes
 // que nao estao mais em cena.
 const regCidade = cenarios.registroDe('cidade')
-regCidade.groundY = (city && typeof city.groundY === 'function') ? city.groundY : (() => 0)
+// O chao da cidade e o de systems/pisos.js (ver a nota la em cima): e por aqui
+// que ele chega no controller, porque quem instala o amostrador e o cenario.
+regCidade.groundY = (city && typeof city.groundY === 'function') ? chaoComAndares : (() => 0)
 regCidade.luzes = (city && city.lampLights) || []
 regCidade.materiaisLuz = (city && city.lampMaterials) || []
 // `teleportar: false`: o jogo ainda esta no menu, e mandar o jogador pro spawn
@@ -597,7 +882,7 @@ function startPreview(focus) {
   hud.setJogando(false)
   hud.setCrosshair(false)
   hud.setPrompt(null)
-  hotbar.mostrar(false)
+  mostrarItens(false)
   // O tutorial tem raiz DOM propria (nao esta dentro do #hud), entao o
   // setJogando nao o alcanca: sem esta linha o cartao de objetivo fica por
   // cima do boneco que a pessoa esta customizando.
@@ -614,7 +899,7 @@ function stopPreview() {
   // comecarPartida, que o mantem escondido.
   if (estado === 'jogo') {
     hud.setJogando(true)
-    hotbar.mostrar(true)
+    mostrarItens(true)
     tutorial.mostrar(true)
     try { input.requestLock() } catch (err) { void err }
   }
@@ -712,14 +997,37 @@ const save = criarSave({
   lerHora: () => +lighting.timeOfDay.toFixed(4),
   escreverHora: (h) => lighting.setTimeOfDay(Number(h) || 0),
   lerItens: () => (revolver && revolver.pego ? ['revolver'] : []),
+  // ITENS e INVENTARIO agora contam a MESMA historia sobre o revolver, e por
+  // isso os dois se conferem: `itens` diz que a arma ja foi achada (pra ela nao
+  // reaparecer no beco), e a mochila diz em qual vaga ela esta. Antes nao havia
+  // conflito possivel — a arma morava num slot reservado da barra, fora da
+  // mochila —, e agora ha.
+  //
+  // A regra e: quem foi achado tem que existir numa vaga, uma vez so.
+  //  * save NOVO: a mochila ja traz a arma; o add aqui e desfeito pelo aplicar()
+  //    logo abaixo (que limpa tudo antes de escrever) e nada duplica.
+  //  * save ANTIGO: a mochila salva nao tem a arma (naquela epoca ela nao era um
+  //    item de mochila). Sem a repescagem no escreverInventario, carregar um
+  //    save antigo faria o jogador PERDER o revolver — achado, invisivel no beco
+  //    e em vaga nenhuma.
+  //  * save sem bloco de inventario: escreverInventario nem e chamado (ver
+  //    save.js), e o add daqui e o unico que roda. Por isso ele fica aqui, e nao
+  //    la.
+  //
+  // NAO seleciona a vaga: carregar um jogo nao pode sacar uma arma na mao de
+  // quem acabou de chegar.
   escreverItens: (l) => {
-    if (Array.isArray(l) && l.indexOf('revolver') >= 0 && revolver && revolver.marcarPego) {
-      revolver.marcarPego()
-      game.pegouItem('revolver')
-    }
+    if (!Array.isArray(l) || l.indexOf('revolver') < 0) return
+    if (revolver && revolver.marcarPego) revolver.marcarPego()
+    if (inventario.quantidade('revolver') === 0) inventario.adicionar('revolver', 1)
   },
   lerInventario: () => inventario.serializar(),
-  escreverInventario: (d) => inventario.aplicar(d),
+  escreverInventario: (d) => {
+    inventario.aplicar(d)
+    if (revolver && revolver.pego && inventario.quantidade('revolver') === 0) {
+      inventario.adicionar('revolver', 1)
+    }
+  },
   lerEncaixes: () => encaixe.serializar(),
   escreverEncaixes: (l) => encaixe.aplicar(l),
 })
@@ -751,7 +1059,7 @@ const saveUI = criarSaveUI({
     estado = 'jogo'
     hud.setJogando(true)
     hud.showHelp(true)
-    hotbar.mostrar(true)
+    mostrarItens(true)
     tutorial.mostrar(true)
     save.carregar(i)
     hud.toast('Jogo carregado: ' + (dados.nome || 'sem nome'))
@@ -912,7 +1220,7 @@ function abrirCriacao() {
   estado = 'criacao'
   hud.setJogando(false)
   hud.showHelp(false)
-  hotbar.mostrar(false)
+  mostrarItens(false)
   startPreview('corpo')
   criacao.abrir({
     modo: modoDeJogo,
@@ -1005,7 +1313,7 @@ function montarCutscene(elenco) {
     estado = 'jogo'
     hud.setJogando(true)
     hud.showHelp(true)
-    hotbar.mostrar(true)
+    mostrarItens(true)
     // Nasce no MEU lugar da fila, que e o mesmo em que o boneco da cutscene
     // acabou de estar (a conta e uma so, filaDaCasa em world/layout.js). Sem
     // isto os quatro nasciam empilhados no centro da porta.
@@ -1061,6 +1369,7 @@ function aoEstadoDaSala() {
 function uiAberta() {
   return customizer.isOpen() || palcoAtivo
     || (cassinoUI && cassinoUI.aberto) || (lojaUI && lojaUI.aberto)
+    || (mercadoUI && mercadoUI.aberto) || (autoUI && autoUI.aberto)
     || (saveUI && saveUI.aberto)
     || (menu && menu.aberto) || (criacao && criacao.aberto)
 }
@@ -1068,7 +1377,7 @@ function uiAberta() {
 menu.abrir('principal')
 hud.setJogando(false)
 hud.showHelp(false)
-hotbar.mostrar(false)
+mostrarItens(false)
 
 /* Atalhos do FLUXO pra ferramenta de foto, pro teste de fumaca e pro console.
    Nao ha caminho de UI que chame isto: o jogador passa pelos botoes do menu. */
@@ -1098,7 +1407,7 @@ game.fluxo = {
     modoFoto = false
     hud.setJogando(true)
     hud.showHelp(true)
-    hotbar.mostrar(true)
+    mostrarItens(true)
     player.teleport(2, 9, 0)
     tutorial.definir(MISSOES_INICIAIS)
     tutorial.mostrar(true)
@@ -1275,8 +1584,11 @@ function frame() {
   }
   // trocar de item no meio de uma mao de blackjack sacaria o revolver na mesa
   if (!uiAberta()) {
-    if (input.wasPressed('Digit1')) hotbar.selecionar(0)
-    if (input.wasPressed('Digit2')) hotbar.selecionar(1)
+    // 1 a 9: as nove vagas da barra. O laco vai ate inventario.vagas e nao ate
+    // 9 cravado porque a mochila ja avisou que um dia nove vira outro numero.
+    for (let d = 0; d < Math.min(9, inventario.vagas); d++) {
+      if (input.wasPressed('Digit' + (d + 1))) selecionarVaga(d)
+    }
   }
 
   // Com o palco aberto o jogador NAO anda: quem esta escolhendo uma camisa nao
@@ -1298,8 +1610,8 @@ function frame() {
     encaixeComeu = encaixe.atualizar(dt, input)
     if (encaixe.ativo) {
       // Confirmar e o botao esquerdo. O revolver so escuta o mouse quando esta
-      // equipado, e a vaga da mochila ja troca a hotbar pra Maos ao entrar
-      // neste modo — entao aqui o clique nao dispara tiro.
+      // equipado, e selecionar uma vaga de MOVEL desequipa a arma e esvazia a
+      // mao (ver aplicarVaga) — entao aqui o clique nao dispara tiro.
       if (input.wasPressed('Mouse0')) encaixe.confirmar()
       if (input.wasPressed('Escape')) { encaixe.sair(); pintarMochila() }
     }
@@ -1345,6 +1657,27 @@ function frame() {
     }
   }
 
+  // --- O BOTAO ESQUERDO COM COPO NA MAO -----------------------------------
+  //
+  // Um botao so faz o ciclo inteiro (ver player/copo.js): copo vazio ESTICA a
+  // mao, copo cheio vai a BOCA, e quando zera volta a esticar. Enquanto ha copo
+  // na mao o revolver esta guardado (aplicarVaga desequipa), entao o clique nao
+  // disputa com o tiro.
+  //
+  // Sem copo na mao, o mesmo clique ABRE E FECHA A TORNEIRA que estiver na mira
+  // — foi o pedido ("com o mouse ou a letra E"), e a tecla E continua fazendo o
+  // mesmo pelo ponto de interacao normal.
+  if (!uiAberta() && !encaixeComeu && !encaixe.ativo && !veiculos.dirigindo) {
+    if (input.wasPressed('Mouse0')) {
+      if (copo.segurando) {
+        copo.usar()
+      } else {
+        const alvo = interaction.current
+        if (alvo && /^adega-torneira/.test(alvo.id)) interaction.trigger(game)
+      }
+    }
+  }
+
   // ---- online ----
   rede.atualizar(dt)
   avatares.sincronizar(rede.jogadores, rede.meuId, dt)
@@ -1369,6 +1702,20 @@ function frame() {
   // do personagem e do prompt do HUD — e quem escreve por ultimo e quem manda.
   veiculos.atualizar(dt)
   revolver.atualizar(dt)
+  // DEPOIS do revolver e DEPOIS do player.update: a pose da mao e montada a
+  // partir da matriz da camera deste quadro, e a camera so esta no lugar final
+  // depois que o controller andou.
+  mao.atualizar(dt)
+  // DEPOIS da mao, e pela mesma razao que ela vem depois do revolver: as tres
+  // disputam a mesma tela e a pose sai da matriz da camera JA no lugar final.
+  copo.atualizar(dt)
+  // O BRACO DIREITO DO BONECO sabe que tem coisa na mao. So aparece em 3a
+  // pessoa, e e o que impede o personagem de correr bombeando os dois bracos
+  // com uma garrafa de um litro presa na mao (ver poseSegurando em
+  // player/animation.js). Vale pro revolver pela mesma razao.
+  if (player.animator && typeof player.animator.segurarNaDireita === 'function') {
+    player.animator.segurarNaDireita(mao.segurando || copo.segurando || revolver.equipado)
+  }
   clima.atualizar(dt, player.position)
   // A neve acumulada segue a cobertura que o clima calculou neste quadro: quem
   // decide quanto ja caiu e o clima, quem desenha o resultado e a neve.
@@ -1376,7 +1723,11 @@ function frame() {
   neve.atualizar(dt)
   if (cassinoUI && typeof cassinoUI.atualizar === 'function') cassinoUI.atualizar(dt)
   if (lojaUI && typeof lojaUI.atualizar === 'function') lojaUI.atualizar(dt)
+  if (mercadoUI && typeof mercadoUI.atualizar === 'function') mercadoUI.atualizar(dt)
+  if (adegaUI && typeof adegaUI.atualizar === 'function') adegaUI.atualizar(dt)
+  if (autoUI && typeof autoUI.atualizar === 'function') autoUI.atualizar(dt)
   dialogo.atualizar(player.position)
+  legenda.atualizar(dt)
 
   // DEPOIS de todo mundo escrever nas suas "luzes": o pool escolhe as duas mais
   // fortes do quadro e copia pras duas PointLight reais. Tem que ser aqui, no

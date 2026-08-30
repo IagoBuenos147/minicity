@@ -69,6 +69,11 @@ export function createInput(dom) {
   document.addEventListener('mouseup', onMouseUp)
   document.addEventListener('pointerlockchange', onLockChange)
 
+  let insistencia = null
+  function pararInsistencia() {
+    if (insistencia) { clearTimeout(insistencia); insistencia = null }
+  }
+
   return {
     isDown: (code) => enabled && down.has(code),
     wasPressed: (code) => enabled && pressed.has(code),
@@ -80,10 +85,42 @@ export function createInput(dom) {
       return enabled ? d : { dx: 0, dy: 0 }
     },
     isLocked: () => locked,
-    requestLock() {
-      if (!locked && dom.requestPointerLock) dom.requestPointerLock()
+
+    /**
+     * Pede o mouse de volta. Com `insistir`, tenta de novo por ate 2 segundos.
+     *
+     * O RETRY NAO E PARANOIA, E O UNICO JEITO DE FUNCIONAR DEPOIS DO ESC. O
+     * Chrome impoe um periodo de carencia de mais ou menos 1,25 s a cada
+     * pointer lock que o USUARIO desfez apertando Esc: qualquer
+     * requestPointerLock nesse intervalo e ignorado em silencio (o evento que
+     * chega e `pointerlockerror`, nao um throw). Entao a janela de loja que
+     * fecha no Esc e pede o mouse na mesma hora nao recebe nada, e o jogador
+     * fica preso com o cursor solto ate clicar na tela — que foi exatamente a
+     * queixa do dono.
+     *
+     * Fechar no X ou no veu e clique, e nesse caso o pedido passa de primeira;
+     * a insistencia so entra em acao no caso do Esc.
+     */
+    requestLock(insistir) {
+      pararInsistencia()
+      if (locked || !dom.requestPointerLock) return
+      try { dom.requestPointerLock() } catch (err) { void err }
+      if (!insistir) return
+      const ate = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 2000
+      const tentar = () => {
+        insistencia = null
+        const agora = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+        if (locked || agora > ate) return
+        try { dom.requestPointerLock() } catch (err) { void err }
+        insistencia = setTimeout(tentar, 180)
+      }
+      insistencia = setTimeout(tentar, 180)
     },
+
+    /** Solta o mouse. CANCELA a insistencia: quem abre uma janela por cima nao
+     *  pode ter o mouse roubado de volta pelo retry da janela anterior. */
     exitLock() {
+      pararInsistencia()
       if (locked && document.exitPointerLock) document.exitPointerLock()
     },
     setEnabled(v) { enabled = v; if (!v) down.clear() },

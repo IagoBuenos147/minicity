@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import {
   solid, stdMat, glass, box, cyl, sphere, roundedBox, woodTex, tex, textPlaneMat,
 } from '../world/materials.js'
+import { BEBIDAS } from './bebidas.js'
 
 // ---------------------------------------------------------------------------
 // src/mobilia/catalogo.js — o que a loja de jogos vende e o que entra na casa.
@@ -172,63 +173,259 @@ function mesaDeSinuca(comp, larg, corPano, gasto) {
   return g
 }
 
-/** BARALHO: a caixa com a medida real de um baralho de poker. */
-function baralho(corCaixa, marca, lacre) {
+/**
+ * O NAIPE DE ESPADAS, como Shape 2D — a marca da casa.
+ *
+ * Desenhado e nao texturizado por dois motivos. Primeiro, coerencia: o jogo
+ * inteiro e geometria procedural, e um simbolo em canvas ficaria borrado no
+ * unico lugar em que o jogador chega perto (a caixa de baralho tem 6 cm). E
+ * segundo, JURIDICO: baralho de verdade e a parte do jogo em que copiar sem
+ * pensar e mais tentador, e um naipe desenhado do zero nao carrega marca,
+ * fonte nem arte de ninguem. Naipe e simbolo de dominio publico; o desenho ao
+ * redor dele e que costuma ser de alguem.
+ *
+ * O contorno vive em [-1, 1] nos dois eixos pra quem chama so escalar.
+ */
+function shapeEspadas() {
+  const s = new THREE.Shape()
+  s.moveTo(0, 1.0)
+  s.bezierCurveTo(-0.42, 0.44, -1.0, 0.26, -1.0, -0.14)
+  s.bezierCurveTo(-1.0, -0.50, -0.66, -0.66, -0.34, -0.48)
+  s.bezierCurveTo(-0.18, -0.39, -0.12, -0.52, -0.16, -0.66)
+  s.bezierCurveTo(-0.22, -0.84, -0.34, -0.94, -0.44, -1.0)
+  s.lineTo(0.44, -1.0)
+  s.bezierCurveTo(0.34, -0.94, 0.22, -0.84, 0.16, -0.66)
+  s.bezierCurveTo(0.12, -0.52, 0.18, -0.39, 0.34, -0.48)
+  s.bezierCurveTo(0.66, -0.66, 1.0, -0.50, 1.0, -0.14)
+  s.bezierCurveTo(1.0, 0.26, 0.42, 0.44, 0, 1.0)
+  return s
+}
+
+/** Um naipe de espadas em relevo, com `alt` metros de altura total. */
+function espadas(mat, alt, prof) {
+  const geo = new THREE.ExtrudeGeometry(shapeEspadas(), {
+    depth: prof, bevelEnabled: false, curveSegments: 8,
+  })
+  // O Shape mede 2 de altura; escalar por alt/2 poe a peca na medida pedida.
+  geo.scale(alt / 2, alt / 2, 1)
+  const m = new THREE.Mesh(geo, mat)
+  m.castShadow = false
+  return m
+}
+
+/**
+ * BARALHO: a caixa, com a medida real de um baralho de poker.
+ *
+ * SEM UMA LETRA. A versao anterior estampava uma marca inventada em canvas
+ * ("BEIRA", "NAIPE", "ESTRELA") e o dono pediu pra tirar — texto num baralho e
+ * onde mora o risco de direito autoral, e uma marca inventada nao resolve:
+ * quem olha compara com a caixa que conhece. O que ficou e so simbolo:
+ *
+ *   - o naipe de espadas grande no meio,
+ *   - uma moldura dupla de filete, que e o "algo a mais" que faz a caixa ler
+ *     como produto e nao como um bloco pintado,
+ *   - quatro espadinhas nos cantos, dentro da moldura.
+ */
+function baralho(corCaixa, lacre) {
   const g = new THREE.Group()
   const w = 0.064, h = 0.089, d = 0.019
-  g.add(box(w, h, d, solid(corCaixa, 0.7), 0, h / 2, 0))
+  const papelM = solid(corCaixa, 0.7)
+  const filete = solid(0xf0e4c4, 0.55, 0.10)
+
+  g.add(box(w, h, d, papelM, 0, h / 2, 0))
   // faixa da tampa
   g.add(box(w + 0.002, 0.016, d + 0.002, solid(corCaixa, 0.55, 0.15), 0, h - 0.012, 0))
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.82, h * 0.5), textPlaneMat(marca, {
-    w: 128, h: 96, color: '#f3e6c2', font: 'bold 34px "Trebuchet MS", sans-serif',
-    stroke: 'rgba(0,0,0,0.5)', emissiveIntensity: 0.06,
-  }))
-  face.position.set(0, h * 0.52, d / 2 + 0.001)
-  face.castShadow = false
-  g.add(face)
-  if (lacre) {
-    const l = box(w + 0.003, 0.004, d + 0.003, M.latao, 0, h * 0.62, 0)
-    g.add(l)
+
+  const zf = d / 2 + 0.0004        // a face da frente, com folga anti z-fighting
+  // A MOLDURA SAO DUAS CHAPAS, e nao oito filetes.
+  //
+  // A primeira versao montava cada moldura com quatro barras (duas molduras =
+  // oito malhas) e ainda punha uma espadinha em cada canto: quinze malhas numa
+  // caixa de 6 cm, e a ilha da loja tem DOZE dessas. Trezentas draw calls a mais
+  // num salao que ja tinha trezentas — o suficiente pra estourar o tempo de
+  // captura do render por software. Duas chapas sobrepostas dao a mesma leitura
+  // de moldura por duas malhas: a de fora e o filete, a de dentro devolve a cor
+  // do papel no miolo.
+  g.add(box(w - 0.008, h - 0.010, 0.0008, filete, 0, h / 2, zf))
+  g.add(box(w - 0.016, h - 0.018, 0.0008, papelM, 0, h / 2, zf + 0.0004))
+  // o naipe grande, no meio
+  const e = espadas(filete, 0.034, 0.0008)
+  e.position.set(0, h / 2, zf + 0.0008)
+  g.add(e)
+  if (lacre) g.add(box(w + 0.003, 0.004, d + 0.003, M.latao, 0, h * 0.62, 0))
+  return g
+}
+
+/**
+ * UMA CARTA SOLTA, virada pra cima — o "por dentro" do baralho.
+ *
+ * O dono mandou um As de espadas de referencia e pediu "sem as legendas, apenas
+ * o naipe e as laterais". Entao a carta tem exatamente tres coisas: o naipe
+ * grande no meio, dois naipinhos nos cantos opostos (as "laterais", que e o que
+ * faz um retangulo branco ler como CARTA e nao como papel) e a borda.
+ *
+ * Nenhuma letra, nenhum nome de fabricante, nenhuma figura no meio do simbolo —
+ * a arte dentro do naipe e justamente a parte autoral de um baralho comercial.
+ */
+function cartaEspadas() {
+  const g = new THREE.Group()
+  const w = 0.063, h = 0.088
+  const branco = solid(0xf4f1e8, 0.72)
+  const preto = solid(0x14151a, 0.6)
+
+  const carta = box(w, 0.0008, h, branco, 0, 0, 0)
+  carta.castShadow = false
+  carta.receiveShadow = true
+  g.add(carta)
+
+  // deitada: a carta esta no plano XZ, entao o naipe (que nasce em XY) precisa
+  // rodar -90 graus em X pra ficar de barriga pra cima
+  const meio = espadas(preto, 0.040, 0.0004)
+  meio.rotation.x = -Math.PI / 2
+  meio.position.set(0, 0.0006, 0)
+  g.add(meio)
+  for (const s of [-1, 1]) {
+    const p = espadas(preto, 0.011, 0.0003)
+    p.rotation.x = -Math.PI / 2
+    p.rotation.z = s < 0 ? Math.PI : 0   // o canto de baixo vem de cabeca pra baixo
+    p.position.set(s * (w / 2 - 0.008), 0.0006, s * (h / 2 - 0.010))
+    g.add(p)
   }
   return g
 }
 
-/** MALETA DE FICHAS, tampa aberta, com as fichas dentro num InstancedMesh. */
+/**
+ * MALETA DE FICHAS, tampa aberta.
+ *
+ * REFEITA PELA FOTO que o dono mandou, e o que mudou nao foi detalhe: foi a
+ * ARRUMACAO. A versao anterior espalhava as fichas em tres colunas com jitter,
+ * e o resultado lia como caixa DERRUBADA. Maleta de poker e o oposto disso — o
+ * que faz ela ser reconhecida e a ordem:
+ *
+ *   - as fichas vem em CANUDOS verticais lado a lado, uma cor por canudo, cada
+ *     um no seu berco escavado na espuma;
+ *   - no meio fica o compartimento central, mais raso, com a placa de valor, os
+ *     dados e o botao de dealer;
+ *   - a espuma da tampa e ALVEOLADA (a grade de furos da foto), e nao lisa.
+ *
+ * Nada disso e caro: os canudos sao instancias do mesmo cilindro e a espuma
+ * alveolada e um InstancedMesh de furos.
+ */
 function maletaDeFichas(nFichas, corpo, gasta) {
   const g = new THREE.Group()
   const w = 0.42, d = 0.29, h = 0.09
   const mat = gasta ? M.couro : M.aluminio
   g.add(roundedBox(w, h, d, 0.012, mat).translateY(h / 2))
+
+  // quinas e fechos de metal: e o que diz "maleta" antes de qualquer ficha
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      g.add(box(0.028, h - 0.01, 0.028, M.cromo, sx * (w / 2 - 0.010), h / 2, sz * (d / 2 - 0.010)))
+    }
+  }
+  for (const sx of [-1, 1]) g.add(box(0.036, 0.020, 0.012, M.cromo, sx * 0.10, h - 0.012, d / 2 + 0.004))
+  // alca dobrada pra frente, na aresta de baixo
+  const alca = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.005, 6, 14, Math.PI), M.cromo)
+  alca.rotation.set(Math.PI / 2, 0, 0)
+  alca.position.set(0, 0.012, d / 2 + 0.012)
+  g.add(alca)
+
   // tampa aberta ~100 graus, com pivo na dobradica de tras
   const tampa = new THREE.Group()
   tampa.position.set(0, h, -d / 2)
   tampa.rotation.x = -1.75
   tampa.add(roundedBox(w, 0.05, d, 0.012, mat).translateY(0.025).translateZ(d / 2))
   tampa.add(box(w - 0.05, 0.008, d - 0.05, M.espuma, 0, 0.052, d / 2))
-  g.add(tampa)
-  // forro e bercos
-  g.add(box(w - 0.03, 0.012, d - 0.03, M.espuma, 0, h - 0.004, 0))
-  for (const s of [-1, 0, 1]) {
-    g.add(box(0.06, 0.014, d - 0.06, M.escuro, s * 0.115, h + 0.004, 0))
+  // ESPUMA ALVEOLADA: a grade de furos da foto. Sem ela a tampa e uma chapa
+  // preta e a maleta perde a metade de cima inteira.
+  const furoGeo = new THREE.CylinderGeometry(0.0075, 0.0075, 0.006, 6)
+  const furos = new THREE.InstancedMesh(furoGeo, solid(0x0b0d10, 1.0), 9 * 6)
+  const dm = new THREE.Object3D()
+  let f = 0
+  for (let i = 0; i < 9; i++) {
+    for (let j = 0; j < 6; j++) {
+      dm.position.set((i - 4) * 0.042, 0.054, d / 2 + (j - 2.5) * 0.042)
+      dm.updateMatrix()
+      furos.setMatrixAt(f++, dm.matrix)
+    }
   }
-  // as fichas: geometria do cassino, cor por instancia
-  const geo = new THREE.CylinderGeometry(0.0195, 0.0195, 0.0032, 14)
-  const inst = new THREE.InstancedMesh(geo, solid(0xffffff, 0.62), Math.max(1, nFichas))
+  furos.instanceMatrix.needsUpdate = true
+  furos.castShadow = false
+  tampa.add(furos)
+  g.add(tampa)
+
+  // forro da base
+  g.add(box(w - 0.03, 0.012, d - 0.03, M.espuma, 0, h - 0.004, 0))
+
+  // --- os canudos de ficha --------------------------------------------------
+  // Seis bercos, tres de cada lado do compartimento central. `nFichas` decide a
+  // ALTURA das pilhas, e nao o espalhamento: e assim que uma maleta de 300 se
+  // parece com uma de 200 na prateleira.
+  const R_FICHA = 0.0195
+  const E_FICHA = 0.0032
+  const CORES = [0xdfe2e6, 0x2a5fbf, 0xc0392b, 0xdfe2e6, 0x1c1c1c, 0x1e8449]
+  const XS = [-0.175, -0.132, -0.089, 0.089, 0.132, 0.175]
+  const porCanudo = Math.max(4, Math.min(26, Math.round(nFichas / XS.length)))
+
+  const inst = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(R_FICHA, R_FICHA, E_FICHA, 14),
+    solid(0xffffff, 0.62),
+    XS.length * porCanudo,
+  )
   const dummy = new THREE.Object3D()
   const cor = new THREE.Color()
-  const CORES = [0xf2f2f2, 0xc0392b, 0x2a5fbf, 0x1e8449, 0x1c1c1c]
-  for (let i = 0; i < nFichas; i++) {
-    const col = i % 3
-    const alt = Math.floor(i / 3) % 22
-    dummy.position.set((col - 1) * 0.115, h + 0.012 + alt * 0.0034, ((i % 7) - 3) * 0.028)
-    dummy.updateMatrix()
-    inst.setMatrixAt(i, dummy.matrix)
-    inst.setColorAt(i, cor.setHex(CORES[(col + alt) % CORES.length]))
+  let k = 0
+  for (let c = 0; c < XS.length; c++) {
+    for (let i = 0; i < porCanudo; i++) {
+      // 0.4 grau de giro por ficha: uma pilha perfeitamente alinhada le como um
+      // cilindro macico, e o que faz ela ler como PILHA e a serrilha do canto
+      dummy.position.set(XS[c], h + 0.010 + i * E_FICHA, 0)
+      dummy.rotation.set(0, i * 0.09, 0)
+      dummy.updateMatrix()
+      inst.setMatrixAt(k, dummy.matrix)
+      inst.setColorAt(k, cor.setHex(CORES[c]))
+      k++
+    }
   }
   inst.instanceMatrix.needsUpdate = true
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true
   inst.castShadow = false
   g.add(inst)
+  // o berco escavado: UMA canaleta por lado, e nao uma por canudo. Os tres
+  // canudos de cada lado sao vizinhos, entao a canaleta unica cobre os tres e
+  // custa um terco das malhas.
+  for (const s of [-1, 1]) {
+    g.add(box(0.115, 0.010, R_FICHA * 2.2 + 0.10, M.escuro, s * 0.132, h + 0.004, 0))
+  }
+
+  // --- o compartimento central ---------------------------------------------
+  g.add(box(0.150, 0.010, d - 0.06, M.escuro, 0, h + 0.004, 0))
+  // a placa de valor: chapa escura com a moldura de latao (sem numero — o
+  // numero da foto e serigrafia, e serigrafia e onde mora a marca)
+  g.add(box(0.072, 0.014, 0.046, solid(0x101318, 0.55), 0, h + 0.014, -0.052))
+  g.add(box(0.078, 0.004, 0.052, M.latao, 0, h + 0.022, -0.052))
+  // tres dados numa fileira (cinco era o da foto; tres leem igual e custam duas
+  // malhas a menos numa peca que a loja exibe em dobro)
+  for (let i = 0; i < 3; i++) {
+    const dado = roundedBox(0.014, 0.014, 0.014, 0.003, solid(0xb03a3a, 0.5))
+    dado.position.set((i - 1) * 0.020, h + 0.017, 0.002)
+    g.add(dado)
+  }
+  // o botao de dealer, deitado
+  const bt = cyl(0.026, 0.026, 0.006, solid(0xf0ece0, 0.6), 16)
+  bt.position.set(0, h + 0.013, 0.052)
+  g.add(bt)
+  // e dois baralhos deitados no fundo do compartimento. Sao BLOCOS LISOS de
+  // proposito, e nao baralho() de verdade: aqui eles tem 5 cm, ficam deitados
+  // dentro de uma maleta e o naipe em relevo nao apareceria de jeito nenhum —
+  // seria pagar dez malhas por peca pra desenhar o que ninguem ve.
+  for (const s of [-1, 1]) {
+    const c = box(0.055, 0.016, 0.078, solid(s < 0 ? 0x8c2f2a : 0x24406e, 0.7),
+      s * 0.040, h + 0.016, 0.048)
+    c.rotation.y = s < 0 ? -0.06 : 0.06
+    g.add(c)
+  }
+
   void corpo
   return g
 }
@@ -321,7 +518,33 @@ function jukebox() {
   return g
 }
 
-/** POTE DE FICHAS DE SINUCA: latao gasto num vidro, pro balcao da loja. */
+/**
+ * A FICHA DE SINUCA e de METAL BRUTO, e nao de latao.
+ *
+ * Pela foto que o dono mandou: sao pecas fundidas de zamac, cinza fosco, com
+ * duas ranhuras paralelas atravessando a face — o disco que cai na fenda da
+ * mesa de bar. O latao brilhante da versao anterior lia como moeda de cassino,
+ * que e outra peca inteiramente.
+ *
+ * O tom e fosco de proposito (roughness 0.55 e nao 0.2): metal fundido nao
+ * polido nao devolve reflexo, e e a AUSENCIA de brilho que separa a ficha de
+ * sinuca da ficha de poker no mesmo balcao.
+ */
+const MET_FICHA = { r: 0.0135, e: 0.0038 }
+function metalFicha() { return solid(0x9ea4a8, 0.55, 0.55) }
+
+/**
+ * As ranhuras. Elas nao podem ser furo de verdade (nao ha booleana aqui), entao
+ * sao duas barras ESCURAS deitadas 0.2 mm abaixo da face: na pratica a sombra
+ * que uma ranhura faria, que a 1 m de distancia e tudo que se ve dela.
+ */
+function ranhuras(g, y, sgn) {
+  for (const dz of [-0.0042, 0.0042]) {
+    g.add(box(MET_FICHA.r * 1.7, 0.0006, 0.0022, solid(0x4a4f52, 0.9), 0, y + sgn * 0.0001, dz))
+  }
+}
+
+/** POTE DE FICHAS DE SINUCA: um vidro cheio delas, pro balcao da loja. */
 function poteDeFichas() {
   const g = new THREE.Group()
   const vidro = cyl(0.10, 0.10, 0.22, glass(0xd8ecf2, 0.18), 14, true)
@@ -329,8 +552,10 @@ function poteDeFichas() {
   vidro.castShadow = false
   g.add(vidro)
   g.add(cyl(0.105, 0.105, 0.012, M.cromo, 14).translateY(0.006))
-  const geo = new THREE.CylinderGeometry(0.0125, 0.0125, 0.002, 12)
-  const inst = new THREE.InstancedMesh(geo, M.latao, 120)
+  // Dentro do pote elas sao instancias lisas: a ranhura tem 2 mm e some atras
+  // do vidro. Gastar geometria nela aqui seria pagar por um detalhe invisivel.
+  const geo = new THREE.CylinderGeometry(MET_FICHA.r, MET_FICHA.r, MET_FICHA.e, 12)
+  const inst = new THREE.InstancedMesh(geo, metalFicha(), 120)
   const dummy = new THREE.Object3D()
   for (let i = 0; i < 120; i++) {
     const a = i * 2.399
@@ -346,13 +571,22 @@ function poteDeFichas() {
   return g
 }
 
-/** UMA ficha de sinuca solta, pro card do inventario e pro fantasma. */
+/**
+ * UMA pilha de fichas solta, pro card do inventario e pro fantasma do encaixe.
+ *
+ * Aqui a ranhura EXISTE, ao contrario do pote: este e o unico lugar em que a
+ * ficha aparece grande na tela (o card do inventario fotografa a peca de perto),
+ * e sem ela o card mostra cinco moedas cinzas sem identidade nenhuma.
+ */
 function fichaSinuca() {
   const g = new THREE.Group()
-  const geo = new THREE.CylinderGeometry(0.0125, 0.0125, 0.002, 14)
+  const geo = new THREE.CylinderGeometry(MET_FICHA.r, MET_FICHA.r, MET_FICHA.e, 16)
+  const mat = metalFicha()
   for (let i = 0; i < 5; i++) {
-    const f = new THREE.Mesh(geo, M.latao)
-    f.position.set((i % 2) * 0.004, i * 0.0022, (i % 3) * 0.003)
+    const f = new THREE.Group()
+    f.add(new THREE.Mesh(geo, mat))
+    ranhuras(f, MET_FICHA.e / 2, 1)
+    f.position.set((i % 2) * 0.004, i * 0.0042, (i % 3) * 0.003)
     f.rotation.y = i * 0.5
     g.add(f)
   }
@@ -440,10 +674,50 @@ export const MOBILIA = [
   },
 ]
 
+// ---------------------------------------------------------------------------
+// O REGISTRO DE IDS — UM SO PRO JOGO INTEIRO
+//
+// MOBILIA e a PRATELEIRA DA LOJA DE JOGOS: e ela que vira card na vitrine do
+// Taco de Ouro. O registro abaixo e outra coisa — e a resposta pra "quem e o
+// item de id X?", e essa pergunta e feita por quem nao sabe onde a coisa foi
+// comprada: o inventario (quantos cabem numa vaga), a mochila do HUD (a foto e
+// o nome), o encaixe (a pegada no chao), o save (o que reconstruir).
+//
+// Por isso as BEBIDAS entram aqui e NAO em MOBILIA: elas sao vendidas no
+// mercado, com prateleira propria (BEBIDAS em mobilia/bebidas.js), e aparecer
+// na vitrine da loja de jogos seria simplesmente errado. Mas a lata comprada no
+// mercado vai pra MESMA mochila, entao itemDe('cerveja-lata') tem que
+// responder. Dois catalogos, um registro.
+// ---------------------------------------------------------------------------
 const POR_ID = new Map()
 for (const m of MOBILIA) POR_ID.set(m.id, m)
+for (const b of BEBIDAS) POR_ID.set(b.id, b)
 
 export function itemDe(id) { return POR_ID.get(id) || null }
+
+/**
+ * Registra um item que NAO nasce em nenhum dos dois catalogos.
+ *
+ * Existe por causa do revolver, e o revolver e o caso limite que prova a regra
+ * do registro: ele nao esta a venda em lugar nenhum (acha-se no beco), mas
+ * ocupa uma vaga da mochila como qualquer outra coisa — e a vaga precisa saber
+ * o nome dele, a foto dele e quantos empilham.
+ *
+ * Quem chama e o MAIN, passando a ficha que o proprio modulo do item exporta
+ * (armas/revolver.js). O caminho contrario — este arquivo importar o modelo da
+ * arma — poria uma dependencia de `mobilia` em `armas` por causa de uma
+ * miniatura, e mobilia nao tem nada com arma.
+ *
+ * Registrar duas vezes o mesmo id e no-op: main.js roda uma vez, mas o teste de
+ * fumaca reinicia o mundo.
+ */
+export function registrarItem(ficha) {
+  if (!ficha || typeof ficha.id !== 'string') return null
+  const antes = POR_ID.get(ficha.id)
+  if (antes) return antes
+  POR_ID.set(ficha.id, ficha)
+  return ficha
+}
 
 /** Quantas unidades cabem numa vaga. E o que o inventario pergunta. */
 export function limiteDe(id) {
@@ -460,4 +734,4 @@ export const CATEGORIAS = [
   { id: 'fichas', label: 'FICHAS' },
 ]
 
-export { poteDeFichas, mesaDeSinuca, jukebox, baralho, maletaDeFichas, ALT_MESA }
+export { poteDeFichas, mesaDeSinuca, jukebox, baralho, cartaEspadas, espadas, maletaDeFichas, ALT_MESA }

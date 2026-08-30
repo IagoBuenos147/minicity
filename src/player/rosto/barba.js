@@ -33,13 +33,17 @@ import {
 //     repartidos entre os 3 tons de peloMat: e a mistura de fio claro com fio
 //     escuro que da profundidade em vez de mancha chapada.
 //
-//   3 CHEIA                       TRES CAMADAS (manto + tufos + fios soltos).
+//   3 CHEIA                       MASSA PENTEADA + FRANJA NA BORDA.
 //     Barba cheia precisa de VOLUME, e volume feito so de fio passa de 40 mil
-//     triangulos. As tres camadas resolvem por partes: um MANTO parametrico
-//     amostrado direto de eggSurface (com furo de verdade na boca, ondulado por
-//     senoide pra nao ser liso), uma camada de TUFOS lofteados a mao (lobos
-//     achatados, distribuidos por PRNG deterministico) que da a massa, e os
-//     fios soltos so na silhueta, que e onde o olho procura pelo.
+//     triangulos. Sao tres camadas: um MANTO parametrico amostrado direto de
+//     eggSurface (com furo de verdade na boca, ondulado por senoide pra nao
+//     ser liso), uma camada de MECHAS lofteadas numa grade (todas caindo na
+//     MESMA direcao, com o comprimento saindo de uma tabela por azimute, que
+//     e o que faz a barba ter FORMA em vez de virar arbusto) e a FRANJA:
+//     muito fio CURTO e denso nas duas bordas. A primeira versao errava
+//     justamente nisso (fio comprido e espalhado, giro de mecha sorteado,
+//     comprimento so no sorteio) e o resultado foi recusado por causa dos
+//     pelos externos.
 //
 // Tudo ancorado em ALTURA ANATOMICA (a tabela do CONTRATO) convertida em theta
 // no cranio ativo — ver thetaEmY(). Nada de theta escrito na mao, nada de Z
@@ -480,9 +484,10 @@ export const BARBAS = [
       // raiz de cima: sobre ela ainda entram o sorteio (+0.002*S) e o RAIO DO
       // TUBO (0.0015*S), e os tres somados sao 3.7 mm. Com -0.036*S a
       // superficie do fio chegava a -0.0442, 2.4 mm ACIMA da base do nariz —
-      // dentro da caixa da narina de nariz.js (que vai de -0.0525 a -0.0419 e
-      // fura o plano subnasal de proposito), o que poe pelo cor de barba dentro
-      // do buraco do nariz visto de baixo. -0.0388*S poe o TOPO DO FIO em
+      // dentro da caixa onde ficava a narina (de -0.0525 a -0.0419), o que
+      // punha pelo cor de barba dentro do buraco do nariz visto de baixo. O
+      // catalogo de nariz nao existe mais, mas a folga fica: ela e o que separa
+      // o bigode do plano subnasal em qualquer cranio. -0.0388*S poe o TOPO DO FIO em
       // -0.0470, meio milimetro abaixo da linha, e ainda sobra 6 mm de
       // sobreposicao com a asa do nariz (que desce ate -0.040*S) — nada de vao
       // de pele entre o nariz e o bigode.
@@ -560,11 +565,33 @@ export const BARBAS = [
   },
 
   // -------------------------------------------------------------------------
-  // 3 CHEIA — manto + tufos + fios de silhueta.
+  // 3 CHEIA — manto + mechas PENTEADAS + franja densa. REFEITA DO ZERO.
+  //
+  // A primeira versao desta barba foi recusada com "os pelos externos e a arte
+  // ficaram horriveis", e o defeito nao era densidade nem cor — eram tres
+  // decisoes de construcao, todas da mesma familia:
+  //
+  //  1. OS FIOS DA SILHUETA ERAM POUCOS, COMPRIDOS E ESPALHADOS. 62 fios de ate
+  //     1.1 cm em 4.4 rad da UM FIO A CADA 4 GRAUS. Isso nao le como barba: le
+  //     como perna de inseto saindo da bochecha, cada uma contavel a olho nu.
+  //     Borda de barba e o contrario disso — MUITO fio CURTO, tao junto que o
+  //     olho para de contar e passa a ver contorno.
+  //  2. AS MECHAS ERAM SORTEADAS EM POSICAO E EM GIRO. `rnd() * Math.PI` no
+  //     giro da secao punha cada mecha num angulo proprio; com a secao
+  //     achatada, uma ficava deitada, a vizinha em pe, a seguinte na diagonal.
+  //     O resultado tem nome: escama. Barba de verdade e PENTEADA — todas as
+  //     mechas caem na mesma direcao e o que varia e o comprimento.
+  //  3. O COMPRIMENTO ERA SO SORTEIO. Sem uma tabela por azimute, o mesmo
+  //     sorteio valia na costeleta e no queixo, entao o contorno serrilhava em
+  //     alta frequencia e a barba nao tinha FORMA. Numa barba o comprimento
+  //     varia devagar ao longo do rosto: curto na costeleta, cheio no queixo.
+  //
+  // O manto continua (ele e o que resolve o furo da boca, e isso estava certo).
+  // Mechas e franja foram refeitas em cima de COMP(az) e de um penteado unico.
   // -------------------------------------------------------------------------
   {
     id: 'cheia', nome: 'Cheia', name: 'Cheia',
-    metodo: 'tres camadas: manto parametrico sobre eggSurface com furo na boca, tufos lofteados por PRNG e fios soltos so na silhueta',
+    metodo: 'manto parametrico com furo na boca + mechas PENTEADAS numa grade (giro travado na pele, comprimento por tabela de azimute) + franja densa e curta nas duas bordas',
     build(ctx) {
       useHead(ctx)
       const cor = beardColorFrom(ctx)
@@ -584,15 +611,21 @@ export const BARBAS = [
       ])
       const hiY = () => Math.PI
 
-      // FURO DA BOCA: lente em (az, theta) que fecha em az = +-0.42. O perfil e
-      // sqrt(1 - (a/azF)^2) e nao linear porque a boca e uma elipse deitada — a
-      // rampa linear da um losango e o canto do losango bate no canto do labio.
+      // FURO DA BOCA: lente em (az, theta) que fecha em az = +-AZ_FURO. O
+      // perfil e sqrt(1 - (a/azF)^2) e nao linear porque a boca e uma elipse
+      // deitada — a rampa linear da um losango e o canto do losango bate no
+      // canto do labio.
+      //
+      // A BOCA CRESCEU E O FURO TEVE QUE CRESCER JUNTO. As bocas novas
+      // (rosto/boca-extra.js) foram desenhadas pro rosto de olho grande: tem
+      // 8,5 cm de meia-largura e ate 2 cm de subida na ponta, contra os 4,7 cm
+      // e 3,6 cm de vao que valiam pras antigas. Com o furo velho esta barba
+      // fechava POR CIMA do sorriso — a boca simplesmente sumia debaixo dela.
+      const X_FURO = 0.086
       const thBoca = thetaEmY(Y_BOCA)
-      const thCima = thetaEmY(-0.066 * S)
-      const thBaixo = thetaEmY(-0.102 * S)
-      // meia largura do furo resolvida em METROS (1.15x a boca, pra sobrar uma
-      // beirada de labio) e so entao convertida em azimute
-      const AZ_FURO = azEmX(thBoca, X_BOCA * 1.15)
+      const thCima = thetaEmY(-0.054 * S)
+      const thBaixo = thetaEmY(-0.124 * S)
+      const AZ_FURO = azEmX(thBoca, X_FURO)
       const elipse = (az) => {
         const a = az < 0 ? -az : az
         if (a >= AZ_FURO) return 0
@@ -601,110 +634,182 @@ export const BARBAS = [
       const furoCima = (az) => thBoca - (thBoca - thCima) * elipse(az)
       const furoBaixo = (az) => thBoca + (thBaixo - thBoca) * elipse(az)
 
+      /**
+       * COMPRIMENTO RELATIVO DO PELO, POR AZIMUTE. A peca que faltava.
+       *
+       * Este e o DESENHO da barba. Ele multiplica o tamanho da mecha E o da
+       * franja, entao os dois concordam: cheio no queixo (1.0), afinando pela
+       * mandibula e virando quase raspado na costeleta (0.22). Uma barba em que
+       * o comprimento so vem do sorteio nao tem contorno nenhum — e o que fazia
+       * esta aqui parecer arbusto em vez de barba.
+       *
+       * A variacao e LENTA de proposito (byAz interpola com smoothstep): o
+       * serrilhado tem que vir do sorteio pequeno em cima disto, nunca da
+       * propria tabela.
+       */
+      const COMP = byAz([
+        [0.00, 1.00],   // queixo, o ponto mais cheio
+        [0.55, 0.95],
+        [1.05, 0.74],   // mandibula
+        [1.55, 0.48],
+        [2.00, 0.30],
+        [2.36, 0.22],   // costeleta
+      ])
+
       // --- camada 1: o manto (a sombra da barba na propria pele) -------------
       // Cor escurecida: esta camada nunca aparece sozinha, ela e o fundo que se
-      // ve ENTRE os tufos. Com a cor cheia o fundo compete com o volume e a
+      // ve ENTRE as mechas. Com a cor cheia o fundo compete com o volume e a
       // barba vira um bloco chapado.
       const maM = tecelagem()
       manto(maM, loY, hiY, furoCima, furoBaixo, {
         nA: 44, nT: 9, azMax: 2.40, fora: 0.0035, onda: 0.0016,
       })
       // SOLDAR: o manto tem vertices coincidentes de proposito — a faixa de
-      // cima colapsa contra a de baixo onde o furo da boca ja fechou (o `mA`
-      // igual ao `mB` de manto()), e as colunas do fim da barba colapsam
-      // inteiras. computeVertexNormals trata cada copia como um vertice
-      // separado e da a cada uma a media dos triangulos DELA: medido, ate 19
-      // graus de diferenca ao longo da linha da comissura (17 a 40 vertices por
-      // cranio) e normal NULA nas colunas colapsadas (44 a 64 vertices, que na
-      // tela sao pontos pretos). E o mesmo defeito da costura de Lathe que o
-      // CONTRATO §4 descreve — uma listra acesa atravessando a barba na altura
-      // da boca. tecelagem().geo() nao solda sozinha.
+      // cima colapsa contra a de baixo onde o furo da boca ja fechou, e as
+      // colunas do fim da barba colapsam inteiras. computeVertexNormals trata
+      // cada copia como um vertice separado e da a cada uma a media dos
+      // triangulos DELA, o que acende uma listra atravessando a barba na altura
+      // da boca e deixa normal NULA (ponto preto) nas colunas colapsadas.
+      // tecelagem().geo() nao solda sozinha.
       const geoManto = soldarNormais(maM.geo())
-      g.add(sh(new THREE.Mesh(geoManto, hairMat(shade(cor, 0.80)))))
+      g.add(sh(new THREE.Mesh(geoManto, hairMat(shade(cor, 0.78)))))
 
-      // --- camada 2: os tufos ------------------------------------------------
-      const maT = [tecelagem(), tecelagem()]
-      let plantados = 0
-      for (let tent = 0; tent < 1100 && plantados < 150; tent++) {
-        const az = (rnd() * 2 - 1) * 2.28
-        const t0 = loY(az)
-        if (t0 > Math.PI - 0.20) continue
-        // PI - 0.28 e o limite de baixo: nos ultimos 0.28 rad o raio da cabeca
-        // ja e menor que o raio do proprio tufo, entao o lobo envolve o polo e
-        // metade dele sai pelo outro lado (medido: vertices 1.3 cm pra dentro).
-        // Alem de invisivel — e a base do queixo, tapada pelo pescoco.
-        const theta = mix(t0, Math.PI - 0.28, Math.pow(rnd(), 0.85))
-        // densidade proporcional a area do anel: sem o sin(theta) o fundo do
-        // queixo (onde todos os azimutes se encontram) recebe tufo demais e
-        // vira um novelo embaixo da cabeca.
-        if (rnd() > clamp(Math.sin(theta) * 1.25, 0, 1)) continue
-        // margem de 0.055 rad (~1.3 cm) em volta do furo: o tufo tem raio e
-        // comprimento proprios, e um plantado na borda exata cresce por cima da
-        // boca. Perto do canto do furo, onde a elipse ja fechou, a margem
-        // sozinha e o que segura o pelo fora do labio.
-        if (theta > furoCima(az) - 0.055 && theta < furoBaixo(az) + 0.055
-          && xEmAz(theta, az) < X_BOCA * 1.25) continue
-        plantados++
-
-        pontoNaPele(theta, az, 0.0030, _p, _n)
+      /**
+       * O PENTEADO, NUM LUGAR SO. Toda mecha e todo fio de queixo desta barba
+       * sai daqui, e e por isso que ela tem uma direcao unica em vez de virar
+       * arbusto:
+       *
+       *   _p    ponto da pele                _n    normal
+       *   _tg   descida PELA PELE            _lat  lateral (n x tg)
+       *   _dir  crescimento = quase toda descida + um tanto de normal
+       *
+       * `abre` e o unico grau de liberdade: 0 = mecha colada no rosto, 1 =
+       * mecha solta. Ela cresce com a distancia da linha da bochecha, que e
+       * como barba real se comporta — presa em cima, solta embaixo.
+       */
+      const pentear = (theta, az, fora, abre, desvio) => {
+        pontoNaPele(theta, az, fora, _p, _n)
         descidaNaPele(theta, az, _tg)
         _lat.crossVectors(_n, _tg).normalize()
-        // DEITADO na pele (tg quase igual a n), nao espetado. Com 0.78 de normal
-        // contra 0.36 de descida — o que estava aqui — cada tufo virava um cone
-        // apontando pra camera e a barba lia como pinha. Mecha de barba encosta
-        // no rosto e so a ponta levanta.
-        _dir.copy(_n).multiplyScalar(0.62).addScaledVector(_tg, 0.60)
-          .addScaledVector(_lat, (rnd() - 0.5) * 0.26).normalize()
-        // verga: a ponta cai mais que a base (gravidade).
-        _alvo.copy(_tg).multiplyScalar((0.0035 + 0.0045 * rnd()) * S)
-        // curto e gordo, com muita variacao de tamanho: tufos do mesmo tamanho
-        // viram escama. O raio passa do comprimento em metade deles de
-        // proposito — e o que faz um se fundir no vizinho em vez de contar.
-        const comp = (0.0055 + 0.0075 * rnd()) * S
-        tufo(
-          maT[rnd() < 0.55 ? 0 : 1], _p, _dir, _lat,
-          comp, (0.0050 + 0.0034 * rnd()) * S,
-          0.36 + 0.26 * rnd(), rnd() * Math.PI, _alvo,
-        )
+        _dir.copy(_tg).multiplyScalar(0.88)
+          .addScaledVector(_n, 0.34 + 0.40 * abre)
+          .addScaledVector(_lat, desvio)
+          .normalize()
+      }
+
+      // --- camada 2: as mechas -----------------------------------------------
+      // GRADE, nao sorteio de posicao. Sorteio puro em 150 amostras deixa
+      // buraco de 2 cm de um lado e aglomerado do outro (e so a variancia de
+      // Poisson), e buraco em barba cheia le como falha de pele. A grade
+      // garante a cobertura e o jitter dentro da celula devolve a
+      // irregularidade — mesma aparencia, sem o defeito.
+      const maT = [tecelagem(), tecelagem()]
+      const N_AZ = 27, N_T = 6
+      for (let ja = 0; ja < N_AZ; ja++) {
+        const azBase = -2.30 + (4.60 * (ja + 0.5)) / N_AZ
+        for (let jt = 0; jt < N_T; jt++) {
+          const az = azBase + (rnd() - 0.5) * (4.60 / N_AZ) * 0.9
+          const t0 = loY(az)
+          if (t0 > Math.PI - 0.24) continue
+          // PI - 0.26 e o limite de baixo: nos ultimos 0.26 rad o raio da
+          // cabeca ja e menor que o raio da propria mecha, entao o lobo envolve
+          // o polo e metade dele sai pelo outro lado. Alem de invisivel — e a
+          // base do queixo, tapada pelo pescoco.
+          const u = (jt + 0.5 + (rnd() - 0.5) * 0.8) / N_T
+          const theta = mix(t0, Math.PI - 0.26, clamp(u, 0, 1))
+          // Margem em volta do furo: a mecha tem raio e comprimento proprios, e
+          // uma plantada na borda exata cresce por cima da boca.
+          //
+          // A MARGEM DE CIMA E TRES VEZES A DE BAIXO, e nao por simetria feia:
+          // toda mecha desta barba CAI (e o penteado). Uma plantada 5 cm acima
+          // do labio tem 2,2 cm de comprimento e vai parar exatamente em cima
+          // dele. 0.16 rad e o comprimento maximo dividido pelo raio da cabeca,
+          // que e a conta de quanto ela desce.
+          if (theta > furoCima(az) - 0.16 && theta < furoBaixo(az) + 0.055
+            && xEmAz(theta, az) < X_FURO * 1.10) continue
+
+          const k = COMP(az)
+          const solta = clamp((theta - t0) / Math.max(0.05, Math.PI - 0.26 - t0), 0, 1)
+          pentear(theta, az, 0.0028, solta, (rnd() - 0.5) * 0.13)
+
+          // verga: a ponta cai mais que a base (gravidade). Escala com o
+          // comprimento — mecha de costeleta nao tem peso pra vergar.
+          _alvo.copy(_tg).multiplyScalar((0.0020 + 0.0035 * rnd()) * S * k)
+          // COMPRIDA E ESTREITA, nao gorda e curta: 1.2 a 2.2 cm de mecha com
+          // uns 4 mm de largura. O raio passando do comprimento era o que fazia
+          // cada tufo virar bolinha e a barba inteira virar escama.
+          const comp = (0.0095 + 0.0090 * rnd()) * S * (0.45 + 0.55 * k)
+          const raio = (0.0034 + 0.0018 * rnd()) * S * (0.6 + 0.4 * k)
+          // GIRO TRAVADO PERTO DE ZERO. Com `lado` = _lat e a secao achatada em
+          // 0.42, o eixo curto da elipse cai na NORMAL — a mecha fica deitada
+          // contra a pele, que e o que mecha de barba faz. O sorteio de giro da
+          // versao anterior punha cada uma num angulo e o conjunto virava
+          // escama; o pouco de jitter que sobrou aqui e so pra elas nao ficarem
+          // paralelas demais.
+          tufo(
+            maT[rnd() < 0.55 ? 0 : 1], _p, _dir, _lat,
+            comp, raio, 0.42, (rnd() - 0.5) * 0.5, _alvo,
+          )
+        }
       }
       for (let i = 0; i < 2; i++) {
         if (!maT[i].vazia) g.add(pelo(new THREE.Mesh(maT[i].geo(), peloMat(cor, i))))
       }
 
-      // --- camada 3: os fios soltos da silhueta ------------------------------
-      // So na borda de cima (a linha da bochecha, que e onde a barba encontra a
-      // pele) e no fundo do queixo (que e o contorno visto de frente). Espalhar
-      // fio pelo meio da barba nao muda nada: eles somem entre os tufos e so
-      // custam triangulo.
+      // --- camada 3: a franja das bordas -------------------------------------
+      // MUITO fio CURTO, e nao poucos fios compridos. Este e o conserto
+      // principal: a borda antiga tinha 62 fios de ate 1.1 cm espalhados por
+      // 4.4 rad e cada um era contavel; aqui sao 3 fileiras de 62 colunas com 3
+      // a 6 mm, o que FECHA a borda num contorno em vez de deixar cerdas
+      // avulsas. Custa quase o mesmo triangulo: fio curto tem menos anel.
       const maF = [tecelagem(), tecelagem()]
-      for (let k = 0; k < 62; k++) {
-        const az = -2.20 + (4.40 * (k + 0.5)) / 62 + (rnd() - 0.5) * 0.05
-        const th0 = loY(az)
-        if (th0 > Math.PI - 0.20) continue
-        const theta = th0 + 0.016 + rnd() * 0.05
-        pontoNaPele(theta, az, 0.0022, _p, _n)
-        descidaNaPele(theta, az, _tg)
-        _lat.crossVectors(_n, _tg).normalize()
-        _dir.copy(_n).multiplyScalar(0.72).addScaledVector(_tg, -0.55)
-          .addScaledVector(_lat, (rnd() - 0.5) * 0.35).normalize()
-        _eixo.crossVectors(_dir, _n).normalize()
-        fio(maF[rnd() < 0.5 ? 0 : 1], _p, _dir, (0.0055 + 0.0055 * rnd()) * S, 0.0011 * S, _eixo, 0.40)
+      const COLS_B = 62, FILAS_B = 3
+      for (let c = 0; c < COLS_B; c++) {
+        const azC = -2.24 + (4.48 * (c + 0.5)) / COLS_B
+        const k = COMP(azC)
+        for (let f = 0; f < FILAS_B; f++) {
+          const az = azC + (rnd() - 0.5) * 0.045
+          const th0 = loY(az)
+          if (th0 > Math.PI - 0.20) continue
+          // as tres fileiras descem a partir da linha da bochecha; a de cima e
+          // a mais curta, e e ela que faz a barba "morrer" na pele em vez de
+          // terminar num degrau.
+          const theta = th0 + 0.010 + f * 0.030 + rnd() * 0.014
+          // na borda de cima o fio sobe um pouco (contra a descida): e o
+          // arrepio da linha da bochecha. -0.42 e metade do que era antes — com
+          // -0.55 o fio saia quase perpendicular a barba.
+          pontoNaPele(theta, az, 0.0020, _p, _n)
+          descidaNaPele(theta, az, _tg)
+          _lat.crossVectors(_n, _tg).normalize()
+          _dir.copy(_n).multiplyScalar(0.80)
+            .addScaledVector(_tg, -0.42 + 0.30 * (f / (FILAS_B - 1)))
+            .addScaledVector(_lat, (rnd() - 0.5) * 0.22)
+            .normalize()
+          _eixo.crossVectors(_dir, _n).normalize()
+          const comp = (0.0030 + 0.0026 * rnd()) * S * (0.5 + 0.5 * k)
+          fio(maF[rnd() < 0.5 ? 0 : 1], _p, _dir, comp, 0.00105 * S, _eixo, 0.30)
+        }
       }
-      for (let k = 0; k < 52; k++) {
-        const az = (rnd() * 2 - 1) * 1.75
-        const theta = mix(Math.PI - 0.62, Math.PI - 0.28, rnd())
-        pontoNaPele(theta, az, 0.0032, _p, _n)
-        descidaNaPele(theta, az, _tg)
-        _lat.crossVectors(_n, _tg).normalize()
-        // ponta do queixo: o fio segue a descida quase inteiro e a curva o
-        // dobra pra dentro, que e como barba comprida se fecha embaixo.
-        _dir.copy(_n).multiplyScalar(0.52).addScaledVector(_tg, 0.86)
-          .addScaledVector(_lat, (rnd() - 0.5) * 0.30).normalize()
-        _alvo.copy(_n).multiplyScalar(-1)
-        _eixo.crossVectors(_dir, _alvo)
-        if (_eixo.lengthSq() < 1e-9) _eixo.copy(_lat)
-        _eixo.normalize()
-        fio(maF[rnd() < 0.5 ? 0 : 1], _p, _dir, (0.0075 + 0.0080 * rnd()) * S, 0.0012 * S, _eixo, 0.55)
+      // Contorno de baixo: e ele que se ve de frente, recortado contra o peito.
+      // Tres fileiras densas seguindo a curva do queixo, todas descendo pelo
+      // MESMO penteado — nada de fio solo apontando pra fora.
+      const COLS_Q = 54, FILAS_Q = 3
+      for (let c = 0; c < COLS_Q; c++) {
+        const azC = -1.78 + (3.56 * (c + 0.5)) / COLS_Q
+        const k = COMP(azC)
+        for (let f = 0; f < FILAS_Q; f++) {
+          const az = azC + (rnd() - 0.5) * 0.05
+          const theta = Math.PI - 0.52 + f * 0.11 + (rnd() - 0.5) * 0.05
+          pentear(theta, az, 0.0030, 1, (rnd() - 0.5) * 0.20)
+          // a curva dobra a ponta PRA DENTRO, que e como barba comprida se
+          // fecha embaixo do queixo em vez de abrir em leque.
+          _alvo.copy(_n).multiplyScalar(-1)
+          _eixo.crossVectors(_dir, _alvo)
+          if (_eixo.lengthSq() < 1e-9) _eixo.copy(_lat)
+          _eixo.normalize()
+          const comp = (0.0042 + 0.0040 * rnd()) * S * (0.45 + 0.55 * k)
+          fio(maF[rnd() < 0.5 ? 0 : 1], _p, _dir, comp, 0.00115 * S, _eixo, 0.45)
+        }
       }
       if (!maF[0].vazia) g.add(pelo(new THREE.Mesh(maF[0].geo(), peloMat(cor, 2))))
       if (!maF[1].vazia) g.add(pelo(new THREE.Mesh(maF[1].geo(), peloMat(cor, 0))))

@@ -94,10 +94,35 @@ try {
     requestAnimationFrame(f)
   }))
 
+  // --- 0) O JOGO COMECA EM 1a PESSOA, E DE CORPO ESCONDIDO ------------------
+  //
+  // Este caso nasceu junto com a mudanca: a 1a pessoa deixou de ser um modo
+  // alternativo e virou a camera padrao. E o "corpo escondido" nao e detalhe —
+  // a camera nasce DENTRO de uma cabeca de 49 cm, entao com o boneco visivel o
+  // jogador olha pra baixo e ve o proprio tronco por dentro do cranio.
+  const inicio = await page.evaluate(() => ({
+    modo: window.__game.player.mode,
+    corpoVisivel: window.__game.character.isBodyVisible(),
+    rootVisivel: window.__game.character.root.visible,
+  }))
+  ok('o jogo comeca em 1a pessoa', inicio.modo === 'first', 'modo=' + inicio.modo)
+  ok('em 1a pessoa o boneco INTEIRO some (nao so a cabeca)',
+    inicio.corpoVisivel === false && inicio.rootVisivel === false,
+    'bodyVisible=' + inicio.corpoVisivel + ' root.visible=' + inicio.rootVisivel)
+
   // --- 1) uma volta inteira com o mouse, parado -------------------------------
   // A varredura sai daqui de FORA, um passo por chamada: um laco de 36 passos
   // dentro de um page.evaluate so estoura o protocolTimeout do puppeteer num
   // renderizador por software.
+  //
+  // A VOLTA E UM TESTE DE 3a PESSOA e por isso ela troca de modo primeiro. Em 1a
+  // pessoa o corpo acompanha a camera DE PROPOSITO (e o que todo FPS faz), entao
+  // medir "o corpo nao gira" ali seria medir a coisa errada — foi o que os dois
+  // casos acusaram quando a 1a pessoa virou o padrao.
+  await page.evaluate(async () => {
+    window.__game.player.setMode('third')
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+  })
   const PASSOS = 36                          // 10 graus por passo
   const corpo0 = await page.evaluate(() => window.__game.character.root.rotation.y)
   let maiorSalto = 0

@@ -1,7 +1,28 @@
-import { MOBILIA, CATEGORIAS, itemDe } from '../mobilia/catalogo.js'
+import { MOBILIA, CATEGORIAS } from '../mobilia/catalogo.js'
 
 // ---------------------------------------------------------------------------
-// src/ui/loja-ui.js — a vitrine da loja de jogos.
+// src/ui/loja-ui.js — UM HUD de loja, servindo mais de uma loja.
+//
+// Comecou como a vitrine do Taco de Ouro e hoje e generico: o CATALOGO, as
+// ABAS, o kicker, o titulo e ate as falas do balconista entram por parametro.
+// Chamado sem nada disso ele continua sendo, byte por byte, a loja de jogos —
+// os padroes sao MOBILIA, CATEGORIAS e as falas da Wanda. E por isso que
+// MOBILIA e CATEGORIAS ainda sao importados aqui: como PADRAO, nao como fonte.
+//
+// PARAMETRIZAR EM VEZ DE COPIAR O ARQUIVO. O mercado vende bebida e nao movel,
+// e a saida obvia era duplicar este modulo trocando o import do catalogo. Nao:
+// e a MESMA janela (mesmo vidro, mesma grade, mesmo carrinho), a MESMA regra de
+// compra e o mesmo esqueleto de foto. Duplicado, uma vaga contada errado ou um
+// total arredondado torto viraria dois bugs iguais em dois arquivos, e o
+// segundo so apareceria pro jogador semanas depois. Assim ha UM lugar pra
+// consertar, e a segunda loja ja nasce com todo conserto que a primeira levou.
+//
+// CADA INSTANCIA E FECHADA EM SI. O indice id -> item e montado a partir do
+// catalogo RECEBIDO; o itemDe() do catalogo de mobilia nao entra mais aqui,
+// senao a loja de bebidas iria perguntar o preco da cerveja pra tabela dos
+// moveis e receber null. Duas instancias convivem no DOM porque tudo neste
+// arquivo e classe (.mcrp-loja) e closure — o unico id que existe e o do
+// <style>, compartilhado de proposito: a folha e a mesma pras duas.
 //
 // A FORMA e a que o dono do projeto pediu: barra de titulo, abas de categoria,
 // grade de cards com foto e preco, um contador -/+ por item e um carrinho a
@@ -10,7 +31,8 @@ import { MOBILIA, CATEGORIAS, itemDe } from '../mobilia/catalogo.js'
 // A COR nao e nova. Cada valor daqui foi copiado de src/ui/cassino-ui.js: o
 // mesmo vidro escuro, a mesma borda dourada, a mesma faixa de neon correndo no
 // topo, o mesmo feltro. E o que impede a janela de parecer uma caixa de dialogo
-// do sistema colada por cima do jogo — ela e o cassino falando de sinuca.
+// do sistema colada por cima do jogo. Quem abre a segunda loja herda essa pele
+// de proposito: duas vitrines com cara diferente pareceriam dois jogos.
 //
 // A ORDEM DA COMPRA E INEGOCIAVEL, e e a mesma da aposta do cassino:
 //
@@ -23,6 +45,19 @@ import { MOBILIA, CATEGORIAS, itemDe } from '../mobilia/catalogo.js'
 // nasce desabilitado quando falta vaga: o aviso chega antes do clique, e o
 // clique so tem um caminho.
 // ---------------------------------------------------------------------------
+
+/**
+ * As falas do balconista, com o texto da Wanda como padrao. Sao TEXTO e nao
+ * codigo de proposito: quem abre uma loja nova troca as quatro frases e nao
+ * encosta na logica. `semEspaco` fica sem nome na frente porque tambem vai pro
+ * toast do HUD, que nao e lugar de personagem falando.
+ */
+const FALAS_PADRAO = {
+  abertura: 'Wanda: tudo aqui e de segunda mao, menos o preco.',
+  semOuro: 'Wanda: volta quando o cassino for generoso.',
+  comprou: 'Wanda: bom negocio. Cuida bem dela.',
+  semEspaco: 'Sem espaco no inventario.',
+}
 
 const CSS = `
 .mcrp-loja, .mcrp-loja * { box-sizing: border-box; }
@@ -193,6 +228,9 @@ const CSS = `
 .mcrp-loja .recado.ruim { color: #f2a2a2; }
 `
 
+// O sinalizador e de MODULO, nao de instancia: a segunda loja aproveita a folha
+// que a primeira ja pendurou. Duas <style> com as mesmas regras nao quebrariam
+// nada, mas seriam duas coisas pra manter iguais.
 let estiloPosto = false
 function injetarEstilo() {
   if (estiloPosto) return
@@ -221,8 +259,39 @@ function milhar(n) {
   return (n < 0 ? '-' : '') + out
 }
 
-export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
+export function criarLojaUI({
+  game, carteira, inventario, fotoDe,
+  catalogo = MOBILIA,        // array de itens { id, nome, cat, qualidade, preco, empilha, desc }
+  categorias = CATEGORIAS,   // array { id, label }, na ordem das abas
+  kicker = 'CASA DE JOGOS',
+  titulo = 'Taco de Ouro',
+  falas,                     // ver FALAS_PADRAO; campo ausente cai no padrao
+} = {}) {
   injetarEstilo()
+
+  // O INDICE E DA INSTANCIA. Antes o arquivo chamava itemDe() do catalogo de
+  // mobilia, o que amarrava a janela a UMA tabela; agora cada loja indexa o que
+  // recebeu. `empilha` (que vagasNecessarias le) sai daqui tambem, e por isso a
+  // conta de vagas vale igual pra garrafa e pra mesa de sinuca.
+  const porId = new Map()
+  for (const m of catalogo) porId.set(m.id, m)
+  /** O item pelo id, DENTRO desta loja. Nao ve o catalogo da loja vizinha. */
+  function itemDaLoja(id) { return porId.get(id) || null }
+
+  // So string troca a fala: assim `{ semEspaco: '' }` cala a frase de proposito,
+  // enquanto um campo ausente (ou undefined) volta pro texto da Wanda.
+  const fala = Object.assign({}, FALAS_PADRAO)
+  if (falas) {
+    for (const k of Object.keys(FALAS_PADRAO)) {
+      if (typeof falas[k] === 'string') fala[k] = falas[k]
+    }
+  }
+
+  // A aba inicial e a PRIMEIRA da lista, e nao a string 'tudo' cravada: uma loja
+  // pode nao ter aba "tudo" (o mercado so vende bebida, filtrar o que ja e tudo
+  // nao quer dizer nada). 'tudo' continua sendo o id que NAO filtra — quem quer
+  // a vitrine inteira poe essa aba na frente, como a loja de jogos poe.
+  const ABA_INICIAL = (categorias[0] && categorias[0].id) || 'tudo'
 
   const raiz = el('div', 'mcrp-loja')
   raiz.setAttribute('aria-hidden', 'true')
@@ -233,8 +302,8 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
 
   const topo = el('div', 'topo', painel)
   const quem = el('div', null, topo)
-  el('div', 'kicker', quem, 'CASA DE JOGOS')
-  el('h2', null, quem, 'Taco de Ouro')
+  el('div', 'kicker', quem, kicker)
+  el('h2', null, quem, titulo)
   const bolso = el('div', 'bolso', topo)
   const mMao = el('div', 'moeda', bolso)
   el('i', null, mMao, 'mao')
@@ -246,7 +315,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
 
   const abas = el('div', 'abas', painel)
   const botoesAba = new Map()
-  for (const c of CATEGORIAS) {
+  for (const c of categorias) {
     const b = el('button', 'aba', abas, c.label)
     b.addEventListener('click', () => { categoria = c.id; pintar() })
     botoesAba.set(c.id, b)
@@ -270,7 +339,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
   document.body.appendChild(raiz)
 
   let aberto = false
-  let categoria = 'tudo'
+  let categoria = ABA_INICIAL
   let selecionado = null
   const carrinho = new Map()          // id -> quantidade
   const cards = new Map()             // id -> { raiz, foto, esq, n }
@@ -285,7 +354,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
   function totalDoCarrinho() {
     let t = 0
     for (const [id, q] of carrinho) {
-      const m = itemDe(id)
+      const m = itemDaLoja(id)
       if (m) t += m.preco * q
     }
     return t
@@ -301,7 +370,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
     const copia = inventario.slots
     let usadas = 0
     for (const [id, q] of carrinho) {
-      const m = itemDe(id)
+      const m = itemDaLoja(id)
       if (!m) continue
       let falta = q
       for (let i = 0; i < copia.length && falta > 0; i++) {
@@ -330,7 +399,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
       el('div', 'vazio', linhas, 'Nada escolhido ainda.')
     } else {
       for (const [id, q] of carrinho) {
-        const m = itemDe(id)
+        const m = itemDaLoja(id)
         if (!m) continue
         const l = el('div', 'linha', linhas)
         el('span', null, l, q + 'x ' + m.nome)
@@ -403,7 +472,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
     grade.innerHTML = ''
     cards.clear()
     pendentes = []
-    for (const m of MOBILIA) {
+    for (const m of catalogo) {
       if (categoria !== 'tudo' && m.cat !== categoria) continue
       montarCard(m)
       pendentes.push(m.id)
@@ -443,24 +512,37 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
     if (!carrinho.size) return false
     // 1) cabe?
     if (vagasNecessarias() < 0) {
-      avisar('Sem espaco no inventario.', 'ruim')
-      if (game && game.hud) { game.hud.negarMochila(); game.hud.toast('Sem espaco no inventario.') }
+      avisar(fala.semEspaco, 'ruim')
+      if (game && game.hud) { game.hud.negarMochila(); game.hud.toast(fala.semEspaco) }
       return false
     }
     // 2) tem ouro?
     if (!carteira.gastarOuro(total)) {
-      avisar('Wanda: volta quando o cassino for generoso.', 'ruim')
+      avisar(fala.semOuro, 'ruim')
       return false
     }
     // 3) so agora o item existe
     let ultima = -1
+    let primeira = -1
+    let primeiroId = null
     for (const [id, q] of carrinho) {
       const i = inventario.adicionar(id, q)
-      if (i >= 0) ultima = i
+      if (i < 0) continue
+      ultima = i
+      if (primeira < 0) { primeira = i; primeiroId = id }
     }
     carrinho.clear()
     if (game && game.hud && ultima >= 0) game.hud.piscarVaga(ultima)
-    avisar('Wanda: bom negocio. Cuida bem dela.', 'bom')
+    // O QUE FOI COMPRADO JA VAI PRA MAO. A loja nao decide isso — ela avisa a
+    // vaga e o id, e quem sabe o que fazer com eles e o main (game.aoComprar):
+    // bebida vai pra mao, movel NAO, porque abrir o modo de encaixe atras de
+    // uma vitrine que continua aberta poria o fantasma da mesa numa tela que
+    // ninguem esta vendo. Este modulo nao pode ter essa regra: ele e o mesmo
+    // pras duas lojas justamente por nao saber o que vende.
+    if (primeira >= 0 && game && typeof game.aoComprar === 'function') {
+      game.aoComprar(primeira, primeiroId)
+    }
+    avisar(fala.comprou, 'bom')
     // Ponto de gravacao: gastar ouro e ganhar movel e a coisa que o jogador
     // menos quer perder por um F5.
     if (game && typeof game.salvarAgora === 'function') game.salvarAgora('compra')
@@ -472,6 +554,19 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
   btnX.addEventListener('click', () => api.fechar())
   veu.addEventListener('click', () => api.fechar())
 
+  /**
+   * O Escape COM DUAS LOJAS NA PAGINA. Nada mudou aqui e nao precisava mudar:
+   * `aoTeclar` e uma funcao NOVA por instancia (fecha sobre `aberto` e sobre a
+   * `api` desta loja), entao o addEventListener do abrir() e o remove do
+   * fechar() acertam sempre o listener da propria janela — a loja fechada nao
+   * some com o listener da aberta, que era o risco. Enquanto so uma esta aberta,
+   * so uma esta escutando; a guarda `!aberto` cobre a janela de um quadro entre
+   * o fechar() e o navegador parar de entregar a tecla.
+   *
+   * Se as duas ficarem abertas juntas, um Escape fecha as duas — e por isso
+   * quem chama nao deve abrir a segunda sem fechar a primeira. Impedir isso
+   * daqui exigiria as instancias se conhecerem, e loja nao e dona do jogo.
+   */
   function aoTeclar(e) {
     if (!aberto) return
     if (e.code === 'Escape') { e.preventDefault(); api.fechar() }
@@ -487,7 +582,7 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
     // um teste que precisa clicar num <button> testa o navegador, nao a loja.
     get total() { return totalDoCarrinho() },
     porNoCarrinho(id, qtd) {
-      const m = itemDe(id)
+      const m = itemDaLoja(id)
       if (!m) return false
       mudarQtd(id, Math.max(1, qtd | 0))
       return true
@@ -499,22 +594,27 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
     abrir(foco) {
       if (aberto) return
       aberto = true
-      selecionado = foco && itemDe(foco) ? foco : null
-      categoria = 'tudo'
+      selecionado = foco && itemDaLoja(foco) ? foco : null
+      categoria = ABA_INICIAL
       carrinho.clear()
       raiz.classList.add('on')
       raiz.setAttribute('aria-hidden', 'false')
       pintar()
       if (selecionado) {
-        const m = itemDe(selecionado)
+        const m = itemDaLoja(selecionado)
         avisar(m.desc)
         const c = cards.get(selecionado)
         if (c) c.raiz.scrollIntoView({ block: 'nearest' })
       } else {
-        avisar('Wanda: tudo aqui e de segunda mao, menos o preco.')
+        avisar(fala.abertura)
       }
       window.addEventListener('keydown', aoTeclar)
-      try { document.exitPointerLock() } catch (err) { void err }
+      // input.exitLock() e nao document.exitPointerLock(): so o do input cancela
+      // a insistencia de um fechamento anterior, que senao roubaria o mouse de
+      // volta no meio desta janela recem-aberta.
+      const inp = game && game.input
+      if (inp && typeof inp.exitLock === 'function') inp.exitLock()
+      else { try { document.exitPointerLock() } catch (err) { void err } }
       painel.focus()
     },
 
@@ -525,6 +625,20 @@ export function criarLojaUI({ game, carteira, inventario, fotoDe } = {}) {
       raiz.setAttribute('aria-hidden', 'true')
       carrinho.clear()
       window.removeEventListener('keydown', aoTeclar)
+      // FECHAR A LOJA E VOLTAR PRO JOGO SAO A MESMA ACAO.
+      //
+      // Antes daqui, fechar so escondia a janela: o mouse continuava solto e o
+      // jogador tinha que clicar na tela pra voltar a andar. O dono descreveu
+      // exatamente isso — "quando ele volta apertando esc ou fechando o menu da
+      // compra ele deveria ja voltar pro jogo, e nao pro mouse".
+      //
+      // O `true` liga a insistencia do input: fechando no Esc, o Chrome ignora
+      // o primeiro pedido por causa da carencia dele (ver core/input.js), e sem
+      // reenviar o pedido o mouse nunca voltava. `dispose()` tambem passa por
+      // aqui, e nesse caso pedir o mouse de volta e inofensivo: o jogo esta
+      // saindo de cena e ninguem esta olhando.
+      const inp = game && game.input
+      if (inp && typeof inp.requestLock === 'function') inp.requestLock(true)
     },
 
     atualizar,

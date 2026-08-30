@@ -86,24 +86,41 @@ const STOPS = [
   {
     t: 0.55, sun: 0x9a7ec0, sunI: 0.30, zen: 0x1e2a4e, hor: 0x7a5a86,
     glow: 0xd06a5a, glowI: 0.60,
-    hemiSky: 0x6a76a8, hemiGnd: 0x3a3646, hemiI: 0.42,
-    amb: 0x6a76a8, ambI: 0.13, fill: 0x5a6cb0, fillI: 0.30,
+    hemiSky: 0x6a76a8, hemiGnd: 0x3a3646, hemiI: 0.54,
+    amb: 0x6a76a8, ambI: 0.17, fill: 0x5a6cb0, fillI: 0.34,
     fogD: 0.0054, exp: 1.10, night: 0.65,
     cCover: 0.55, cBright: 0x9a7a92, cDark: 0x4a3e60,
   },
   {
-    t: 0.72, sun: 0xa8bde8, sunI: 0.10, zen: 0x060a15, hor: 0x18203a,
+    // MEIA-NOITE. Este stop foi refeito depois de o dono fotografar a cidade
+    // as escuras: "a qualidade da iluminacao ta bem ruim". Estava, e o erro
+    // nao era o ceu (que sempre foi bonito) — era o CHAO, que ficava preto.
+    //
+    // A regra que guiou os numeros novos: para a noite continuar noite, o que
+    // NAO pode subir e o CONTRASTE do azul. Entao o que subiu foi so a luz
+    // difusa que da FORMA as coisas (hemi 0.40 -> 0.66, amb 0.13 -> 0.20,
+    // fill 0.24 -> 0.34), e o hemiGnd — a luz que sobe do chao — ficou quase
+    // tao escuro quanto era (0x171a26 -> 0x1c2130). E esse par (ceu clareando,
+    // chao continuando escuro) que o olho le como noite; se o chao clareia
+    // junto, vira dia azul, que foi a primeira tentativa e foi descartada.
+    //
+    // A exposicao CAIU (1.22 -> 1.12) de proposito, ao mesmo tempo que a luz
+    // subiu. Exposicao alta levanta o preto junto com o resto e lava a cena
+    // inteira; luz difusa maior com exposicao menor levanta o que tem forma e
+    // deixa a sombra funda. O ganho de verdade veio dos postes, que agora
+    // desenham a propria luz (ver props.makeStreetLight).
+    t: 0.72, sun: 0xa8bde8, sunI: 0.10, zen: 0x070c1a, hor: 0x1b2440,
     glow: 0x2a3050, glowI: 0.18,
-    hemiSky: 0x32406a, hemiGnd: 0x171a26, hemiI: 0.40,
-    amb: 0x53669a, ambI: 0.13, fill: 0x3f5288, fillI: 0.24,
-    fogD: 0.0056, exp: 1.22, night: 1.00,
+    hemiSky: 0x3c4c7e, hemiGnd: 0x1c2130, hemiI: 0.66,
+    amb: 0x5a6ea6, ambI: 0.20, fill: 0x46598f, fillI: 0.34,
+    fogD: 0.0050, exp: 1.12, night: 1.00,
     cCover: 0.62, cBright: 0x3a4468, cDark: 0x181e34,
   },
   {
     t: 0.88, sun: 0xc79a86, sunI: 0.42, zen: 0x14203c, hor: 0x50507e,
     glow: 0x8a5a72, glowI: 0.48,
-    hemiSky: 0x59668f, hemiGnd: 0x35333f, hemiI: 0.44,
-    amb: 0x6a7396, ambI: 0.14, fill: 0x4a5c92, fillI: 0.26,
+    hemiSky: 0x59668f, hemiGnd: 0x35333f, hemiI: 0.56,
+    amb: 0x6a7396, ambI: 0.18, fill: 0x4a5c92, fillI: 0.32,
     fogD: 0.0052, exp: 1.10, night: 0.55,
     cCover: 0.56, cBright: 0x9a86a0, cDark: 0x3c3856,
   },
@@ -422,6 +439,7 @@ export function createLighting(scene, renderer) {
     sunMul: 0.42, fillMul: 1.15, fogMul: 2.0, expMul: 1.06,
   }
 
+  let noiteAgora = 0
   let targetDirty = false
 
   function apply() {
@@ -497,6 +515,17 @@ export function createLighting(scene, renderer) {
     uniforms.uMoonDir.value.copy(sunDir).negate()
     const night = THREE.MathUtils.lerp(a.night, b.night, k)
     uniforms.uNight.value = night
+    // Publicado pra quem precisa acender coisa junto com o ceu. Diferente do
+    // `isNight` (que e um booleano e vira de uma vez quando o sol cruza o
+    // horizonte), este e 0..1 e ja vem interpolado entre os stops — quem le
+    // ele apaga e acende em transicao, e nao num estalo. Quem usa hoje: o neon
+    // do cassino (world/casino.js), pelo main.
+    //
+    // Escreve numa VARIAVEL e nao em `api.noite` direto: `api` e const e
+    // apply() roda de dentro de funcoes que podem ser chamadas antes da linha
+    // que o declara — tocar nele aqui seria uma zona morta temporal esperando
+    // acontecer.
+    noiteAgora = night
 
     // fog: mistura horizonte + zenite + um toque da banda quente, pra a nevoa
     // ficar dourada no entardecer e azulada ao meio-dia, sem estourar de claro
@@ -587,6 +616,8 @@ export function createLighting(scene, renderer) {
   const api = {
     sun, fill, hemi, ambient, sky, skyGroup, clouds, fog,
     isNight: false,
+    /** Quanto de NOITE, 0..1, interpolado entre os stops do ciclo. */
+    get noite() { return noiteAgora },
     pauseCycle: false,
     onNight: null,
     cycleSeconds: CYCLE_SECONDS,

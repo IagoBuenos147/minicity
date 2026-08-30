@@ -2057,7 +2057,7 @@ function buildNPCs(g, colliders) {
       rotY: Math.PI,                     // olha para -Z, o lado dos jogadores
       shirt: 0xf2ece0, pants: 0x22262d, shoes: 0x17191d,
       appearance: {
-        cabeca: 1, olhos: 2, nariz: 1, boca: 1, barba: 0,
+        cabeca: 1, olhos: 2, nariz: 0, boca: 1, barba: 0,
         cabelo: 2, pele: 0, corCabelo: 0, corBarba: 0, sobrancelha: 1,
         chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 0,
         anelAcess: 0, tatuagem: 0, relogio: 1, jaqueta: 0,
@@ -2074,7 +2074,7 @@ function buildNPCs(g, colliders) {
       rotY: Math.PI,                     // encara a cadeira vazia do jogador
       shirt: 0xd8c9a8, pants: 0x2b2b33, shoes: 0x241a12,
       appearance: {
-        cabeca: 3, olhos: 1, nariz: 2, boca: 2, barba: 3,
+        cabeca: 3, olhos: 1, nariz: 0, boca: 3, barba: 3,
         cabelo: 1, pele: 1, corCabelo: 4, corBarba: 6, sobrancelha: 2,
         chapeu: 1,                       // CHAPEUS[1] = chapeu de aba (fedora)
         calcado: 3,                      // CALCADOS[3] = coturno (a lista encolheu)
@@ -2097,7 +2097,7 @@ function buildNPCs(g, colliders) {
       shirt: 0xe8e4d8, pants: 0x2a2f38, shoes: 0x1c1f24,
       appearance: {
         // nariz 0 e "sem nariz": aqui vale 1, o modelado na pele.
-        cabeca: 0, olhos: 0, nariz: 1, boca: 0, barba: 0,
+        cabeca: 0, olhos: 0, nariz: 0, boca: 0, barba: 0,
         cabelo: 2, pele: 2, corCabelo: 2, corBarba: 0, sobrancelha: 0,
         chapeu: 0, calcado: 3, blusa: 2, calca: 2, colar: 2,
         anelAcess: 0, tatuagem: 0, relogio: 0, jaqueta: 0,
@@ -2119,6 +2119,10 @@ export function buildCasino(game) {
   const interactables = []
   const luzes = []
   const anim = {}
+  // 0 = dia, 1 = noite. Quem escreve e o main, uma vez por quadro, com o
+  // lighting.noite (que ja vem interpolado entre os stops do ciclo).
+  let noite = 1
+  let noiteAplicada = -1
 
   // As 3 fases da corrida de lampadas. Sao CLONES: mexer no material cacheado
   // de materials.js acenderia toda lampada amarela da cidade junto.
@@ -2259,24 +2263,50 @@ export function buildCasino(game) {
     const d = Math.min(dt || 0, 0.1)
     t += d
 
+    // --- O FATOR DE NOITE ---------------------------------------------------
+    //
+    // O neon do cassino so acende a noite, a pedido do dono. Mas ele NAO pode
+    // entrar na lista de materiais do ciclo dia/noite (cenario/cenarios.js),
+    // que e por onde os postes de rua acendem: aquela lista escreve
+    // emissiveIntensity UMA vez na virada, e este update aqui reescreve a mesma
+    // propriedade em TODO quadro (corrida de lampadas, neon respirando, estrela
+    // piscando). O ciclo perderia a briga no quadro seguinte, sempre.
+    //
+    // Entao quem aplica a noite e o proprio dono do valor — a mesma regra que
+    // lighting.js usa pro `nublado`: "o ciclo de dia reescreve tudo todo quadro,
+    // entao existe um dono so de cada valor". `noite` chega de fora por
+    // setNoite() e multiplica tudo no fim da conta.
+    //
+    // 0.06 e nao 0 no piso: de dia o neon apagado ainda e um tubo de vidro
+    // colorido na fachada, e nao um tubo preto.
+    //
+    // O valor vem do PROPRIO game, e nao de uma chamada do main: `update`
+    // ja recebe o game, e `lighting.noite` e 0..1 interpolado entre os stops do
+    // ciclo (ver world/lighting.js). Ler daqui evita mais uma linha de fiacao
+    // no main.js — que e o arquivo que tres abas do projeto disputam.
+    const lg = gm && gm.lighting
+    if (lg && typeof lg.noite === 'number') noite = lg.noite
+    const N = 0.06 + 0.94 * noite
+
     // --- corrida de lampadas: 3 materiais, 1 troca por passo ---------------
     faseF += d * 7.0
     const f = Math.floor(faseF) % 3
-    if (f !== faseAtual) {
+    if (f !== faseAtual || noite !== noiteAplicada) {
       faseAtual = f
-      for (let i = 0; i < 3; i++) matsFase[i].emissiveIntensity = NIVEL_FASE[(i - f + 3) % 3]
+      for (let i = 0; i < 3; i++) matsFase[i].emissiveIntensity = NIVEL_FASE[(i - f + 3) % 3] * N
     }
 
     // --- neon da fachada respirando ---------------------------------------
     const p1 = Math.sin(t * 2.1)
-    if (anim.borda) anim.borda.emissiveIntensity = 2.1 + p1 * 0.6
-    if (anim.texto) anim.texto.emissiveIntensity = 1.4 + p1 * 0.25
-    if (anim.tubo) anim.tubo.emissiveIntensity = 1.8 + Math.sin(t * 1.3) * 0.55
-    if (anim.porta) anim.porta.emissiveIntensity = 2.3 + Math.sin(t * 4.2) * 0.7
-    if (anim.placa) anim.placa.emissiveIntensity = 1.7 + Math.sin(t * 5.6) * 0.8
+    if (anim.borda) anim.borda.emissiveIntensity = (2.1 + p1 * 0.6) * N
+    if (anim.texto) anim.texto.emissiveIntensity = (1.4 + p1 * 0.25) * N
+    if (anim.tubo) anim.tubo.emissiveIntensity = (1.8 + Math.sin(t * 1.3) * 0.55) * N
+    if (anim.porta) anim.porta.emissiveIntensity = (2.3 + Math.sin(t * 4.2) * 0.7) * N
+    if (anim.placa) anim.placa.emissiveIntensity = (1.7 + Math.sin(t * 5.6) * 0.8) * N
     const est = Math.sin(t * 3.4)
-    if (anim.estrela) anim.estrela.emissiveIntensity = 2.4 + est * 1.1
-    if (anim.estrela2) anim.estrela2.emissiveIntensity = 2.0 - est * 0.9
+    if (anim.estrela) anim.estrela.emissiveIntensity = (2.4 + est * 1.1) * N
+    if (anim.estrela2) anim.estrela2.emissiveIntensity = (2.0 - est * 0.9) * N
+    noiteAplicada = noite
 
     // --- maquinas ---------------------------------------------------------
     for (let i = 0; i < maquinas.length; i++) {
@@ -2341,6 +2371,20 @@ export function buildCasino(game) {
     occluders,
     luzes,
     update,
+
+    /**
+     * Quanto de noite, 0..1. Apaga o neon da fachada, a corrida de lampadas
+     * da marquise e a estrela do telhado durante o dia.
+     *
+     * As DUAS PointLight do salao ficam de fora de proposito: elas nao sao
+     * enfeite, sao a iluminacao de um salao fechado sem uma janela virada pro
+     * sol. Apagar as duas de dia deixaria o jogador jogando blackjack no
+     * escuro.
+     */
+    setNoite(v) {
+      const n = Number(v)
+      noite = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1
+    },
     girarMaquina,
     festa,
     // Quantas paradas o tambor tem. E o mesmo SIM_SLOT.length de

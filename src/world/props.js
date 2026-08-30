@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import {
-  PALETTE, solid, emissive, glass, box, cyl, sphere, roundedBox,
+  PALETTE, solid, stdMat, emissive, glass, box, cyl, sphere, roundedBox,
   textPlaneMat, paintingMat, woodTex, concreteTex,
 } from './materials.js'
 
@@ -83,6 +83,99 @@ function barkTex() {
 }
 
 // --- Materiais compartilhados ----------------------------------------------
+// --- Texturas do JUICE DE LUZ (usadas pelo poste) ---------------------------
+// As duas sao cinza sobre preto e entram em material ADITIVO: quem da a cor e o
+// `emissive` do material, nao o mapa. Assim a mesma textura serve pra luz
+// quente do poste e pra qualquer outra cor que aparecer depois.
+
+let _brilhoTex = null
+/** Ponto de luz radial: claro no meio, sumindo pra borda. Halo e poca. */
+export function brilhoTex() {
+  if (_brilhoTex) return _brilhoTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const g = c.getContext('2d')
+  // NAO pintar o fundo de preto. O canvas ja nasce transparente, e um
+  // fillRect('#000') poe alpha 1 em cada pixel — o `rgba(255,255,255,0)` da
+  // ponta do gradiente vira preto OPACO em vez de transparente, o mapa fica com
+  // alpha 1 em toda a area e o plano aparece com a borda quadrada dele
+  // desenhada no chao. Foi exatamente isso que apareceu na primeira foto
+  // noturna: retangulos beges no asfalto em vez de mancha de luz.
+  //
+  // DOIS gradientes somados: um miolo pequeno e duro (a lampada) e um halo
+  // largo e macio (o espalhamento). Um gradiente so ou fica com a borda dura
+  // demais no meio ou nao tem nucleo nenhum.
+  const halo = g.createRadialGradient(64, 64, 0, 64, 64, 64)
+  halo.addColorStop(0.00, 'rgba(255,255,255,0.85)')
+  halo.addColorStop(0.28, 'rgba(255,255,255,0.34)')
+  halo.addColorStop(0.62, 'rgba(255,255,255,0.09)')
+  halo.addColorStop(1.00, 'rgba(255,255,255,0)')
+  g.fillStyle = halo; g.fillRect(0, 0, 128, 128)
+  const nucleo = g.createRadialGradient(64, 64, 0, 64, 64, 17)
+  nucleo.addColorStop(0, 'rgba(255,255,255,1)')
+  nucleo.addColorStop(1, 'rgba(255,255,255,0)')
+  g.fillStyle = nucleo; g.fillRect(0, 0, 128, 128)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  _brilhoTex = t
+  return t
+}
+
+let _pocaTex = null
+/**
+ * A mancha no chao: SEM nucleo.
+ *
+ * A poca comecou usando a mesma brilhoTex() do halo e o resultado foi a rua
+ * inteira virando um lencol branco — o nucleo de alpha 1.0, que num halo de
+ * 1,5 m e a lampada, num disco de 7,6 m vira um holofote de cinema. Aqui a
+ * curva e so espalhamento, e ela cai rapido: o que uma luminaria de rua faz no
+ * asfalto e uma mancha de borda macia, nao um circulo de luz chapado.
+ */
+export function pocaTex() {
+  if (_pocaTex) return _pocaTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const g = c.getContext('2d')
+  // fundo transparente de proposito — ver o comentario em brilhoTex()
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gr.addColorStop(0.00, 'rgba(255,255,255,0.90)')
+  gr.addColorStop(0.24, 'rgba(255,255,255,0.55)')
+  gr.addColorStop(0.52, 'rgba(255,255,255,0.20)')
+  gr.addColorStop(0.78, 'rgba(255,255,255,0.05)')
+  gr.addColorStop(1.00, 'rgba(255,255,255,0)')
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  _pocaTex = t
+  return t
+}
+
+let _fachoTex = null
+/**
+ * O facho do cone: forte em cima (na lampada) e sumindo pra baixo.
+ *
+ * O v da ConeGeometry vale 1 no topo, e o flipY padrao da textura poe v=1 no
+ * TOPO da imagem — entao "claro em cima do canvas" e "claro na lampada". Sem
+ * esse degrade o cone termina no chao com uma borda reta que denuncia que ele
+ * e um cone e nao luz.
+ */
+export function fachoTex() {
+  if (_fachoTex) return _fachoTex
+  const c = document.createElement('canvas')
+  c.width = 8; c.height = 128
+  const g = c.getContext('2d')
+  const gr = g.createLinearGradient(0, 0, 0, 128)
+  gr.addColorStop(0.00, 'rgba(255,255,255,1)')
+  gr.addColorStop(0.35, 'rgba(255,255,255,0.55)')
+  gr.addColorStop(0.80, 'rgba(255,255,255,0.12)')
+  gr.addColorStop(1.00, 'rgba(255,255,255,0)')
+  g.fillStyle = gr; g.fillRect(0, 0, 8, 128)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  _fachoTex = t
+  return t
+}
+
 const M = {
   darkMetal: () => solid(0x2c2f33, 0.55, 0.65),
   metal: () => solid(PALETTE.metal, 0.45, 0.8),
@@ -237,114 +330,253 @@ export function foliageClump(g, cx, cy, cz, rad, size, n, tone, r, flat = 0.85) 
     g.add(b)
   }
 }
-
 // ===========================================================================
-// POSTE DE LUZ
+// POSTE DE RUA
+//
+// Reescrito depois de o dono fotografar a cidade a noite: "a qualidade da
+// iluminacao ta bem ruim". Estava, e por um motivo que nao era o modelo — era
+// que a rua NAO TINHA LUZ. A cidade tem ~46 postes e so 8 deles carregam uma
+// PointLight (o orcamento de luz e GLOBAL: cada point light entra no shader de
+// TODO material do jogo, ver tools/smoke.mjs). Os outros 38 tinham a lente
+// acesa e nao punham um lumen no chao.
+//
+// A SAIDA NAO E MAIS POINTLIGHT, E LUZ DESENHADA. Tres pecas aditivas, todas
+// com depthWrite desligado, que custam pixel e nao custam shader de luz:
+//
+//   HALO   dois planos cruzados na luminaria. E o brilho que a lampada tem
+//          quando voce olha pra ela. Cruzados, e nao um billboard: billboard
+//          precisa girar por quadro e o forno de geometria de city.js funde
+//          tudo numa mesh so, entao nada aqui pode depender de update.
+//   CONE   o facho descendo ate o chao. E o que faz a luz existir NO AR.
+//   POCA   a mancha no asfalto. E o que faz a luz existir NO CHAO — e e ela
+//          que muda a leitura da rua inteira, de longe.
+//
+// As tres nascem de materiais com chave PROPRIA (stdMat('poste-*')), e nao do
+// emissive() cacheado de materials.js, por dois motivos: assim o forno funde os
+// 46 postes em UMA mesh por peca (3 draw calls pra cidade inteira), e assim o
+// claimLampMats() de city.js pega os tres e o ciclo dia/noite acende e apaga
+// junto com as lentes — de dia elas caem pra emissiveIntensity 0.12, que somado
+// ao sol nao aparece.
+//
+// O MODELO tambem mudou: mastro mais alto (7 m), braco em S com dois raios de
+// curvatura em vez de um arco solto, luminaria em cunha com aletas de
+// dissipacao em cima (o detalhe que mais diz "poste de verdade" de perto) e
+// base octogonal com nervura. O anterior era um tubo com uma caixa na ponta.
 // ===========================================================================
 export function makeStreetLight() {
   const g = mk()
   const dark = M.darkMetal()
+  const aco = M.metal()
 
-  // base com colar e parafusos
-  const base = cyl(0.20, 0.26, 0.16, M.concrete(), 14)
-  base.position.y = 0.08
-  g.add(base)
-  const collar = cyl(0.15, 0.17, 0.12, dark, 14)
-  collar.position.y = 0.21
-  g.add(collar)
+  // --- base: sapata octogonal com nervuras + colar flangeado ---------------
+  const sapata = cyl(0.21, 0.30, 0.18, M.concrete(), 8)
+  sapata.position.y = 0.09
+  g.add(sapata)
+  const nervG = geo('poste-nerv', () => new THREE.BoxGeometry(0.05, 0.16, 0.13))
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+    const n = meshOf(nervG, dark, Math.cos(a) * 0.20, 0.22, Math.sin(a) * 0.20)
+    n.rotation.y = -a
+    g.add(n)
+  }
+  const colar = cyl(0.13, 0.16, 0.14, dark, 12)
+  colar.position.y = 0.25
+  g.add(colar)
   const boltG = geo('bolt', () => new THREE.CylinderGeometry(0.022, 0.022, 0.05, 6))
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2
-    g.add(meshOf(boltG, M.chrome(), Math.cos(a) * 0.19, 0.17, Math.sin(a) * 0.19))
+    g.add(meshOf(boltG, M.chrome(), Math.cos(a) * 0.185, 0.20, Math.sin(a) * 0.185))
   }
 
-  // mastro conico 6.2 m
-  const pole = cyl(0.065, 0.105, 6.2, dark, 14)
-  pole.position.y = 0.16 + 3.1
+  // --- mastro conico de 7 m ------------------------------------------------
+  const pole = cyl(0.058, 0.098, 7.0, dark, 12)
+  pole.position.y = 0.20 + 3.5
   g.add(pole)
-  // anel decorativo no meio
-  const ring = cyl(0.10, 0.10, 0.07, M.metal(), 14)
-  ring.position.y = 1.5
+  // Costura vertical soldada: dois filetes em lados opostos.
+  //
+  // 3 CM E NAO 1,6. A medicao nao acusou tremor nos postes (a luminaria da 0% e
+  // o mastro 5,5%, contra 14,9% do asfalto no mesmo passo), mas a costura era
+  // exatamente a peca que ja causou o defeito em outros dois lugares: 1,6 cm de
+  // largura correndo 6,6 m de altura e uma linha SUB-PIXEL de ponta a ponta
+  // vista de qualquer distancia de rua. O mesmo diagnostico valeu pros
+  // balaustres do hotel e pra haste dos pendentes da loja de jogos.
+  //
+  // A razao de nao aparecer na medida e que ela ocupa area de menos pra mover o
+  // percentual — o que nao quer dizer que o jogador nao veja, e sao 46 postes.
+  // 3 cm cabe num pixel a 20 m e continua sendo um filete de solda.
+  for (const sg of [1, -1]) {
+    const cost = box(0.03, 6.6, 0.03, aco, sg * 0.075, 3.6, 0)
+    cost.castShadow = false
+    g.add(cost)
+  }
+  const ring = cyl(0.105, 0.108, 0.09, aco, 12)
+  ring.position.y = 1.62
   g.add(ring)
 
   // porta de inspecao com dobradica e parafuso (todo poste real tem uma)
-  const hatch = box(0.10, 0.42, 0.015, solid(0x3a3f45, 0.6, 0.5), 0, 0.95, 0.098)
+  const hatch = box(0.11, 0.44, 0.015, solid(0x3a3f45, 0.6, 0.5), 0, 0.98, 0.094)
   g.add(hatch)
-  for (const y of [0.80, 1.10]) {
-    const hg = meshOf(geo('lamp-hinge', () => new THREE.BoxGeometry(0.035, 0.05, 0.03)), M.metal(), -0.05, y, 0.10)
+  for (const y of [0.82, 1.14]) {
+    const hg = meshOf(geo('lamp-hinge', () => new THREE.BoxGeometry(0.035, 0.05, 0.03)), aco, -0.05, y, 0.098)
     g.add(hg)
   }
-  // placa de numero do poste
-  const numPlate = box(0.16, 0.11, 0.012, M.metal(), 0, 1.72, 0.088)
+  const numPlate = box(0.16, 0.11, 0.012, aco, 0, 1.80, 0.086)
   g.add(numPlate)
   const numFace = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.09), textPlaneMat('P-214', {
     w: 256, h: 128, bg: '#d8dade', color: '#22262a',
     font: 'bold 62px "Trebuchet MS", sans-serif', emissiveIntensity: 0.04,
   }))
-  numFace.position.set(0, 1.72, 0.095)
+  numFace.position.set(0, 1.80, 0.093)
+  numFace.castShadow = false
   g.add(numFace)
+  // bracadeiras de fiacao subindo pelo mastro
+  for (const y of [2.6, 4.1, 5.6]) {
+    const br = cyl(0.075, 0.075, 0.05, aco, 10)
+    br.position.y = y
+    br.castShadow = false
+    g.add(br)
+  }
 
-  // junta flangeada onde o braco encaixa no mastro
-  const joint = cyl(0.09, 0.11, 0.16, M.metal(), 12)
-  joint.position.y = 6.02
+  // --- braco em S ----------------------------------------------------------
+  // Dois raios de curvatura: sobe reto, dobra, estica e assenta na ponta. O
+  // arco de raio unico do modelo antigo lia como um cano entortado.
+  const ARM_Y = 6.85, ARM_Z = 2.05
+  const arm = new THREE.Mesh(limbGeo([
+    new THREE.Vector3(0, 6.10, 0),
+    new THREE.Vector3(0, 6.62, 0.20),
+    new THREE.Vector3(0, 6.88, 0.72),
+    new THREE.Vector3(0, 6.95, 1.36),
+    new THREE.Vector3(0, ARM_Y, ARM_Z),
+  ], 0.070, 0.038, 8, 14), dark)
+  arm.castShadow = true; arm.receiveShadow = true
+  g.add(arm)
+  const joint = cyl(0.085, 0.105, 0.17, aco, 12)
+  joint.position.y = 6.08
   g.add(joint)
   const jBoltG = geo('bolt-t', () => new THREE.CylinderGeometry(0.016, 0.016, 0.035, 6))
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2
-    g.add(meshOf(jBoltG, M.chrome(), Math.cos(a) * 0.095, 6.02, Math.sin(a) * 0.095))
+    g.add(meshOf(jBoltG, M.chrome(), Math.cos(a) * 0.092, 6.08, Math.sin(a) * 0.092))
   }
-
-  // braco curvo que AFINA da base pra ponta (o tubo de raio fixo era pesadao)
-  const arm = new THREE.Mesh(limbGeo([
-    new THREE.Vector3(0, 6.05, 0),
-    new THREE.Vector3(0, 6.50, 0.28),
-    new THREE.Vector3(0, 6.72, 0.95),
-    new THREE.Vector3(0, 6.74, 1.66),
-  ], 0.068, 0.040, 8, 10), dark)
-  arm.castShadow = true; arm.receiveShadow = true
-  g.add(arm)
-  // escora fina fechando o triangulo braco/mastro
   const stay = new THREE.Mesh(limbGeo([
-    new THREE.Vector3(0, 5.42, 0.02),
-    new THREE.Vector3(0, 5.95, 0.38),
-    new THREE.Vector3(0, 6.36, 0.72),
-  ], 0.024, 0.018, 5, 3), dark)
+    new THREE.Vector3(0, 5.46, 0.02),
+    new THREE.Vector3(0, 6.02, 0.44),
+    new THREE.Vector3(0, 6.48, 0.86),
+  ], 0.024, 0.017, 5, 3), dark)
   stay.castShadow = true; stay.receiveShadow = true
   g.add(stay)
 
-  // luminaria: casco em gota, aro, refletor, vidro e lente emissiva
+  // --- luminaria em cunha, com aletas de dissipacao ------------------------
   const head = new THREE.Group()
-  head.position.set(0, 6.72, 1.72)
-  head.rotation.x = 0.18
-  const shell = roundedBox(0.42, 0.15, 0.80, 0.07, dark)
+  head.position.set(0, ARM_Y, ARM_Z + 0.30)
+  head.rotation.x = 0.16
+  const shell = roundedBox(0.44, 0.16, 0.82, 0.06, dark)
   head.add(shell)
-  // "nariz" que fecha a luminaria contra o braco
-  const nose = cyl(0.075, 0.11, 0.16, dark, 10)
+  // as ALETAS: cinco chapas em cima do casco. E o detalhe que mais separa
+  // "luminaria" de "caixa preta" quando o jogador passa por baixo.
+  const aletaG = geo('poste-aleta', () => new THREE.BoxGeometry(0.40, 0.045, 0.055))
+  for (let i = 0; i < 5; i++) {
+    head.add(meshOf(aletaG, aco, 0, 0.10, -0.28 + i * 0.145))
+  }
+  const nose = cyl(0.070, 0.105, 0.20, dark, 10)
   nose.rotation.x = Math.PI / 2
-  nose.position.set(0, 0.005, -0.44)
+  nose.position.set(0, 0.005, -0.46)
   head.add(nose)
-  const rim = box(0.48, 0.045, 0.86, M.metal(), 0, -0.072, 0)
+  const rim = box(0.50, 0.045, 0.88, aco, 0, -0.078, 0)
   head.add(rim)
   // refletor interno claro: aparece pela lente e da profundidade
-  const refl = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.30, 0.09, 12, 1, true), solid(0xe8e4d8, 0.25, 0.85, { side: THREE.DoubleSide }))
-  refl.position.set(0, -0.055, 0)
+  const refl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.31, 0.09, 12, 1, true),
+    solid(0xe8e4d8, 0.25, 0.85, { side: THREE.DoubleSide }))
+  refl.position.set(0, -0.058, 0)
   refl.scale.z = 2.1
   refl.castShadow = false; refl.receiveShadow = false
   head.add(refl)
-  // lampada emissiva virada para baixo
-  const lens = box(0.32, 0.030, 0.64, emissive(0xffe6ba, 2.6), 0, -0.098, 0)
-  head.add(lens)
-  // vidro plano por baixo, com reflexo especular
-  const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.76), glass(0xdff0fb, 0.20))
-  pane.rotation.x = Math.PI / 2
-  pane.position.set(0, -0.112, 0)
-  head.add(pane)
-  // trava lateral da tampa
-  for (const s of [-1, 1]) head.add(box(0.03, 0.05, 0.09, M.chrome(), s * 0.215, -0.055, 0.26))
+  for (const s of [-1, 1]) head.add(box(0.03, 0.05, 0.09, M.chrome(), s * 0.225, -0.058, 0.28))
+
+  // --- as tres pecas de LUZ DESENHADA (ver o cabecalho) -------------------
+  // A cor e uma so pras tres: LED branco-quente. Sodio (laranja) foi testado e
+  // brigava com o ambar do cassino e o magenta da loja de jogos — a rua tem que
+  // ser o fundo NEUTRO onde o letreiro colorido aparece.
+  const COR = 0xffe2b0
+
+  const lente = box(0.34, 0.030, 0.66, stdMat('poste-lente', {
+    color: 0xfff4e2, emissive: COR, emissiveIntensity: 2.6, roughness: 0.35,
+  }), 0, -0.104, 0)
+  lente.castShadow = false
+  head.add(lente)
+
+  // 1.5 / 0.42, e nao 2.2 / 0.85: com o valor cheio o halo de cada poste
+  // encostava no do vizinho e a avenida inteira ficava com um veu branco. O
+  // halo tem que ser a lampada VISTA, nao a luz que ela joga.
+  const matHalo = stdMat('poste-halo', {
+    // `emissiveMap` E OBRIGATORIO aqui, nao decoracao: `color: 0x000000` zera o
+    // difuso, entao TODO o brilho vem do emissivo — e emissivo sem mapa e
+    // constante no plano inteiro. Com map so no difuso, o que aparece e um
+    // quadrado de brilho uniforme recortado pelo alpha.
+    map: brilhoTex(), emissiveMap: brilhoTex(),
+    color: 0x000000, emissive: COR, emissiveIntensity: 1.5,
+    transparent: true, opacity: 0.42, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  })
+  for (let i = 0; i < 2; i++) {
+    const h = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), matHalo)
+    h.position.set(0, -0.13, 0)
+    h.rotation.set(-Math.PI / 2, 0, (i * Math.PI) / 2)
+    h.castShadow = false; h.receiveShadow = false
+    head.add(h)
+  }
   g.add(head)
 
+  // CONE: o facho no ar, da luminaria ate o chao. Aberto embaixo e sem tampa,
+  // com alpha baixo — cone opaco vira chapeu de sorvete de cabeca pra baixo.
+  const ALT = ARM_Y - 0.30
+  const cone = new THREE.Mesh(
+    new THREE.ConeGeometry(2.45, ALT, 18, 1, true),
+    stdMat('poste-cone', {
+      color: 0x000000, emissive: COR, emissiveIntensity: 0.85,
+      map: fachoTex(), emissiveMap: fachoTex(),
+      // 0.022 parece pouco e nao e: DoubleSide desenha a parede do cone DUAS
+      // vezes (a de tras e a da frente) e o aditivo soma as duas, entao o que
+      // se ve na tela e o dobro. Com 0.075 os postes viravam cones de sorvete
+      // brancos e solidos.
+      transparent: true, opacity: 0.022, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }))
+  cone.position.set(0, ALT / 2 + 0.02, ARM_Z + 0.30)
+  cone.castShadow = false; cone.receiveShadow = false
+  g.add(cone)
+
+  // POCA: a mancha no chao. 2 cm acima do piso e sem depthWrite — o que a tira
+  // do z-fighting com o asfalto sem precisar de polygonOffset.
+  const poca = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 8.4), stdMat('poste-poca', {
+    map: pocaTex(), emissiveMap: pocaTex(),
+    color: 0x000000, emissive: COR, emissiveIntensity: 1.0,
+    transparent: true, opacity: 0.55, depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    // POLYGONOFFSET: o cinto de seguranca. Ele empurra a poca pra frente no
+    // buffer de profundidade sem mexer em onde ela esta no mundo, que e o jeito
+    // canonico de por decalque em cima de chao. Ver o Y logo abaixo pro porque.
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+  }))
+  poca.rotation.x = -Math.PI / 2
+  // 0.06 E MEDIDO, NAO CHUTADO, e foi a foto do dono que deu o numero.
+  //
+  // Ela estava em 0.02. O poste fica na calcada, que o groundY poe em 0.16 —
+  // entao a poca caia em 0.18 no mundo. E o MEIO-FIO de city.js e uma barra de
+  // altura CH + 0.02 = 0.18 apoiada no zero, ou seja, com o topo EXATAMENTE em
+  // 0.18 tambem. Duas superficies no mesmo Y, e o resultado foi o ziper de
+  // linhas pretas alternadas que ele fotografou na beira da calcada.
+  //
+  // Com 0.06 local a poca vai pra 0.22 e passa 4 cm acima do meio-fio. Quatro
+  // centimetros vistos de 1,7 m de altura nao deslocam a mancha visivelmente, e
+  // o polygonOffset acima cobre qualquer outra laje que apareca perto.
+  poca.position.set(0, 0.06, ARM_Z + 0.30)
+  poca.castShadow = false; poca.receiveShadow = false
+  g.add(poca)
+
   const light = new THREE.PointLight(0xffdcae, 9, 18, 2)
-  light.position.set(0, 6.5, 1.72)
+  light.position.set(0, 6.5, ARM_Z + 0.30)
   light.castShadow = false // performance: poste nao projeta sombra
   addLight(g, light)
 
@@ -1642,7 +1874,7 @@ export function makeShoppingCart() {
 // ===========================================================================
 // GONDOLA / PRATELEIRA DE MERCADO
 // ===========================================================================
-export function makeShelf(w = 2.0, h = 2.0, d = 0.6) {
+export function makeShelf(w = 2.0, h = 2.0, d = 0.6, opts = {}) {
   const g = mk()
   const metal = solid(0xd7dade, 0.45, 0.7)
   const dark = solid(0x6d747a, 0.5, 0.7)
@@ -1703,13 +1935,27 @@ export function makeShelf(w = 2.0, h = 2.0, d = 0.6) {
     }
   }
 
-  // testeira superior com nome da secao
-  g.add(box(w, 0.22, 0.04, solid(0x2f6fbf, 0.6, 0.2), 0, h + 0.11, d / 2 - 0.02))
-  const head = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.1, 0.17), textPlaneMat('OFERTAS', {
-    color: '#ffffff', font: 'bold 110px "Trebuchet MS", sans-serif', emissiveIntensity: 0.3,
-  }))
-  head.position.set(0, h + 0.11, d / 2 + 0.002)
-  g.add(head)
+  // TESTEIRA SUPERIOR — opcional, e por um motivo.
+  //
+  // Ela nasce em `h` e sobe 22 cm. Quem monta uma gondola dupla (dois destes
+  // costas-com-costas) costuma querer uma coroa atravessando o movel inteiro,
+  // e essa coroa tambem comeca em `h` — as duas faces DE BAIXO caem na mesma
+  // altura, no mesmo milimetro. Isso nao e z-fighting sutil: sao duas cores
+  // chapadas disputando o mesmo pixel, e o corredor inteiro fica trocando de
+  // cor conforme o jogador anda. Foi exatamente a queixa "bugando entre azul e
+  // verde" na mercearia.
+  //
+  // Entao: quem for por uma coroa por cima passa `testeira: false` e assume o
+  // papel; quem usa o movel sozinho continua ganhando a testeira de graca.
+  if (opts.testeira !== false) {
+    const cor = opts.testeira || 0x2f6fbf
+    g.add(box(w, 0.22, 0.04, solid(cor, 0.6, 0.2), 0, h + 0.11, d / 2 - 0.02))
+    const head = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.1, 0.17), textPlaneMat(opts.rotulo || 'OFERTAS', {
+      color: '#ffffff', font: 'bold 110px "Trebuchet MS", sans-serif', emissiveIntensity: 0.3,
+    }))
+    head.position.set(0, h + 0.11, d / 2 + 0.002)
+    g.add(head)
+  }
 
   g.userData.collider = { w, d }
   return g

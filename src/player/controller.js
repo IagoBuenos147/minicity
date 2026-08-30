@@ -88,7 +88,12 @@ export function createPlayerController({ camera, character, input, collision, sc
   let pitch = 0
   let vy = 0
   let grounded = true
-  let mode = 'third'
+  // O JOGO COMECA EM 1a PESSOA. Nao e so um valor inicial: e a camera em que o
+  // jogo vai ser jogado, e a 3a pessoa passou a ser a excecao (tecla de troca e
+  // o modo vitrine). Trocar isto aqui basta porque o fim de
+  // createPlayerController ja chama setVisibleBody(mode !== 'first') — o corpo
+  // nasce escondido sem ninguem precisar avisar.
+  let mode = 'first'
   let locked = false
   let jumpHeld = false
 
@@ -731,6 +736,22 @@ export function createPlayerController({ camera, character, input, collision, sc
     set mode(m) { setMode(m) },
     get grounded() { return grounded },
     get speed() { return animSpeed },
+    // --- o BALANCO DA CAMERA, exposto -----------------------------------------
+    // Quem le: src/player/mao.js, o item que o jogador segura em 1a pessoa.
+    //
+    // Ele PRECISA da fase daqui, e nao de um relogio proprio. Um item de mao com
+    // senoide propria bate numa cadencia e a camera em outra; as duas passam uma
+    // pela outra a cada poucos segundos e a garrafa parece solta na frente do
+    // rosto. E o mesmo defeito que o comentario do bob (item 3 de
+    // updateFirstPerson) descreve entre a camera e os pes — la a cura foi casar
+    // a formula, aqui e entregar a fase pronta.
+    //
+    // Sao SO LEITURA e so tem valor util em 1a pessoa: fora dela o bob nao roda.
+    get bobPhase() { return bobPhase },
+    /** 0..1: "esta andando?", ja filtrado. Serve de amplitude pra quem segue. */
+    get bobAmt() { return bobAmt },
+    /** 0..1: rampa andar<->correr, a MESMA que troca a amplitude do bob. */
+    get runBlend() { return fpRun },
     get locked() { return locked },
     get floorY() { return floorY },
     toggleMode,

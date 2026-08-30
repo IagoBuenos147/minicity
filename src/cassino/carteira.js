@@ -27,9 +27,25 @@
 
 const CHAVE = 'mcrp-carteira'
 
-/** Quanto o jogador tem no primeiro dia. Alto o bastante pra ele poder perder
- *  algumas maos e ainda estar jogando; baixo o bastante pra ele se importar. */
-export const OURO_INICIAL = 1500
+/** Quanto o jogador tem no primeiro dia.
+ *
+ *  ERA 1500 — "alto o bastante pra perder algumas maos, baixo o bastante pra se
+ *  importar". Subiu pra 100.000 A PEDIDO DO DONO DO PROJETO, pra dar pra testar
+ *  as compras (a loja de jogos vai a 1750 a peca e o mercado abriu agora com as
+ *  bebidas). E um numero de BANCADA, nao de balanceamento: quando as compras
+ *  estiverem testadas, isto volta pra casa dos milhares. */
+export const OURO_INICIAL = 100000
+
+/** Versao do registro gravado no localStorage.
+ *
+ *  Existe por um motivo so, e o motivo e o numero acima: a carteira grava
+ *  sozinha e ler() devolve o que estiver la, entao mudar OURO_INICIAL nao muda
+ *  NADA pra quem ja jogou uma vez nesta maquina — o dono do projeto pediu 100
+ *  mil pra testar e continuaria com os 1500 do primeiro dia dele. Quando o
+ *  registro lido e mais velho que esta versao, a carteira COMPLETA a mao ate
+ *  OURO_INICIAL (nunca tira: quem tiver mais que isso fica com o que tem) e
+ *  passa a gravar com a versao nova, entao o remendo roda uma vez so. */
+const VERSAO = 2
 
 /** Piso de misericordia: quebrou de vez, o caixa "adianta" isto. Sem isso o
  *  cassino vira uma sala que o jogador visita uma vez e nunca mais. */
@@ -47,6 +63,7 @@ function ler() {
     const o = JSON.parse(cru)
     if (!o || typeof o !== 'object') return null
     return {
+      v: inteiro(o.v),
       ouro: Math.max(0, inteiro(o.ouro)),
       // BANCO: o terceiro inteiro. Save antigo nao tem o campo e inteiro() de
       // undefined devolve 0 — ler() ja e tolerante por construcao, entao nao
@@ -65,11 +82,19 @@ function ler() {
 export function criarCarteira(opts = {}) {
   const salvo = ler()
   const est = salvo || {
+    v: VERSAO,
     ouro: OURO_INICIAL,
     banco: 0,
     fichas: 0,
     recorde: 0,
     maosJogadas: 0,
+  }
+  // Registro de antes da VERSAO 2: completa a mao ate o inicial novo. Ver o
+  // comentario de VERSAO — e um remendo de bancada, e ele se apaga sozinho
+  // porque a proxima gravacao ja sai carimbada.
+  if (salvo && est.v < VERSAO) {
+    est.v = VERSAO
+    if (est.ouro < OURO_INICIAL) est.ouro = OURO_INICIAL
   }
 
   const ouvintes = []
@@ -180,6 +205,7 @@ export function criarCarteira(opts = {}) {
      */
     aplicar(dados) {
       const d = dados || {}
+      est.v = VERSAO
       est.ouro = Math.max(0, inteiro(d.ouro))
       est.banco = Math.max(0, inteiro(d.banco))
       est.fichas = Math.max(0, inteiro(d.fichas))
@@ -191,7 +217,7 @@ export function criarCarteira(opts = {}) {
     /** Pro save. E o MESMO formato que ler() aceita de volta. */
     serializar() {
       return {
-        v: 1,
+        v: VERSAO,
         ouro: est.ouro, banco: est.banco, fichas: est.fichas,
         recorde: est.recorde, maosJogadas: est.maosJogadas,
       }

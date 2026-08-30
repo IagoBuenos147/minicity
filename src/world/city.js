@@ -887,6 +887,49 @@ function grafiteTex() {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * VITRINE LIVRE: onde o mobiliario de rua NAO entra.
+ *
+ * Irma da naFrenteDaPorta(), e pelo mesmo motivo dela — o mobiliario e
+ * distribuido por RITMO (a cada 8 m, ver ARM_PROPS) sem olhar pro que ha
+ * atras da calcada, e ritmo e o que faz a rua nao parecer arrumada a mao.
+ * A diferenca e o que cada uma protege: naFrenteDaPorta guarda a PASSAGEM,
+ * esta guarda a VISTA.
+ *
+ * A lista de tipos e curta de proposito. Poste, hidrante, lixeira e banco
+ * continuam entrando: sao baixos ou finos, e tirar todos deixaria a frente da
+ * loja mais limpa do que o resto da cidade — o que le como falha, nao como
+ * cuidado. O que sai e o que TAPA: arvore, caixa de correio, floreira alta,
+ * banca de jornal e abrigo de onibus.
+ *
+ * MORA NO ESCOPO DO MODULO, e nao dentro de buildCity() junto de
+ * naFrenteDaPorta(). O motivo e chato e vale escrito: `placeProp` e declaracao
+ * de FUNCAO (icada pro topo) mas TAPA_VITRINE seria um `const` (nao icado, com
+ * zona morta temporal). Declarado logo acima de placeProp, as primeiras
+ * chamadas — os postes da praca, umas cem linhas antes — estourariam
+ * "Cannot access 'TAPA_VITRINE' before initialization" e derrubariam o mundo
+ * inteiro. Como isto e DADO e nao depende de nada de dentro da funcao, o lugar
+ * certo dele e aqui em cima.
+ */
+const TAPA_VITRINE = new Set([
+  'makeTree', 'makeMailbox', 'makePlanter', 'makeNewsBox', 'makeBusStop',
+])
+const VITRINE_LIVRE = [
+  // TACO DE OURO. O dono pediu pra tirar "a arvore proxima a bola 8 preta na
+  // entrada, e a caixa de correio tambem": a arvore caia em (46, -9.4), a 4,8
+  // m da porta, bem na frente da coluna de bola de sinuca que marca a entrada.
+  { x0: 36, x1: 50, z0: -12.6, z1: -8.2 },
+]
+function tapaVitrine(name, x, z) {
+  if (!TAPA_VITRINE.has(name)) return false
+  for (let i = 0; i < VITRINE_LIVRE.length; i++) {
+    const r = VITRINE_LIVRE[i]
+    if (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1) return true
+  }
+  return false
+}
+
+
 export function buildCity() {
   const group = new THREE.Group()
   group.name = 'city'
@@ -2158,8 +2201,24 @@ export function buildCity() {
     }
 
     // --- letreiro proprio na fachada (alguns predios) ------------------------
+    // Duas trocas de nome, e as duas por causa do HOTEL PARAISO:
+    //  - 'BAR DO TITO' saiu porque era o nome que caia no predio de -52..-30 /
+    //    -52..-35, que virou o hotel. Com o filler fora da lista os indices
+    //    andam um, e o nome reapareceria no VIZINHO — um bar fantasma na porta
+    //    do hotel que acabou de substitui-lo;
+    //  - 'HOTEL AURORA' saiu porque a cidade passou a ter um hotel de verdade,
+    //    com porta e recepcao. Dois letreiros de hotel a 400 m um do outro so
+    //    ensinariam o jogador a nao acreditar em letreiro.
+    //
+    // E depois uma TERCEIRA, pelo mesmo motivo da primeira: 'CHAVEIRO 24H' era
+    // o nome que caia no predio de -28..-14 / -52..-35, que virou a GARAGEM DO
+    // NANDO. Saindo o filler, o nome andaria pro vizinho e a cidade teria um
+    // chaveiro fantasma na porta da concessionaria que o substituiu.
+    //
+    // O TAMANHO da lista (7) e de proposito: e ele que espalha os nomes pelos
+    // indices impares. Trocar item por item mantem esse espalhamento.
     const SHOP_NAMES = ['LAVANDERIA', 'FARMACIA SAO JORGE', 'PADARIA SOL',
-      'BAR DO TITO', 'ELETRO SHOP', 'HOTEL AURORA', 'SAPATARIA']
+      'FLORICULTURA', 'ELETRO SHOP', 'OTICA CENTRAL', 'SAPATARIA']
     if (bi % 2 === 1) {
       const nm = SHOP_NAMES[bi % SHOP_NAMES.length]
       const sw2 = Math.min(faceSpan - 3.0, 7.4)
@@ -2284,8 +2343,11 @@ export function buildCity() {
     const lamp = box(0.5, 0.16, 0.3, emissive(0xffd9a0, 2.0), 0, 3.4, 0.4)
     lamp.castShadow = false
     doorG.add(lamp)
-    // numero do predio
-    const numMat = textPlaneMat(String(100 + bi * 17), {
+    // Numero do predio. `b.num` quando o lote declara o dele, e a posicao na
+    // lista so como reserva: numerar por indice quer dizer que tirar um lote de
+    // FILLERS renumera todos os seguintes, e isso passou a importar no dia em
+    // que um predio de cenario virou endereco (o 100 e a ADEGA — ver layout.js).
+    const numMat = textPlaneMat(String(b.num || (100 + bi * 17)), {
       w: 256, h: 256, color: '#e9e4d6',
       font: 'bold 150px "Trebuchet MS", sans-serif', emissiveIntensity: 0.5,
     })
@@ -2478,9 +2540,20 @@ export function buildCity() {
       gRoot.add(box(x1 - x0, y1 - y0, z1 - z0, m, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
     }
 
-    // laterais e fundo (inteiras)
-    wall(b.x0, b.x0 + T, 0, H, b.z0, b.z1, null)
-    wall(b.x1 - T, b.x1, 0, H, b.z0, b.z1, null)
+    // Laterais e fundo. As quatro paredes se ENCAIXAM, nao se sobrepoem: as
+    // laterais param a uma espessura de cada ponta, e o fundo e a fachada
+    // cobrem os quatro cantos.
+    //
+    // Antes as laterais iam de z0 a z1 inteiro e o pilar da fachada tambem
+    // comecava em x0 — os dois ocupavam o mesmo bloco de canto, e as duas
+    // faces frontais caiam no MESMO plano z = z1. Como a parede lateral usa
+    // sideColor (a cor do pano multiplicada por 0.94) e a fachada usa a cor
+    // cheia, cada canto da loja virava uma tira de 30 cm de altura inteira
+    // alternando entre dois beges conforme a camera anda. Sutil de perto,
+    // impossivel de ignorar em movimento — e acontecia em TODAS as lojas que
+    // passam por aqui, que e o motivo de a mesma queixa voltar loja apos loja.
+    wall(b.x0, b.x0 + T, 0, H, b.z0 + T, b.z1 - T, null)
+    wall(b.x1 - T, b.x1, 0, H, b.z0 + T, b.z1 - T, null)
     wall(b.x0, b.x1, 0, H, b.z0, b.z0 + T, null)
     col(b.x0, b.x0 + T, b.z0, b.z1, 'shop')
     col(b.x1 - T, b.x1, b.z0, b.z1, 'shop')
@@ -2581,24 +2654,93 @@ export function buildCity() {
     const signY = H - 0.52        // encaixa logo abaixo da laje do telhado
     const signZ = b.z1 + 0.18
     gRoot.add(box(signW, signH + 0.3, 0.3, solid(0x232227, 0.85), b.door.center, signY, signZ))
-    const edge = emissive(b.signColor, 2.4)
-    const e1 = box(signW + 0.06, 0.08, 0.34, edge, b.door.center, signY + signH / 2 + 0.11, signZ)
-    const e2 = box(signW + 0.06, 0.08, 0.34, edge, b.door.center, signY - signH / 2 - 0.11, signZ)
+    // 1.5 e nao 2.4: com 2.4 os dois filetes do letreiro passavam do limiar do
+    // bloom (0.85, em core/engine.js) e o halo deles cobria o texto. Vale pras
+    // CINCO lojas — o defeito nunca foi da Taco de Ouro, so foi visto la
+    // primeiro, porque "DE" e a palavra mais curta de todos os letreiros e por
+    // isso a que satura antes.
+    // OS DOIS FILETES FICAM DENTRO DA CHAPA, e isto e a correcao de um defeito
+    // que o dono relatou em QUATRO lugares diferentes antes de alguem perceber
+    // que era um so.
+    //
+    // A conta antiga: a chapa tem altura signH + 0.3 = 0.92, entao ela vai de
+    // signY - 0.46 a signY + 0.46. Os filetes ficavam centrados em
+    // signY +- (signH/2 + 0.11) = +-0.42 com 8 cm de altura — ou seja, de 0.38 a
+    // 0.46. O TOPO do filete de cima e o topo da chapa caiam no MESMO Y, e o
+    // mesmo embaixo.
+    //
+    // Duas faces no mesmo plano e z-fighting, e aqui ele e especialmente feio
+    // porque as duas superficies tem cores opostas: o filete e emissivo na cor
+    // da loja e a chapa e quase preta (0x232227). O pixel nao fica "meio
+    // borrado", ele PISCA entre as duas cores. Foi assim que o defeito chegou
+    // descrito: "bugando entre verde e preto" na mercearia (signColor verde),
+    // "entre preto e rosa" na barbearia (signColor vermelho, que com o brilho le
+    // como rosa) — sempre logo acima ou logo abaixo do letreiro.
+    //
+    // Vale pras CINCO lojas que passam por aqui, porque a chapa e o filete sao
+    // desenhados neste mesmo bloco pra todas elas.
+    //
+    // Com +-0.40 os filetes vao de 0.36 a 0.44: sobram 2 cm de chapa acima e
+    // abaixo deles, que e o que uma moldura de letreiro tem de verdade.
+    const edge = emissive(b.signColor, 1.5)
+    const e1 = box(signW + 0.06, 0.08, 0.34, edge, b.door.center, signY + 0.40, signZ)
+    const e2 = box(signW + 0.06, 0.08, 0.34, edge, b.door.center, signY - 0.40, signZ)
     e1.castShadow = false; e2.castShadow = false
     gRoot.add(e1, e2)
     const hexStr = '#' + new THREE.Color(b.signColor).getHexString()
-    // canvas na MESMA proporcao do plano + fonte medida = texto inteiro
     const signPW = signW - 0.3, signPH = signH
-    const scv = canvasFor(signPW, signPH, 1536)
-    const signPx = fitFontPx(b.sign, scv.w * 0.9, Math.floor(scv.h * 0.74))
-    const signMat = textPlaneMat(b.sign, {
-      w: scv.w, h: scv.h, color: '#fdf7ea',
-      font: 'bold ' + signPx + 'px "Trebuchet MS", sans-serif',
-      glow: hexStr, stroke: hexStr, emissiveIntensity: 1.35,
-    })
-    const signPlane = new THREE.Mesh(new THREE.PlaneGeometry(signPW, signPH), signMat)
-    signPlane.position.set(b.door.center, signY, signZ + 0.17)
-    gRoot.add(signPlane)
+
+    if (b.signArte === 'naipes') {
+      // --- LETREIRO DE NAIPES (so a loja de jogos, por ora) -----------------
+      //
+      // O dono pediu pra tirar o nome e deixar "apenas os 4 nipes brilhando com
+      // as devidas cores deles". As cores sao DUAS e nao quatro, e isso e de
+      // proposito: no baralho, espadas e paus sao pretos — e PRETO NAO BRILHA.
+      // Um naipe preto num letreiro luminoso ou some no painel escuro ou vira
+      // um buraco. A convencao de neon (e de qualquer casa de jogo de verdade)
+      // e a mesma que uso aqui: o par preto vira BRANCO FRIO e o par vermelho
+      // fica vermelho. O que o letreiro precisa dizer e "sao dois pares
+      // diferentes", e isso ele diz.
+      //
+      // Os quatro sao planos SEPARADOS, e nao uma string "♠♥♦♣" num canvas so:
+      // num canvas unico eles dividiriam a mesma cor, que e justamente o que
+      // esta em jogo.
+      const NAIPES = [
+        { ch: '♠', cor: '#eaf2ff', glow: '#9fd0ff' },   // espadas
+        { ch: '♥', cor: '#ff6a6a', glow: '#ff2d2d' },   // copas
+        { ch: '♦', cor: '#ff6a6a', glow: '#ff2d2d' },   // ouros
+        { ch: '♣', cor: '#eaf2ff', glow: '#9fd0ff' },   // paus
+      ]
+      const passo = signPW / 4
+      const lado = Math.min(passo * 0.86, signPH * 0.94)
+      NAIPES.forEach((n, i) => {
+        const m = textPlaneMat(n.ch, {
+          w: 256, h: 256, color: n.cor,
+          // pilha de fontes com fallback: nem toda maquina tem os simbolos de
+          // naipe na Trebuchet, e sem alternativa o canvas desenha um retangulo
+          font: 'bold 190px "Trebuchet MS", "Segoe UI Symbol", "DejaVu Sans", sans-serif',
+          glow: n.glow, emissiveIntensity: 1.25,
+        })
+        const pl = new THREE.Mesh(new THREE.PlaneGeometry(lado, lado), m)
+        pl.position.set(b.door.center - signPW / 2 + passo * (i + 0.5), signY, signZ + 0.17)
+        pl.castShadow = false
+        gRoot.add(pl)
+      })
+    } else {
+      // canvas na MESMA proporcao do plano + fonte medida = texto inteiro
+      const scv = canvasFor(signPW, signPH, 1536)
+      const signPx = fitFontPx(b.sign, scv.w * 0.9, Math.floor(scv.h * 0.74))
+      const signMat = textPlaneMat(b.sign, {
+        w: scv.w, h: scv.h, color: '#fdf7ea',
+        font: 'bold ' + signPx + 'px "Trebuchet MS", sans-serif',
+        // 0.85 e nao 1.35, mesmo motivo do filete: o texto ja tem brilho no
+        // proprio canvas, e emissivo por cima disso empilha os dois brilhos.
+        glow: hexStr, stroke: hexStr, emissiveIntensity: 0.85,
+      })
+      const signPlane = new THREE.Mesh(new THREE.PlaneGeometry(signPW, signPH), signMat)
+      signPlane.position.set(b.door.center, signY, signZ + 0.17)
+      gRoot.add(signPlane)
+    }
 
     // duas luminarias penduradas na sacada do telhado, iluminando o letreiro
     for (const side of [-1, 1]) {
@@ -3299,13 +3441,31 @@ export function buildCity() {
     return false
   }
 
+  const warnados = new Set()
   function placeProp(name, x, z, ry, args, wantLight) {
     const fn = Props[name]
     if (typeof fn !== 'function') return null   // prop ainda nao existe -> pula
     // porta livre: ver naFrenteDaPorta acima
     if (naFrenteDaPorta(x, z)) return null
+    // vitrine livre: ver tapaVitrine acima
+    if (tapaVitrine(name, x, z)) return null
     let o = null
-    try { o = fn.apply(null, args || []) } catch (e) { o = null }
+    // O try continua engolindo (um prop quebrado nao pode derrubar a cidade
+    // inteira), mas agora ele GRITA. Sem o warn, um erro dentro de um make*
+    // apagava TODOS os props daquele tipo do mapa sem uma linha no console: foi
+    // assim que os 46 postes de rua sumiram de uma vez por um import que
+    // faltava em props.js, e a cidade so ficou "estranhamente escura a noite".
+    // `warnados` para no primeiro de cada tipo: 46 postes quebrados sao 46
+    // linhas iguais, e a segunda ja nao ensina nada.
+    try {
+      o = fn.apply(null, args || [])
+    } catch (e) {
+      o = null
+      if (!warnados.has(name)) {
+        warnados.add(name)
+        console.warn('props.' + name + '() quebrou — nenhum foi colocado no mapa:', e)
+      }
+    }
     if (!o || !o.isObject3D) return null
     // props tem origem na BASE: sobe pra altura do piso (calcada e elevada)
     const gy = groundY(x, z)
