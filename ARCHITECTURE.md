@@ -131,6 +131,11 @@ game = {
 | `src/mobilia/copos.js` | `COPOS`, `copoDe`, `ehCopo` | os três copos (americano, tulipa, caneca) e o líquido dentro deles. O corpo é UM lathe fechado; o líquido é REGERADO a cada mudança de nível, nunca escalado |
 | `src/mobilia/destilados.js` | `ADEGA_CATALOGO`, `ADEGA_CATEGORIAS` | o que a adega vende além do chope: gin, pinga de alambique, garrafão, long neck e a GARRAFA BATIZADA. Importa a vodka, o whiskey e a lata de `bebidas.js` e só troca o preço |
 | `src/player/copo.js` | `criarCopo(opts)` | o copo na mão: ocioso → esticado → cheio → bebendo → vazio, num botão só. `mirar()` põe o copo no espaço de câmera do bico da torneira, que é o que faz o jorro cair DENTRO dele |
+| `src/systems/pisos.js` | `criarPisos(base)` | **o chão com mais de um andar**. Guarda lajes e rampas com altura e responde pela terceira entrada que `groundY(x,z)` não tem: a altura em que o jogador já está. Fora das lajes registradas, repassa pro chão da cidade |
+| `src/world/cortico.js` | `buildCortico(game)` | o CORTIÇO 117: três andares, corredor com doze portas, escada em U de verdade e dois apartamentos que abrem. Colisão ligada **por andar**; um grupo de geometria por piso, com LOD |
+| `src/audio/som.js` | `bater()`, `porta()` | o primeiro som do jogo, **sintetizado** (sem asset, como o resto). O toc-toc-toc da porta e o rangido da dobradiça |
+| `src/ui/legenda.js` | `criarLegenda()` | a legenda de rodapé da cutscene, extraída pra quem quiser. Mesma posição, mesmo tamanho, mesma fonte |
+| `src/render/fumaca.js` | `criarFumaca(opts)` | baforada de fumaça numa InstancedMesh só, com billboard copiado da câmera |
 
 ## Uma laje por metro quadrado
 
@@ -262,6 +267,70 @@ A peca que faz o gesto funcionar e `copo.mirar(ponto)`: com o copo colado na
 camera e a torneira no mundo a um metro, sem ela o jorro cai ao lado do copo.
 `mirar` poe o alvo da pose no ESPACO DE CAMERA do bico, e `torneira.cortar(true)`
 encurta a coluna pra ela terminar dentro do vidro.
+
+## O CORTICO 117 — e o dia em que o jogo ganhou ANDAR
+
+O pedido foi "aqueles lugares de filme de acao onde varias pessoas moram
+proximas e tem um espaco que so tem portas, corredores com portas". Isso e um
+CORTICO, e a forma dele nao e decoracao: e a planta — corredor unico no meio,
+portas dos dois lados, escada numa ponta, tres andares iguais empilhados. Doze
+portas; DUAS abrem.
+
+### O problema que ele quebrou
+
+Todo interior deste jogo era TERREO. A altura do piso e uma funcao
+`groundY(x, z) -> y`: uma cota por metro quadrado. Ela deu conta de calcada,
+rua, parque, beco e piso de loja — e nao consegue responder "0,16" e "3,16" pro
+MESMO ponto, que e o que um predio de tres andares pede.
+
+Foram tres pecas:
+
+**1. `systems/pisos.js` — a terceira entrada.** A pergunta deixa de ser
+ambigua quando entra a altura em que o jogador JA ESTA: de todas as lajes que
+cobrem o ponto, vale a mais alta que ainda esta ao alcance do pe. O controller
+nao mudou uma linha — quem monta o amostrador em `main.js` e um closure que ja
+tem o jogador na mao e le `player.position.y` sozinho.
+
+**2. A colisao por andar, em `cortico.js`.** `systems/collision.js` e uma grade
+XZ sem altura: parede de segundo andar empurra quem esta no terreo. Cada colisor
+do predio nasce com o numero do andar dele e so o conjunto do andar atual fica
+`ativo`. Isso obriga a geometria de cada andar a ser separada — o que sai de
+graca, porque ai da pra apagar por LOD os andares que ninguem esta vendo.
+
+**3. As escadas sao RAMPA pro pe e DEGRAU pro olho.** O controller cancela o
+avanco horizontal quando o piso sobe mais que `LEVELS.STEP_MAX` num quadro;
+escada modelada como degraus de verdade so seria subivel aos solavancos, um por
+espelho.
+
+### Duas armadilhas que custaram caro, e as duas sao do mesmo lugar
+
+`cenario/cenarios.js` GRAVA tudo que a cidade cria e, ao mostrar o cenario,
+DEVOLVE o estado — e o padrao dele e "ligado".
+
+- **Ele religa os colisores.** `ligarAndar()` roda na construcao; `mostrar()`
+  roda depois e poe `ativo = true` em tudo. O predio nascia com as paredes dos
+  tres andares ligadas ao mesmo tempo, e o sintoma era parede invisivel no meio
+  do corredor. A saida e uma SENTINELA: um colisor conhecido do 1o andar; se ele
+  estiver ligado com o jogador em outro andar, alguem religou por fora e a
+  selecao e refeita. Isso tambem cobre o F6 de volta pra cidade.
+- **Ele reinstala o amostrador de chao.** `mostrar()` chama
+  `player.setGroundSampler(reg.groundY)`. Instalar o amostrador de andares so em
+  `main.js` nao adiantava: o cenario o sobrescrevia no boot e o jogador
+  atravessava o predio inteiro no nivel da rua. O amostrador tem que ser o
+  `groundY` DO REGISTRO do cenario.
+
+### A batida na porta
+
+`E` na porta -> toc toc toc -> dois segundos -> o morador levanta do sofa,
+atravessa a sala, a porta gira, ele te recebe pela legenda do rodape, sai da
+frente, volta e senta. Continua fumando: o cigarro e enrolado a mao, a brasa
+acende na tragada e a fumaca sai de `render/fumaca.js` — um fiapo continuo da
+ponta acesa e uma baforada de verdade quando ele solta.
+
+O som e o PRIMEIRO do jogo (`audio/som.js`) e e sintetizado, pela mesma regra
+que vale pra geometria e pra textura: nenhum asset externo. Uma batida em porta
+de madeira e um estalo de ruido, duas senoides graves e um baque — e sao TRES,
+com o ritmo desigual de mao humana.
 
 ## As tres estacoes (tecla `C`)
 

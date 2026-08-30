@@ -2170,8 +2170,13 @@ export function makeFramedPicture(w = 0.7, h = 0.9, kind = 'abstract', seed = 0)
   g.add(bevel)
   const matte = box(w - frameW * 2.1, h - frameW * 2.1, 0.012, matteMat, 0, 0, 0.008)
   g.add(matte)
-  // fundo (verso)
-  g.add(box(w - frameW, h - frameW, 0.012, solid(0x4b3520, 0.9), 0, 0, -D / 2 + 0.006))
+  // Fundo (verso). Em -D/2 + 0.012 e nao + 0.006: com 6 mm o verso ficava de
+  // -0.025 a -0.013, e -0.025 e exatamente onde esta a face de tras das barras
+  // da moldura — as duas encostadas, uma marrom clara e outra escura. Este
+  // quadro esta pendurado na mercearia, na barbearia e no hotel, entao o mesmo
+  // defeito aparecia em tres lojas ao mesmo tempo. Agora o verso comeca 6 mm
+  // a frente do fundo da moldura, dentro da caixa dela.
+  g.add(box(w - frameW, h - frameW, 0.012, solid(0x4b3520, 0.9), 0, 0, -D / 2 + 0.012))
 
   // tela
   const iw = w - frameW * 3.2, ih = h - frameW * 3.2

@@ -406,9 +406,16 @@ function paredes(g, colliders, occluders) {
       (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
   }
 
-  // laterais e fundos: inteiras, do chao ao topo do predio
-  parede(B.x0, B.x0 + T, 0, H, B.z0, B.z1, true)
-  parede(B.x1 - T, B.x1, 0, H, B.z0, B.z1, true)
+  // Laterais e fundo, do chao ao topo do predio. As laterais param a uma
+  // espessura de cada ponta e quem fecha os quatro cantos e o fundo (que ja vai
+  // de x0 a x1) e a fachada. Indo de z0 a z1 inteiro — era assim — cada canto
+  // ficava com DUAS paredes no mesmo bloco, e as faces externas caiam no mesmo
+  // plano com cores diferentes: a lateral usa 0xd6c9ad e a da frente 0xe8dcc0.
+  // Sao 15,5 m de altura de tira trocando de cor a cada passo do jogador, nas
+  // quatro quinas do predio — parte do que o dono viu como "bug de iluminacao
+  // nas janelas, parte superior e la embaixo tambem".
+  parede(B.x0, B.x0 + T, 0, H, B.z0 + T, B.z1 - T, true)
+  parede(B.x1 - T, B.x1, 0, H, B.z0 + T, B.z1 - T, true)
   parede(B.x0, B.x1, 0, H, B.z1 - T, B.z1, false)
 
   // fachada: pilares cheios + peitoril e bandeira dos vidros + verga da porta
@@ -465,9 +472,17 @@ function vitrines(g) {
     const pano = box(w - 0.08, h - 0.08, 0.04, M.vidroFachada, cx, cy, fz + T / 2)
     pano.castShadow = false
     g.add(pano)
-    // caixilho: verga, peitoril e dois montantes por vao
-    g.add(box(w + 0.16, 0.16, T + 0.16, M.ouroFosco, cx, JAN_Y1 + 0.08, fz + T / 2 - 0.02))
-    g.add(box(w + 0.16, 0.14, T + 0.16, M.ouroFosco, cx, JAN_Y0 - 0.07, fz + T / 2 - 0.02))
+    // Caixilho: verga, peitoril e dois montantes por vao.
+    //
+    // As duas travessas ENTRAM 4 cm na alvenaria em vez de encostar nela. Do
+    // jeito antigo a verga ia de JAN_Y1 pra cima e a bandeira de alvenaria
+    // comecava exatamente em JAN_Y1: as duas faces de baixo caiam no mesmo
+    // plano, uma dourada e outra bege, ao longo de cada janela da fachada. O
+    // mesmo embaixo, no peitoril. Sao as linhas horizontais que o dono viu
+    // "tremendo nas janelas, parte superior e la em baixo tambem" — e que
+    // pareciam luz porque o dourado chama atencao contra o bege.
+    g.add(box(w + 0.16, 0.20, T + 0.16, M.ouroFosco, cx, JAN_Y1 + 0.06, fz + T / 2 - 0.02))
+    g.add(box(w + 0.16, 0.18, T + 0.16, M.ouroFosco, cx, JAN_Y0 - 0.05, fz + T / 2 - 0.02))
     for (let i = 1; i <= 2; i++) {
       g.add(box(0.09, h, 0.12, M.ouroFosco, v[0] + (w / 3) * i, cy, fz - 0.03))
     }

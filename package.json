@@ -28,11 +28,13 @@
     "teste-bebida": "node tools/teste-bebida.mjs",
     "teste-local": "node tools/teste-local.mjs",
     "teste-adega": "node tools/teste-adega.mjs",
+    "teste-cortico": "node tools/teste-cortico.mjs",
     "shot-clima": "node tools/shot-clima.mjs",
     "shot-tela": "node tools/shot-tela.mjs",
     "online": "npm run build && node servidor.js",
     "servidor": "node servidor.js",
-    "teste-online": "node tools/teste-online.mjs"
+    "teste-online": "node tools/teste-online.mjs",
+    "teste-coplanar": "node tools/teste-coplanar.mjs"
   },
   "dependencies": {
     "three": "^0.171.0",

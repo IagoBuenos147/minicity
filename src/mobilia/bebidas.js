@@ -616,17 +616,23 @@ export const BEBIDAS = [
     id: 'cerveja-lata', nome: 'Lata de cerveja 350 ml', cat: 'cerveja',
     qualidade: 'comum', preco: 18, empilha: 12, naCasa: false,
     desc: 'Lata alta e fina, gelada o bastante pra suar na mao.',
-    // 15,7 cm de altura: a mao pega no meio do corpo, acima do calcanhar
-    // repuxado e abaixo do pescoco.
-    mao: { pegaY: 0.072, pegaR: 0.0300 },
+    // A MAO PEGA NO TERCO DE BAIXO, e nao no meio.
+    //
+    // Em 0.072 (46% da altura) a mao ficava no meio da lata e, vista de frente,
+    // TAPAVA A LATA INTEIRA: o punho fica 6 cm na direcao da camera e o corpo da
+    // mao cobre ~9 cm de altura, que e mais do que a lata tem acima e abaixo da
+    // pega somados. Nas fotos de referencia a mao segura embaixo e sobra a maior
+    // parte da peca aparecendo — e a peca que tem que ser vista, nao a mao.
+    mao: { pegaY: 0.050, pegaR: 0.0300 },
     build: () => lataCerveja(),
   },
   {
     id: 'vodka-garrafa', nome: 'Garrafa de vodka 1 L', cat: 'destilado',
     qualidade: 'boa', preco: 140, empilha: 3, naCasa: false,
     desc: 'Vidro incolor, tampa de metal, um litro cheio ate o ombro.',
-    // corpo reto de raio 4,75 cm ate 18,8 cm: a pega fica bem no meio dele.
-    mao: { pegaY: 0.105, pegaR: 0.0475 },
+    // corpo reto de raio 4,75 cm ate 18,8 cm: a pega fica no terco de baixo
+    // dele, pelo mesmo motivo da lata — o que precisa aparecer e a garrafa.
+    mao: { pegaY: 0.082, pegaR: 0.0475 },
     build: () => garrafaVodka(),
   },
   {
@@ -636,7 +642,7 @@ export const BEBIDAS = [
     // secao de 9,6 x 7,7 cm: o raio da pega e a MEDIA das duas meias-secoes,
     // porque a mao fecha nas duas direcoes e ficar so com a maior deixaria o
     // dedo boiando na face estreita.
-    mao: { pegaY: 0.100, pegaR: 0.0432 },
+    mao: { pegaY: 0.080, pegaR: 0.0432 },
     build: () => garrafaWhiskey(),
   },
 ]

@@ -67,7 +67,10 @@ const M = {
     return stdMat('copo-liq:' + cor, {
       color: cor, transparent: true, opacity: 0.82, roughness: 0.08,
       metalness: 0.0, side: THREE.DoubleSide, depthWrite: false,
-      emissive: cor, emissiveIntensity: 0.20,
+      // 0.12, e nao 0.20: em 0.20 o ambar do chope claro (0xe0a02c) subia pra
+      // laranja e o copo lia como refrigerante — o oposto do que o emissive
+      // esta aqui pra fazer. O que se quer e corpo, nao brilho.
+      emissive: cor, emissiveIntensity: 0.12,
     })
   },
   // COLARINHO. Branco creme, aspero, e OPACO: espuma nao e translucida, e
@@ -222,10 +225,15 @@ function coroaDeEspuma(seg) {
     // ruido barato e ESTAVEL: seno de tres frequencias sobre a propria posicao.
     // Nada de Math.random aqui — vertices vizinhos precisam concordar, senao a
     // malha vira serrilha em vez de bolha.
+    // As amplitudes sao FRACAO DO RAIO, e a malha e escalada pro tamanho do
+    // colarinho — entao num colarinho de 3 cm os 5,5% da primeira tentativa
+    // viravam 0,8 mm e sumiam. Fotografado de perto, o colarinho continuava
+    // liso. Estes numeros sao o dobro: em 3 cm dao ~3 mm de relevo, que e a
+    // ordem de grandeza de uma bolha de espuma de verdade.
     const r =
-      0.055 * Math.sin(v.x * 9.1 + v.z * 7.3) +
-      0.032 * Math.sin(v.x * 21.7 - v.y * 18.2 + 1.7) +
-      0.018 * Math.sin(v.z * 41.3 + v.x * 33.9 + 0.6)
+      0.110 * Math.sin(v.x * 9.1 + v.z * 7.3) +
+      0.062 * Math.sin(v.x * 21.7 - v.y * 18.2 + 1.7) +
+      0.034 * Math.sin(v.z * 41.3 + v.x * 33.9 + 0.6)
     v.multiplyScalar(1 + r / n)
     pos.setXYZ(i, v.x, v.y, v.z)
 
@@ -254,7 +262,7 @@ function anelDeEspuma(seg) {
     v.fromBufferAttribute(pos, i)
     const rad = Math.hypot(v.x, v.z)
     if (rad > 0.001) {
-      const r = 1 + 0.045 * Math.sin(v.x * 17.3 + v.z * 13.1) + 0.022 * Math.sin(v.z * 29.7 - 0.9)
+      const r = 1 + 0.085 * Math.sin(v.x * 17.3 + v.z * 13.1) + 0.042 * Math.sin(v.z * 29.7 - 0.9)
       v.x *= r; v.z *= r
       pos.setXYZ(i, v.x, v.y, v.z)
     }
@@ -325,7 +333,10 @@ function ligarNivel(grupo, perfil, seg) {
       // amontoam no eixo do copo
       rr: Math.sqrt(Math.random()) * 0.86,
       ang: Math.random() * Math.PI * 2,
-      tam: 0.0006 + Math.random() * 0.0011,
+      // 1,2 a 3,4 mm. A primeira tentativa foi de 0,6 a 1,7 e some: numa foto de
+      // perto do copo elas nao chegavam a um pixel, e de longe muito menos.
+      // Bolha de chope e visivel a olho nu — se nao da pra ver, nao esta la.
+      tam: 0.0012 + Math.random() * 0.0022,
       fase: Math.random(),
       // as grandes sobem mais rapido, como na vida real
       vel: 0.22 + Math.random() * 0.45,

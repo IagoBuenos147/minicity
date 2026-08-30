@@ -332,9 +332,9 @@ export const CAMPOS_APARENCIA = [
 // undefined la no fundo do render, no meio de um frame, e o boneco SOME.
 export const APARENCIA_OPCOES = [
   //  cabeca olhos palpebra nariz boca barba cabelo pele corCab sobrancelha
-         12,   15,       11,    1,  17,   25,    21,  10,    11,         12,
+         12,   14,       11,    1,  17,   25,    21,  10,    11,         12,
   //  chapeu calcado blusa calca colar anel tatu relogio jaqueta corBarba
-           7,      7,   12,   13,    4,   4,   4,      4,      1,       9,
+          11,     10,   12,   13,    7,   4,   4,      4,      1,       9,
 ]
 
 // O BYTE 2 MUDOU DE DONO, e nao de posicao. Ele era 'pupila'; a aba de pupila

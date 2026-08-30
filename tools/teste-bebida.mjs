@@ -124,6 +124,28 @@ try {
       const f = () => { if (pronto) return; (++i >= n) ? fim() : requestAnimationFrame(f) }
       requestAnimationFrame(f)
     })
+    /**
+     * Roda quadros ATE a condicao valer, e devolve quantos rodaram.
+     *
+     * Substitui um `passo(N)` cravado, e o motivo e uma falha de verdade que
+     * este arquivo produziu: dois casos ("2 de novo guarda" e "vaga vazia
+     * esvazia a mao") acusaram regressao numa maquina carregada, e nao havia
+     * regressao nenhuma — o que a mao faz depois de largar leva alguns quadros,
+     * e com o rAF engasgando esses quadros nao aconteciam dentro do N. O teste
+     * estava medindo o humor do renderizador.
+     *
+     * Esperar a CONDICAO conserta os dois lados: passa assim que o jogo fez o
+     * que devia, e quando nao faz, o numero de quadros que rodaram vai no
+     * relatorio — 0 quadros e um rAF morto, 40 quadros e um defeito de verdade.
+     */
+    const ate = async (cond, max = 40) => {
+      for (let i = 0; i < max; i++) {
+        if (cond()) return { ok: true, quadros: i }
+        await passo(1)
+      }
+      return { ok: cond(), quadros: max }
+    }
+
     const tecla = async (code) => {
       window.dispatchEvent(new KeyboardEvent('keydown', { code }))
       await passo(3)
@@ -169,9 +191,13 @@ try {
     await passo(10)
     await tecla('Digit1'); out.tecla1 = G.mao.id
     await tecla('Digit2'); out.tecla2 = G.mao.id
-    await tecla('Digit2'); await passo(22); out.tecla2DeNovo = G.mao.id   // guarda
+    await tecla('Digit2')
+    const g1 = await ate(() => G.mao.id === null)
+    out.tecla2DeNovo = G.mao.id; out.q1 = g1.quadros   // guarda
     await tecla('Digit1'); out.voltou = G.mao.id
-    await tecla('Digit5'); await passo(22); out.vagaVazia = G.mao.id       // vaga vazia = mao vazia
+    await tecla('Digit5')
+    const g2 = await ate(() => G.mao.id === null)
+    out.vagaVazia = G.mao.id; out.q2 = g2.quadros       // vaga vazia = mao vazia
     await tecla('Digit3'); await passo(22)
     out.movelNaoVaiPraMao = G.mao.id
     out.movelAbriuEncaixe = !!(G.encaixe && G.encaixe.ativo)
@@ -211,9 +237,11 @@ try {
   console.log('TECLAS 1 A 9')
   check('1 pega o da vaga 1', r.tecla1 === 'whiskey-garrafa', 'naMao=' + r.tecla1)
   check('2 troca pro da vaga 2', r.tecla2 === 'cerveja-lata', 'naMao=' + r.tecla2)
-  check('2 de novo guarda', r.tecla2DeNovo === null, 'naMao=' + r.tecla2DeNovo)
+  check('2 de novo guarda', r.tecla2DeNovo === null,
+    'naMao=' + r.tecla2DeNovo + ' apos ' + r.q1 + ' quadros')
   check('1 pega de volta', r.voltou === 'whiskey-garrafa', 'naMao=' + r.voltou)
-  check('vaga vazia esvazia a mao', r.vagaVazia === null, 'naMao=' + r.vagaVazia)
+  check('vaga vazia esvazia a mao', r.vagaVazia === null,
+    'naMao=' + r.vagaVazia + ' apos ' + r.q2 + ' quadros')
   check('movel NAO vai pra mao', r.movelNaoVaiPraMao === null, 'naMao=' + r.movelNaoVaiPraMao)
   check('movel abre o modo de encaixe', r.movelAbriuEncaixe === true)
 

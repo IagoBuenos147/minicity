@@ -16,13 +16,16 @@
 // ---------------------------------------------------------------------------
 
 import { CHAPEUS as CHAPEUS_BASE } from './roupa/chapeus.js'
+import { CHAPEUS_EXTRA } from './roupa/chapeus-extra.js'
 import { CALCADOS as CALCADOS_BASE } from './roupa/calcados.js'
 import { CALCADOS_EXTRA } from './roupa/calcados-extra.js'
+import { CALCADOS_EXTRA2 } from './roupa/calcados-extra2.js'
 import { CAMISAS as CAMISAS_BASE } from './roupa/camisas.js'
 import { CAMISAS_EXTRA } from './roupa/camisas-extra.js'
 import { CALCAS as CALCAS_BASE } from './roupa/calcas.js'
 import { CALCAS_EXTRA } from './roupa/calcas-extra.js'
 import { COLARES as COLARES_BASE } from './roupa/colares.js'
+import { COLARES_EXTRA } from './roupa/colares-extra.js'
 import { ANEIS } from './roupa/aneis.js'
 import { RELOGIOS } from './roupa/relogios.js'
 import { TATUAGENS } from './roupa/tatuagens.js'
@@ -123,7 +126,9 @@ export { ANEIS, RELOGIOS, TATUAGENS }
  * assentava por dentro da bola do olho).
  */
 const CHAPEUS_FORA = ['bone']
-export const CHAPEUS = CHAPEUS_BASE.filter((c) => CHAPEUS_FORA.indexOf(c.id) < 0)
+export const CHAPEUS = CHAPEUS_BASE
+  .concat(CHAPEUS_EXTRA)
+  .filter((c) => CHAPEUS_FORA.indexOf(c.id) < 0)
 
 /**
  * COLAR — ficaram o "nenhum" e o `crucifixo`, que foi o unico aprovado: "o
@@ -132,7 +137,9 @@ export const CHAPEUS = CHAPEUS_BASE.filter((c) => CHAPEUS_FORA.indexOf(c.id) < 0
  * dos cinco novos. `elos` e `bandana` sairam.
  */
 const COLARES_FORA = ['elos', 'bandana']
-export const COLARES = COLARES_BASE.filter((c) => COLARES_FORA.indexOf(c.id) < 0)
+export const COLARES = COLARES_BASE
+  .concat(COLARES_EXTRA)
+  .filter((c) => COLARES_FORA.indexOf(c.id) < 0)
 
 /**
  * CALCA — TREZE, sendo tres BERMUDAS.
@@ -153,7 +160,8 @@ export const CALCAS = comModa(CALCAS_BASE.concat(CALCAS_EXTRA), MODA_CALCA, 'cal
  */
 const CALCADOS_FORA = ['bota']
 export const CALCADOS = comModa(
-  CALCADOS_BASE.concat(CALCADOS_EXTRA).filter((c) => CALCADOS_FORA.indexOf(c.id) < 0),
+  CALCADOS_BASE.concat(CALCADOS_EXTRA, CALCADOS_EXTRA2)
+    .filter((c) => CALCADOS_FORA.indexOf(c.id) < 0),
   MODA_CALCADO, 'calcado')
 /**
  * CAMISA — DOZE. As tres antigas viraram UMA: o dono reprovou o catalogo

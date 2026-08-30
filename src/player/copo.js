@@ -222,6 +222,22 @@ export function criarCopo({ scene, camera, player, character, aparencia, hud } =
   }
 
   const api = {
+    /**
+     * As quatro poses, VIVAS, pra afinar com o copo na tela:
+     *
+     *   __game.copo.poses.ociosa.pos.set(0.0, -0.03, -0.22)
+     *
+     * Mesma porta que player/mao.js abre, e pela mesma razao: o que estes
+     * numeros produzem depende do FOV, da altura dos olhos e do tamanho do copo
+     * ao mesmo tempo, e nao da pra prever nenhum deles lendo o codigo. Sem ela,
+     * conferir o COLARINHO de perto era impossivel — a pose de jogo deixa o copo
+     * com uns 120 px, e espuma nesse tamanho e um risco branco.
+     */
+    poses: {
+      ociosa: POSE_OCIOSA, correr: POSE_CORRER,
+      estendida: POSE_ESTENDIDA, boca: POSE_BOCA,
+    },
+
     get id() { return atual ? atual.id : null },
     get segurando() { return !!atual },
     get ficha() { return atual ? atual.ficha : null },

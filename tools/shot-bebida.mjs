@@ -102,7 +102,12 @@ const lista = (so3a || soPerto || soCopo) ? [] : escolhidas
 // A pose de inspecao do modo 'perto'. Centrada e a 20 cm: o near da camera e
 // 0.05, entao nada corta. O giro de -0.18 tira a peca do frontal exato — de
 // frente perfeita a mao fica achatada e nao da pra ver o quanto o dedo enrola.
-const POSE_PERTO = { pos: [0.0, -0.030, -0.205], rot: [0.0, -0.18, 0.0] }
+// SO A DISTANCIA. O `rot` saiu daqui: sobrescrever a rotacao da pose apagava a
+// inclinacao do conjunto (o tombo que poe o punho vindo de baixo) e o close
+// mostrava um enquadramento que NAO EXISTE no jogo — eu julguei a mao duas
+// vezes por uma foto assim e as duas vezes conclui errado. Agora o modo 'perto'
+// so puxa a peca pra 20 cm; o angulo continua sendo o de jogo.
+const POSE_PERTO = { pos: [0.0, -0.030, -0.205] }
 
 // build + servidor estatico proprio (ver o cabecalho: sem Vite, sem HMR)
 const build = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'],
@@ -227,10 +232,16 @@ try {
         G.hud.setJogando(false)
         G.inventario.limpar()
         G.pegouItem(idCopo)
-        for (const nome of ['andar', 'correr']) {
-          const P = G.mao.poses[nome]
-          P.pos.set(pose.pos[0], pose.pos[1], pose.pos[2])
-          P.rot.set(pose.rot[0], pose.rot[1], pose.rot[2])
+        // O COPO TEM POSES PROPRIAS (ele e uma maquina de estados com quatro
+        // delas), entao mexer nas de player/mao.js nao move copo nenhum — foi
+        // por isso que a primeira rodada saiu na distancia de jogo, com o
+        // colarinho do tamanho de um risco.
+        const P = (G.copo && G.copo.poses) || null
+        if (P) {
+          for (const nome of ['ociosa', 'correr', 'estendida', 'boca']) {
+            if (!P[nome]) continue
+            P[nome].pos.set(pose.pos[0], pose.pos[1], pose.pos[2])
+          }
         }
         // ESTICA A MAO ANTES: encher() recusa com a mao ociosa (`estendido`),
         // que e a mesma trava que impede o jogador de encher o copo andando
@@ -263,7 +274,6 @@ try {
         // enquadramento; e elas sao objetos vivos (ver api.poses em mao.js)
         for (const nome of ['andar', 'correr']) {
           G.mao.poses[nome].pos.set(pose.pos[0], pose.pos[1], pose.pos[2])
-          G.mao.poses[nome].rot.set(pose.rot[0], pose.rot[1], pose.rot[2])
         }
       }, id, POSE_PERTO)
       await quadros(page, 40)

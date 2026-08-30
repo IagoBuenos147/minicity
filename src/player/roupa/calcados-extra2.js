@@ -327,7 +327,7 @@ function costuraV(ma, perfilCano, xMax, yBase, amp, n, comp) {
     const ang = Math.atan2(b[0] - a[0], b[2] - a[2])
     _m4.makeRotationY(ang)
     _m4.setPosition(a[0], a[1], a[2])
-    cubo(ma, _m4, 0.0026, 0.0020, comp)
+    cubo(ma, _m4, 0.0034, 0.0026, comp)
   }
 }
 
@@ -374,13 +374,16 @@ function fazBotaCauboi(c) {
   // --- salto EMPILHADO (underslung): 3 blocos, cada um mais fundo e mais pra
   // TRAS que o de baixo — e a unica forma de o degrau de cada camada virar
   // uma ARESTA de verdade (geometria), em vez de textura de "salto de couro".
-  // "Underslung" e o proprio real: a base do salto e mais ESTREITA e mais pra
+  // "Underslung" e o termo real: a base do salto e mais ESTREITA e mais pra
   // FRENTE que o topo, entao o calcanhar parece recolhido por baixo do arco.
+  // Sobe quase ate TOPO_SOLA (0.0084 x 3 = 0.0252 contra os 0.030 do
+  // TOPO_SOLA): baixo demais e ele lia como um calco escondido debaixo da
+  // entressola, nao como salto de bota.
   const zHeel = Z_TRAS + 0.044
   const camadas = [
-    { w: 0.023, d: 0.025, h: 0.0068, dz: 0.010 },
-    { w: 0.026, d: 0.029, h: 0.0068, dz: 0.006 },
-    { w: 0.029, d: 0.033, h: 0.0068, dz: 0.000 },
+    { w: 0.026, d: 0.028, h: 0.0084, dz: 0.012 },
+    { w: 0.030, d: 0.033, h: 0.0084, dz: 0.007 },
+    { w: 0.034, d: 0.038, h: 0.0084, dz: 0.000 },
   ]
   let yc = S
   for (const cm of camadas) {
@@ -406,7 +409,7 @@ function fazBotaCauboi(c) {
   // elastico da chelsea, so que em vez de amostrar em angulo (a) este amostra
   // em X, porque o cano aqui e alto e reto (nao vale a pena reparametrizar).
   const maFio = tecelagem()
-  costuraV(maFio, perfilCano, 0.037, S + 0.056, 0.060, 11, 0.0080)
+  costuraV(maFio, perfilCano, 0.032, S + 0.056, 0.060, 11, 0.0080)
   g.add(malhaDe(maFio, mFio))
 
   // --- puxador na boca do cano, centro de tras ---

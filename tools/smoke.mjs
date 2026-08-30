@@ -227,8 +227,23 @@ try {
      E sao QUATRO, nao tres: a quarta foi paga com uma foto. O vestibulo da
      adega e um comodo fechado sem janela, e ele saiu PRETO no render — nao dava
      pra ver o banco nem a cortina que o jogador precisa achar pra entrar. E
-     fraca (10) e vermelha, de proposito. */
-  check('orcamento de luzes caras <= 34', scene.luzCara <= 34,
+     fraca (10) e vermelha, de proposito.
+
+     E de 34 pra 36 pelo CORTICO 117 — que e um predio de TRES ANDARES, com um
+     corredor e duas quitinetes por andar, e mesmo assim leva DUAS. Vale
+     escrever como, porque e o truque mais barato deste arquivo inteiro:
+     as duas luzes SEGUEM O JOGADOR DE ANDAR. Uma fica sempre no meio do
+     corredor do andar em que ele esta, a outra na sala do apartamento aberto
+     daquele andar; ao trocar de piso, as duas sobem ou descem 3 m. O jogador
+     nunca ve dois andares ao mesmo tempo (a laje entre eles e opaca), entao
+     doze pontos de luz sao servidos por duas.
+
+     Elas moram na RAIZ do predio e nao nos grupos de andar, e isso NAO e
+     arrumacao: o LOD apaga os andares em que o jogador nao esta, e luz que
+     some muda a contagem de luzes VISIVEIS da cena — que entra no shader de
+     todo material e recompila a cena inteira no meio do quadro. E a armadilha
+     que render/luzes-efeito.js foi escrito pra evitar. */
+  check('orcamento de luzes caras <= 36', scene.luzCara <= 36,
     'caras=' + scene.luzCara + ' (total com as ambientes=' + scene.lights + ')')
   check('colisores registrados', scene.colliders > 100, String(scene.colliders))
   for (const id of ['barber-talk', 'barber-chair', 'barber-mirror', 'grocery-clerk', 'grocery-buy']) {

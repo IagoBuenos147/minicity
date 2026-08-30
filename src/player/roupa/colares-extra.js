@@ -293,12 +293,12 @@ function garraColar(azimute, rCintura, meiaAltura, mat) {
   const topo = new THREE.Vector3(rCintura * ca, rCintura * sa, 0)
   const eixo = new THREE.Vector3().subVectors(topo, base)
   const comp = eixo.length()
-  const haste = N.malha(new THREE.CylinderGeometry(rCintura * 0.075, rCintura * 0.11, comp, 5), mat)
+  const haste = N.malha(new THREE.CylinderGeometry(rCintura * 0.095, rCintura * 0.135, comp, 5), mat)
   haste.position.copy(base).addScaledVector(eixo, 0.5)
   haste.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), eixo.clone().normalize())
   g.add(haste)
   const rPonta = rCintura * 0.90
-  const ponta = N.malha(new THREE.SphereGeometry(rCintura * 0.10, 5, 4), mat,
+  const ponta = N.malha(new THREE.SphereGeometry(rCintura * 0.13, 5, 4), mat,
     rPonta * ca, rPonta * sa, meiaAltura * 0.18)
   g.add(ponta)
   return g
@@ -319,20 +319,21 @@ export const COLARES_EXTRA = [
       // mergulho mais fundo que o crucifixo (22 -> 26 mm): e ele que faz uma
       // corrente grossa ler como "caindo em V" e nao "aro justo com um vinco"
       const Y_FUNDO = 0.006
-      const NE = 44   // menos elos que o 'elos' do catalogo base (50): elo
-                       // GROSSO e mais espacado, elo fino e mais denso
+      const NE = 38   // bem menos elos que o 'elos' do catalogo base (50): elo
+                       // GROSSO e mais espacado — poucos elos GRANDES, nao
+                       // muitos pequenos, e o que separa "grossa" de "fina"
 
       // duas passadas pra convergir R (o raio depende do elo, o elo depende
       // do raio — mesma ressalva de colares.js)
       let R = raioAro(c, 0.0060)
       let cc = curvaColar(c, R, A_LADO, Y_FUNDO)
       let R_ELO = cc.curva.getLength() / NE / 2
-      R = raioAro(c, R_ELO * 1.36)
+      R = raioAro(c, R_ELO * 1.42)
       cc = curvaColar(c, R, A_LADO, Y_FUNDO)
       R_ELO = cc.curva.getLength() / NE / 2
-      // elo mais CHATO que o do catalogo base (0.293): e a proporcao que le
-      // como corrente cubana grossa em vez de corrente fina
-      const T_ELO = R_ELO * 0.36
+      // elo bem mais CHATO/grosso que o do catalogo base (0.293): e a
+      // proporcao que le como corrente cubana grossa em vez de corrente fina
+      const T_ELO = R_ELO * 0.42
 
       const elos = elosNaCurva(cc.curva, NE, R_ELO, T_ELO, 6)
       balanco.add(N.sh(new THREE.Mesh(fundir(elos), N.metal(0xcfa02e))))
@@ -389,19 +390,28 @@ export const COLARES_EXTRA = [
         return geo
       }
 
-      const yBase = Y_FUNDO - 0.008
+      // Placa de TRAS primeiro (mais alta, mais reta) — a de CIMA (mais baixa,
+      // mais tombada) e que teria de aparecer por cima dela na tela; ordem de
+      // insercao nao decide isso (as duas sao opacas, quem decide e o
+      // z-buffer), mas deixar a mais reta atras e a mais tombada na frente e
+      // como duas placas soltas realmente se acomodam par a par.
+      const yBase = Y_FUNDO - 0.006
       const zA = N.frentePeito(c, yBase + NECK)
-      const a = N.sh(new THREE.Mesh(placaGeo(0.021, 0.036, 0.0016, 0.011), mAco))
-      a.position.set(-0.0025, yBase, zA + 0.0010)
-      a.rotation.set(-0.32, 0.10, 0.06)
+      const a = N.sh(new THREE.Mesh(placaGeo(0.026, 0.042, 0.0018, 0.013), mAco))
+      a.position.set(-0.0040, yBase, zA)
+      a.rotation.set(-0.10, 0.08, 0.05)
       balanco.add(a)
 
+      // 14 mm de separacao em Y (1/3 da altura da placa, nao 1/6 como antes):
+      // com pouca separacao as duas siluetas se fundiam num borrao so na
+      // tela — separar de verdade E o que faz ler "duas placas", nao so a
+      // geometria por baixo.
       const mAco2 = N.metal(0x83898f)
-      const yB = yBase - 0.006
-      const zB = N.frentePeito(c, yB + NECK)
-      const b = N.sh(new THREE.Mesh(placaGeo(0.021, 0.036, 0.0016, 0.011), mAco2))
-      b.position.set(0.0035, yB, zB)
-      b.rotation.set(-0.30, -0.14, -0.10)
+      const yB = yBase - 0.014
+      const zB = N.frentePeito(c, yB + NECK) + 0.0020
+      const b = N.sh(new THREE.Mesh(placaGeo(0.026, 0.042, 0.0018, 0.013), mAco2))
+      b.position.set(0.0045, yB, zB)
+      b.rotation.set(-0.16, -0.12, -0.09)
       balanco.add(b)
 
       // argola: prende a corrente nas duas placas, no fundo da curva
@@ -585,7 +595,10 @@ export const COLARES_EXTRA = [
       balanco.add(N.sh(new THREE.Mesh(fundir(elos), mPrata)))
 
       // --- engaste + pedra ---------------------------------------------------
-      const R_GEMA = 0.0068, H_GEMA = 0.0064
+      // Maior que uma pedra de anel de proposito: de longe uma pedra do
+      // tamanho da de aneis.js (6,8/6,4 mm) some contra o peito — o pingente
+      // de colar precisa ler a 2-3 m, o anel so precisa ler em close.
+      const R_GEMA = 0.0100, H_GEMA = 0.0092
       const yGema = Y_FUNDO - 0.010
       const zGema = N.frentePeito(c, yGema + NECK)
       const eng = new THREE.Group()

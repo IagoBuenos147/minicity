@@ -143,6 +143,31 @@ Abre no **menu do Cassino Buenos** — placa de neon —, com tres opcoes:
   menos resta, mais o copo inclina. No último gole ele zera, e o clique seguinte
   volta a esticar a mão. A caneca de meio litro rende seis goles; o americano,
   três.
+- **O Cortiço 117** (o prédio de três andares ao lado da adega, de frente para
+  o anel): o outro prédio de cenário que virou endereço. Fachada de reboco
+  batido, janelas com grade nos dois primeiros andares, **roupa no varal** entre
+  elas, ar condicionado pingando na parede, fiação puxada por fora e a barra de
+  pintura que alguém começou e não terminou.
+  Dentro é um **corredor com doze portas** — bulbo nu no fio, eletroduto
+  aparente, rodapé de óleo, infiltração no forro, saco de lixo que ninguém
+  desce, caixa de correio arrombada e uma bicicleta acorrentada embaixo da
+  escada. A **escada é de verdade**: dois lances em U por andar, com patamar,
+  corrimão de tubo enferrujado e guarda-corpo no último. **Dá para subir os três
+  andares andando** — é o primeiro prédio do jogo com mais de um piso.
+  **Duas portas abrem**: a **12**, no 1º andar, e a **23**, no 2º. Aperte `E`
+  numa delas e o jogo faz **toc toc toc**; dois segundos depois o morador
+  atravessa a sala, abre, te recebe (a fala sai na legenda do rodapé, a mesma da
+  cutscene), sai da frente e **volta a sentar no sofá**, onde continua fumando —
+  cigarro enrolado à mão, brasa que acende na tragada e **fumaça de verdade**,
+  um fiapo saindo da ponta acesa e uma baforada quando ele solta.
+  Cada apartamento tem **dois cômodos**. Na sala: sofá afundado com a espuma
+  saindo do braço, TV de tubo chiando em cima de dois caixotes, abajur de chão
+  e a **mesa de centro** — espelho com as carreiras e a lâmina, cinzeiro
+  transbordando de bituca, o monte branco, a caixinha de fumo com o mato picado,
+  a seda, o desfiador, o isqueiro, garrafa de whisky, long neck e lata amassada
+  no chão. No quarto dos fundos: colchão no chão, armário de compensado com uma
+  porta faltando, e a mesinha com a **balança**, os saquinhos e o maço de
+  dinheiro com elástico.
 - **Móveis na sua casa**: clique numa vaga da mochila para pegar o móvel. Ele
   aparece como um fantasma **verde** onde cabe e **vermelho** onde não cabe, com
   a pegada desenhada no chão. `R`/`Q` gira, botão esquerdo instala, `Esc`
@@ -296,6 +321,7 @@ npm run teste-nome-unico # um corpo por nome no servidor (10 casos)
 npm run teste-reiniciar  # a tecla F8 devolvendo o mundo ao inicio (14 casos)
 npm run teste-online     # dois navegadores de verdade na mesma sala (22 casos)
 npm run teste-lobby      # a sala de 2 a 4, anfitriao e prontos (28 casos)
+npm run teste-coplanar   # duas superficies disputando o mesmo pixel (8 lugares)
 npm run shot-clima       # fotos do cassino, da chuva e da neve em shots/
 npm run shot-tela        # fotos do menu, da criacao, da casa e da cutscene
 ```
@@ -303,6 +329,15 @@ npm run shot-tela        # fotos do menu, da criacao, da casa e da cutscene
 Teste de ponta a ponta num navegador headless: movimento, colisão, altura do chão,
 troca de câmera, os cinco pontos de interação, o painel de customização e o
 desempenho. Sai com código 1 se algo quebrar.
+
+O `teste-coplanar` merece uma linha à parte porque ele caça um defeito que não
+aparece no console nem na leitura do código: **duas superfícies exatamente na
+mesma posição**. O z-buffer não tem como decidir qual das duas está na frente
+quando as duas estão na mesma distância, então ele decide de novo a cada quadro
+— e o pixel troca de cor sozinho conforme o jogador anda. Quase toda queixa de
+"a iluminação está tremendo" neste projeto acabou sendo isto, e não iluminação.
+Ele varre os oito interiores e fachadas onde o jogador chega perto da parede,
+ignora as faces enterradas (que ninguém vê) e só reclama do encosto de verdade.
 
 ```bash
 npm run shots -- cidade personagem barbearia mercearia

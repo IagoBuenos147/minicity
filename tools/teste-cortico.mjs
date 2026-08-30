@@ -329,11 +329,11 @@ try {
     ['cortico-04-escada', 42.5, -42.4, 0, 0.16, 0.16],
     ['cortico-05-corredor-1', 45.4, -41.9, Math.PI / 2, 0.0, 3.16],
     ['cortico-06-porta-12', 36.9, -41.6, Math.PI, 0.0, 3.16],
-    ['cortico-07-sala', 36.5, -40.2, 2.08, -0.06, 3.16],
-    ['cortico-08-mesa', 35.7, -39.3, 1.85, -0.34, 3.16],
+    ['cortico-07-sala', 36.8, -40.35, 2.20, -0.04, 3.16],
+    ['cortico-08-mesa', 34.3, -40.05, Math.PI, -0.42, 3.16],
     ['cortico-09-quarto', 36.4, -35.4, Math.PI / 2, -0.06, 3.16],
     ['cortico-10-corredor-2', 40.0, -41.9, Math.PI / 2, 0.0, 6.16],
-    ['cortico-11-sala-b', 41.6, -40.2, -2.20, -0.06, 6.16],
+    ['cortico-11-sala-b', 41.3, -40.35, -2.20, -0.04, 6.16],
   ]
   for (const [nome, x, z, yaw, pitch, y] of TOMADAS) {
     try {

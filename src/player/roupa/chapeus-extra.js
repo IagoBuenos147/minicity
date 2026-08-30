@@ -283,13 +283,14 @@ export const CHAPEUS_EXTRA = [
   },
 
   // -------------------------------------------------------------------------
-  // c) BONE-NOVO — cinco gomos, aba com curvatura de verdade, patch redondo
-  // em relevo e etiqueta lateral. Substitui o `bone` (removido do catalogo).
+  // c) BONE-NOVO — cinco gomos, aba SO NA FRENTE (140 graus, morre nas
+  // laterais) com curva em U, patch redondo em relevo e etiqueta lateral.
+  // Substitui o `bone` (removido do catalogo).
   // -------------------------------------------------------------------------
   {
     id: 'bone-novo',
     nome: 'Bone Novo',
-    metodo: 'CINCO gomos (paineis independentes, normais nao soldadas = quina de verdade na costura) + aba com curvatura de verdade (calha de lado a lado, alem de cair pra frente — a antiga era uma chapa que so caia) + patch redondo em RELEVO (geometria, nao textura) + etiqueta lateral',
+    metodo: 'CINCO gomos (paineis independentes, normais nao soldadas = quina de verdade na costura, com costura estreita em cada fronteira) + aba SO NA FRENTE (140 graus de azimute, morre nas laterais) com curva em U de verdade (cai pra frente e pras duas pontas laterais) + botao proud no topo + patch redondo em RELEVO (geometria, nao textura) + etiqueta lateral',
     build(c) {
       const K = cranio(c)
       const g = new THREE.Group()
@@ -300,7 +301,7 @@ export const CHAPEUS_EXTRA = [
       // yFit mede a largura na altura ANTIGA (a do bone comum); yB e quem
       // sobe pra tirar a aba de cima da bola do olho.
       const yFit = 0.086
-      const yB = 0.132
+      const yB = 0.138
       const B = boca(K, yFit, 1.10)
       const rb = B.rx
       const kz = B.rz / rb
@@ -327,7 +328,7 @@ export const CHAPEUS_EXTRA = [
       const crown = paineis(GOMOS, 5, 8, (k, u, v, out) => {
         const az = k * passo - meiaLarg + u * (2 * meiaLarg)
         const e = raioEm(v)
-        const f = 1 + 0.022 * Math.sin(Math.PI * u) * v
+        const f = 1 + 0.032 * Math.sin(Math.PI * u) * v
         out.set(e.rx * f * Math.sin(az), e.y, e.rz * f * Math.cos(az))
       })
       g.add(N.sh(new THREE.Mesh(crown, m)))
@@ -337,37 +338,53 @@ export const CHAPEUS_EXTRA = [
       let kzCostura = kz
       for (let i = 1; i <= 9; i++) {
         const e = raioEm(i / 9)
-        meridiano.push([e.rx * 1.012 + 0.001, e.y])
+        meridiano.push([e.rx * 1.020 + 0.0012, e.y])
         if (e.rz / e.rx > kzCostura) kzCostura = e.rz / e.rx
       }
+      // Cada costura fica NA FRONTEIRA entre dois gomos (k*passo + meiaLarg
+      // — os paineis nascem CENTRADOS em k*passo, entao a fronteira e meio
+      // passo adiante), como uma TIRA ESTREITA de 0.058 rad (~3,3 graus).
+      // A versao anterior usava phiLen = 2*meiaLarg (a largura do GOMO
+      // inteiro): a "costura" virava uma segunda casca cobrindo quase todo
+      // o painel, indistinguivel dele — por isso a quina nao aparecia na
+      // foto.
       for (let k = 0; k < GOMOS; k++) {
+        const centro = k * passo + meiaLarg
         g.add(N.sh(new THREE.Mesh(
-          doAltoPraBaixo(meridiano, 2, kzCostura, k * passo - meiaLarg - 0.002, 2 * meiaLarg + 0.004),
+          doAltoPraBaixo(meridiano, 2, kzCostura, centro - 0.029, 0.058),
           escuro,
         )))
       }
 
-      const botao = N.bola(0.018, escuro, 10)
-      botao.scale.y = 0.60
-      botao.position.y = yT - 0.002
+      // Botao maior, mais redondo (0.72 em vez de 0.60) e PROUD do apice —
+      // antes ficava embutido (yT - 0.002) e quase sumia contra a copa.
+      const botao = N.bola(0.023, escuro, 12)
+      botao.scale.y = 0.72
+      botao.position.y = yT + 0.004
       g.add(botao)
 
-      // ABA COM CURVATURA DE VERDADE. A antiga era uma chapa que so caia pra
-      // frente (s*s). Esta tem DOIS arcos ao mesmo tempo: cai pra frente E
-      // se encurva de lado a lado feito calha (as bordas, t perto de +-1,
-      // sobem em relacao ao centro em CADA distancia s>0.15 da carneira —
-      // "calha" some perto da carneira pra nao vincar contra a copa).
-      const ANG = 1.55
-      const L0 = 0.148
+      // ABA SO NA FRENTE: 140 graus de azimute (+-70), morrendo nas
+      // laterais — exatamente o ponto da foto de referencia do dono. A
+      // versao anterior ia ate +-88,8 graus com um piso de 28% no
+      // comprimento em qualquer t, e de frente aquilo lia como aba dando a
+      // volta inteira (boonie/safari), nao bone: faltava so 1,2 grau pra
+      // fechar em cada lado, e mesmo o que faltava ainda tinha 28% do
+      // comprimento. Aqui o comprimento cai a 8% de L0 bem em +-70 graus —
+      // o painel lateral (k=1 e k=4) nasce praticamente SEM ABA.
+      const ANG = 1.222                    // 70 graus
+      const L0 = 0.150
       const ESP = 0.014
       const aba = grade(28, 10, (u, v, out) => {
         const t = u * 2 - 1
         const a = t * ANG
         const s = Math.sin(Math.PI * v)
         const off = Math.cos(Math.PI * v) * ESP * 0.5
-        const L = L0 * (0.28 + 0.72 * Math.pow(Math.cos(t * Math.PI / 2), 0.85))
-        const calha = 0.026 * t * t * smoothstep(0.10, 0.55, s)
-        const y = yB + 0.004 - 0.026 * s * s - 0.052 * t * t * s + calha + off
+        const L = L0 * (0.08 + 0.92 * Math.pow(Math.cos(t * Math.PI / 2), 0.85))
+        // CURVA EM U DE VERDADE: a ponta cai pra frente (s*s, como antes) E
+        // as DUAS PONTAS LATERAIS da aba caem em relacao ao centro (t*t) —
+        // sem nenhuma "calha" cancelando a queda pela metade, que era o que
+        // a versao anterior fazia (por isso saia quase reta na foto).
+        const y = yB + 0.004 - 0.026 * s * s - 0.060 * t * t * s + off
         out.set((rb * 0.995 + L * s) * Math.sin(a), y, (rb * kz * 0.995 + L * s) * Math.cos(a))
       })
       g.add(N.sh(new THREE.Mesh(aba, N.tecido2(N.esc(cor, 0.88), 0.85))))

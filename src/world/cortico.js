@@ -237,13 +237,15 @@ function fachadaTex() {
       g.fillStyle = 'rgba(' + (Math.random() < 0.5 ? '150,138,112' : '200,192,170') + ',' + (0.1 + Math.random() * 0.25) + ')'
       g.fillRect(Math.random() * s, Math.random() * s, 10 + Math.random() * 50, 8 + Math.random() * 40)
     }
-    for (let i = 0; i < 14; i++) {
+    // ESCORRIDOS de chuva. Seis e nao catorze, e com um terco do alfa: com o
+    // valor antigo o reboco saia LISTRADO na foto e o predio parecia de tabua.
+    for (let i = 0; i < 6; i++) {
       const x = Math.random() * s
       const gr = g.createLinearGradient(0, 0, 0, s)
-      gr.addColorStop(0, 'rgba(56,48,36,0.35)')
+      gr.addColorStop(0, 'rgba(56,48,36,0.13)')
       gr.addColorStop(1, 'rgba(56,48,36,0)')
       g.fillStyle = gr
-      g.fillRect(x, 0, 4 + Math.random() * 16, s)
+      g.fillRect(x, 0, 5 + Math.random() * 18, s)
     }
     for (let i = 0; i < 400; i++) {
       g.fillStyle = 'rgba(30,26,20,' + (Math.random() * 0.14) + ')'
@@ -874,7 +876,11 @@ function andarDoPredio(g, cols, interactables, pisos, a, yPiso, registrar) {
 
   // --- laje de piso ---------------------------------------------------------
   if (terreo) {
-    pisos.laje(IN.x0, IN.x1, IN.z0, IN.z1, y, 'cort-piso0')
+    // ATE A FACE EXTERNA das paredes, e nao ate o interior: o vao da porta de
+    // rua tem 30 cm de espessura de parede, e o piso que parava em IN.z0
+    // deixava esses 30 cm sem chao nenhum — da calcada dava pra ver a GRAMA
+    // por baixo da soleira.
+    pisos.laje(B.x0, B.x1, B.z0, B.z1, y, 'cort-piso0')
   } else {
     // quatro retangulos em volta da caixa da escada
     pisos.laje(IN.x0, ESC.x0, IN.z0, IN.z1, y, 'cort-piso')
@@ -888,8 +894,10 @@ function andarDoPredio(g, cols, interactables, pisos, a, yPiso, registrar) {
     g.add(l1)
   }
 
-  // piso visivel
-  const p = plane(IN.x1 - IN.x0, IN.z1 - IN.z0, M.piso)
+  // piso visivel (no terreo ele vai ate a face externa, ver a laje acima)
+  const pw = terreo ? B.x1 - B.x0 : IN.x1 - IN.x0
+  const pd = terreo ? B.z1 - B.z0 : IN.z1 - IN.z0
+  const p = plane(pw, pd, M.piso)
   p.position.set((IN.x0 + IN.x1) / 2, y + 0.006, (IN.z0 + IN.z1) / 2)
   p.receiveShadow = true
   g.add(p)
@@ -975,11 +983,35 @@ function corredor(g, cols, a, y, terreo) {
   g.add(duto)
   for (const x of xs) g.add(box(0.12, 0.12, 0.06, M.plastico, x, y + PE - 0.10, COR.z0 + 0.13))
 
-  // rodape de oleo (a barra escura de 1,1 m que todo predio velho tem)
-  for (const z of [COR.z0 - 0.06, COR.z1 + 0.06]) {
-    const r = box(IN.x1 - IN.x0, 1.10, 0.02, solid(0x5c5347, 0.95), (IN.x0 + IN.x1) / 2, y + 0.55, z)
+  // RODAPE DE OLEO: a barra escura de 1,10 m que todo predio velho tem.
+  //
+  // Ele vai na FACE DE DENTRO de cada parede (a 7,5 cm do eixo, que e a metade
+  // da espessura mais um milimetro) e e PARTIDO nos vaos. A primeira versao
+  // punha uma faixa corrida de 14,5 m do lado de FORA das duas paredes: no
+  // terreo ela atravessava o vao do saguao e aparecia como uma barra preta
+  // flutuando bem no meio da passagem, vista da porta da rua.
+  const rodape = solid(0x5c5347, 0.95)
+  function barra(x0, x1, z) {
+    if (x1 - x0 < 0.05) return
+    const r = box(x1 - x0, 1.10, 0.02, rodape, (x0 + x1) / 2, y + 0.55, z)
     r.receiveShadow = true
     g.add(r)
+  }
+  // norte: partida no vao da escada e (no terreo) no do saguao
+  if (terreo) {
+    barra(IN.x0, SAG.x0, COR.z0 + 0.075)
+    barra(SAG.x1, ESC.x0, COR.z0 + 0.075)
+  } else {
+    barra(IN.x0, ESC.x0, COR.z0 + 0.075)
+  }
+  barra(ESC.x1, IN.x1, COR.z0 + 0.075)
+  // sul: partida no vao do apartamento que abre naquele andar
+  const apAbre = APTOS.find((q) => q.andar === a)
+  if (apAbre) {
+    barra(IN.x0, apAbre.portaX - PORTA_L / 2, COR.z1 - 0.075)
+    barra(apAbre.portaX + PORTA_L / 2, IN.x1, COR.z1 - 0.075)
+  } else {
+    barra(IN.x0, IN.x1, COR.z1 - 0.075)
   }
 
   // saco de lixo que ninguem desce + caixote + vassoura encostada
@@ -1823,9 +1855,13 @@ export function buildCortico(game) {
   luzCorredor.position.set(39.8, BASE + 2.4, (COR.z0 + COR.z1) / 2)
   group.add(luzCorredor)
   luzes.push(luzCorredor)
-  const luzApto = new THREE.PointLight(0xffb46a, 20, 11, 2)
+  // 30 e nao 20: a quitinete e o unico comodo do predio SEM janela pro lado de
+  // fora que conte (a do fundo da o beco), e a primeira foto da sala saiu preta
+  // do sofa pra tras. O corredor pode ser escuro; a sala, nao — e nela que esta
+  // tudo que o lugar tem pra contar.
+  const luzApto = new THREE.PointLight(0xffb46a, 30, 14, 2)
   luzApto.castShadow = false
-  luzApto.position.set(35.0, BASE + 2.3, -38.0)
+  luzApto.position.set(35.0, BASE + 2.1, -38.0)
   group.add(luzApto)
   luzes.push(luzApto)
 
@@ -1942,14 +1978,18 @@ export function buildCortico(game) {
       // a luz do corredor e a do apartamento SEGUEM o jogador de andar
       const yA = BASE + NIVEIS[n]
       luzCorredor.position.y = yA + 2.40
-      luzApto.position.y = yA + 2.30
+      luzApto.position.y = yA + 2.10
       // a segunda luz vai pra SALA do apartamento aberto daquele andar; nos
       // andares sem apartamento ela fica na ponta oeste do corredor, que e o
       // trecho mais longe da luz do meio
       const apAqui = aptos.find((q) => q.spec.andar === n)
       if (apAqui) {
         luzApto.position.x = (apAqui.spec.x0 + apAqui.spec.x1) / 2
-        luzApto.position.z = (apAqui.spec.z0 + apAqui.spec.divisao) / 2
+        // 80 cm ANTES da divisoria, e nao no meio da sala: dali ela pega o
+        // sofa e a mesa de centro E ainda joga alguma coisa pelo vao pra dentro
+        // do quarto, que de outro jeito ficava preto (o quarto nao tem luz
+        // propria de verdade, so o bulbo emissivo).
+        luzApto.position.z = apAqui.spec.divisao - 0.80
       } else {
         luzApto.position.x = IN.x0 + 2.0
         luzApto.position.z = (COR.z0 + COR.z1) / 2

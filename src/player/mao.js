@@ -72,9 +72,12 @@ const POSE_ANDAR = {
   // resolver isso, e girar ali so troca qual dedo aparece — nunca ia baixar o
   // punho. Quem baixa e a rotacao do CONJUNTO, que e esta.
   //
-  // -0.50 rad = 29 graus. Menos que isso e a mao ainda le como deitada
-  // atravessando a tela; muito mais e a lata derrama.
-  rot: new THREE.Euler(0.14, -0.26, -0.50),
+  // -0.28 rad. A primeira tentativa foi -0.50 e na tela a lata saiu quase 40
+  // graus fora da vertical — parecia que ia derramar. O angulo que se ve NAO e
+  // so este z: ele compoe com o x e o y da mesma pose, entao 0.28 aqui da os
+  // ~15 graus da foto de referencia. Menos que isso e a mao volta a ler como
+  // deitada atravessando a tela.
+  rot: new THREE.Euler(0.14, -0.26, -0.28),
 }
 const POSE_CORRER = {
   // A mao desce 6 cm, abre pra fora e a peca vira quase de lado: e o gesto de
@@ -87,7 +90,7 @@ const POSE_CORRER = {
   // gargalo no canto — a pose de corrida existia e ninguem a via. Quem carrega
   // a leitura da corrida aqui e a ROTACAO, nao a altura.
   pos: new THREE.Vector3(0.315, -0.352, -0.455),
-  rot: new THREE.Euler(0.60, -0.55, -0.30),
+  rot: new THREE.Euler(0.60, -0.55, -0.18),
 }
 // Pose na mao DE VERDADE (3a pessoa): a junta handR e o PULSO, entao a peca
 // sobe um pouco pra pousar no punho fechado em vez de nascer dentro dele.
@@ -110,29 +113,29 @@ const ACIMA_REF = 0.20
  * direita segura uma garrafa de verdade, e o que as fotos de referencia mostram.
  */
 const PUNHO = {
-  // Azimute da pega: de que lado a mao entra e quanto dela a camera ve.
+  // Azimute da pega: de que lado a mao entra e, sobretudo, DE QUE LADO DA PECA
+  // OS DEDOS PASSAM.
   //
-  // A MAO ENTRA PELA DIREITA e fecha PRA ESQUERDA — o punho na borda direita do
-  // quadro, os quatro dedos por TRAS da peca e as pontas reaparecendo na borda
-  // esquerda. E o que a foto de referencia do dono mostra (a mao dele segurando
-  // um copo, vista do angulo dele), e o que ele descreveu: "os quatro dedos
-  // atras da lata".
+  // O VALOR SAI DE UMA MEDIDA, e a medida certa e a da PONTA DOS DEDOS — nao a
+  // do centro de massa da mao, que foi como escolhi antes e escolhi errado (o
+  // centro mistura palma, dorso e dedos e nao diz quem tapa o que). Com
+  // api.medirPega() da pra ler, no espaco da peca, onde as quatro pontas caem:
   //
-  // O VALOR FOI MEDIDO, nao escolhido no olho. Pra cada giro candidato dava pra
-  // ler, no espaco da peca, onde a malha do punho cai:
+  //   giro   ponta Z   ponta X   pulso X
+  //   0.8     +3.0      +1.4      -2.4
+  //   1.2     ~+2.2     ~+2.3     ~-5.0   <- este
+  //   1.6     +1.1      +3.1      -7.3
+  //   1.9      ~0       ...       ...     <- o valor antigo, na borda
+  //   2.4     -1.4      +3.0      -7.8
   //
-  //   giro   massa em X   massa em Z   ponta mais a esquerda
-  //   1.30     -0.001       -0.023            0.055
-  //   1.90     -0.014       -0.018            0.048
-  //   2.45     -0.021       -0.009            0.040
+  // Z POSITIVO E ATRAS DA PECA (longe da camera) e X NEGATIVO e a direita da
+  // tela — o `orienta` da meia-volta na peca. Entao a janela boa vai de ~0.8 a
+  // ~1.6: fora dela as pontas cruzam pra FRENTE e tapam a bebida, que era
+  // exatamente a queixa. Em 1.9 elas estavam em cima do zero.
   //
-  // X negativo e a direita da tela, Z negativo e perto da camera, e a lata tem
-  // raio 0.030 — ou seja, em qualquer um deles as pontas passam da silhueta
-  // esquerda. O que muda e a massa: giro baixo joga a mao na frente da peca
-  // (ela tapa a lata), giro alto empurra pro lado (some do quadro). 1.9 e onde
-  // as COSTAS da mao ficam viradas pra camera com o punho na direita, que e o
-  // enquadramento da foto.
-  giro: 1.9,
+  // 1.2 e o meio dessa janela: dedos com 2 cm de folga atras, pontas
+  // reaparecendo na borda esquerda e o pulso 5 cm pra direita.
+  giro: 1.2,
   // Pra cima ou pra baixo: decide se o polegar sobe ou desce na peca. Sao os
   // dois unicos graus de liberdade da colocacao, e AS COMBINACOES SAO QUATRO —
   // por isso eles sao ajustaveis por fora (api.ajustarPunho) em vez de cravados.
@@ -230,6 +233,32 @@ const EIXO_POLEGAR_DEITADO = new THREE.Vector3(0, -1, 0)
  * Devolve { geo, centro }: `centro` e onde o eixo do cilindro cai NO ESPACO DA
  * MAO, e e por ele que quem chama encaixa a mao na peca.
  */
+/**
+ * ONDE A PONTA DE UM DEDO VAI PARAR.
+ *
+ * Reproduz passo a passo a integracao de M.dedo() — que avanca um trecho e gira
+ * um pedaco da curva por junta, com os mesmos pesos — e devolve so o ultimo
+ * ponto. E o unico jeito de saber a ponta: dedo() desenha e nao devolve nada.
+ *
+ * Existe porque MEDIR A MAO INTEIRA NAO RESPONDE A PERGUNTA CERTA. O centro e a
+ * caixa da malha misturam palma, dorso e dedos, e o que decide se a peca fica
+ * tapada e SO onde as quatro pontas caem: na frente do objeto elas o escondem,
+ * atras elas somem. Escolhi o giro por centro de massa uma vez e escolhi errado.
+ */
+const PESO_DEDO = [0.30, 0.10, 0.40, 0.20]
+function pontaDoDedo(base, dir, comp, curva, raio, ponta, R, eixo) {
+  const p = base.clone()
+  const d = dir.clone().normalize()
+  const passo = comp / (R - 1)
+  for (let k = 0; k < R - 1; k++) {
+    p.addScaledVector(d, passo)
+    d.applyAxisAngle(eixo, curva * (PESO_DEDO[k] || 0.25))
+  }
+  // o mesmo avanco que dedo() da pra fechar o leque da ponta
+  p.addScaledVector(d, raio * ponta * 0.62)
+  return p
+}
+
 function construirPunho(r) {
   const M = MALHA_MAO
   const ma = M.malha()
@@ -280,6 +309,7 @@ function construirPunho(r) {
   // os dedos, mas num punho eles se comprimem uns contra os outros. Com o leque,
   // as pontas abriam em leque justamente onde deviam se encostar.
   let cx = 0, cy = 0, nCentro = 0
+  const pontas = []
   for (const d of M.DEDOS) {
     const dir = new THREE.Vector3(-0.10, -1, 0).normalize()
     // AQUI. Arco / raio: o dedo gira o que for preciso pra dar a volta nesta
@@ -289,7 +319,9 @@ function construirPunho(r) {
     // 9 colunas e 6 aneis (a mao do boneco usa 7 e 5): esta aqui e vista a
     // vinte centimetros do olho, e com 7 colunas a superelipse do dedo mostra
     // faceta na silhueta. Custa alguns triangulos numa malha que existe UMA vez.
-    M.dedo(ma, new THREE.Vector3(0, d.y, d.z), dir, d.comp, curva, d.raio, 0.66, 9, 6)
+    const base = new THREE.Vector3(0, d.y, d.z)
+    M.dedo(ma, base, dir, d.comp, curva, d.raio, 0.66, 9, 6)
+    pontas.push(pontaDoDedo(base, dir, d.comp, curva, d.raio, 0.66, 6, M.EIXO_DEDO))
     // centro do arco deste dedo: perpendicular a direcao, do lado pra onde ele
     // dobra (-X). A media dos quatro e onde o eixo da peca cai.
     const R = r + d.raio
@@ -374,7 +406,7 @@ function construirPunho(r) {
 
   const geo = ma.geo()
   pintarPele(geo, cx, cy, r)
-  return { geo, centro: _v3.set(cx, cy, 0).clone() }
+  return { geo, centro: _v3.set(cx, cy, 0).clone(), pontas }
 }
 
 /** Tampa com a volta invertida: fecha o COMECO de uma pilha de aneis. */
@@ -474,7 +506,7 @@ export function punhoEmVolta(r, pele) {
     color: pele, roughness: 0.80, metalness: 0.0, vertexColors: true,
   })
 
-  const { geo, centro } = construirPunho(r)
+  const { geo, centro, pontas } = construirPunho(r)
 
   // pivo: gira e translada a malha da mao inteira
   const pivo = new THREE.Group()
@@ -487,6 +519,23 @@ export function punhoEmVolta(r, pele) {
   suporteGiro.rotation.y = PUNHO.giro
   suporteGiro.add(pivo)
   g.add(suporteGiro)
+
+  // Marcadores nas quatro pontas e no pulso. Nao desenham nada — existem pra
+  // dar pra LER onde eles caem no espaco da peca depois de toda a colocacao
+  // (ver api.medirPega). Foi so medindo a PONTA que o giro certo apareceu:
+  // medir o centro de massa da mao mistura palma e dedos e responde outra
+  // pergunta.
+  const marcas = pontas.map((pt) => {
+    const o3 = new THREE.Object3D()
+    o3.position.set(pt.x - centro.x, pt.y - centro.y, pt.z)
+    pivo.add(o3)
+    return o3
+  })
+  const marcaPulso = new THREE.Object3D()
+  marcaPulso.position.set(-centro.x, -centro.y, 0)
+  pivo.add(marcaPulso)
+  g.userData.marcasPonta = marcas
+  g.userData.marcaPulso = marcaPulso
 
   // --- SEM BRACO ------------------------------------------------------------
   //
@@ -681,6 +730,32 @@ export function criarMao({ scene, camera, player, character, aparencia } = {}) {
      * espacos (mao -> peca -> camera) e nao da pra prever no papel. A diferenca
      * e que estes mudam a GEOMETRIA, entao o cache por id e limpo junto.
      */
+    /**
+     * Onde as QUATRO PONTAS e o PULSO caem no espaco da peca, em centimetros.
+     *
+     *   z > 0  atras da peca (longe da camera)  <- e onde os dedos tem que ficar
+     *   z < 0  na frente, tapando a peca
+     *   x < 0  direita da tela   |   x > 0  esquerda
+     *
+     * (O `orienta` da meia-volta na peca, entao -X e a direita da tela.)
+     */
+    medirPega() {
+      const punho = atual && atual.punho
+      if (!punho) return null
+      punho.updateMatrixWorld(true)
+      const inv = punho.matrixWorld.clone().invert()
+      const ler = (o3) => {
+        o3.updateMatrixWorld(true)
+        const v = new THREE.Vector3().setFromMatrixPosition(o3.matrixWorld).applyMatrix4(inv)
+        return { x: +(v.x * 100).toFixed(1), y: +(v.y * 100).toFixed(1), z: +(v.z * 100).toFixed(1) }
+      }
+      const ms = punho.userData.marcasPonta || []
+      return {
+        pontas: ms.map(ler),
+        pulso: punho.userData.marcaPulso ? ler(punho.userData.marcaPulso) : null,
+      }
+    },
+
     ajustarPunho(op) {
       if (op && typeof op.giro === 'number') PUNHO.giro = op.giro
       if (op && typeof op.cima === 'boolean') PUNHO.cima = op.cima

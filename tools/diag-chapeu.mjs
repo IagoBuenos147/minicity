@@ -138,7 +138,7 @@ try {
       })
     }
     return out
-  }, 7)
+  }, 11)
 
   console.log('idx  subiu   topoOlho  panoAcimaDoOlho  cabeloForaDoPano')
   for (const l of linhas) {

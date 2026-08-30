@@ -155,6 +155,30 @@ diferenca entre "pelo" e "capacete de plastico".
 | `sobrancelha.js` + `sobrancelha-extra.js` + `sobrancelha-extra2.js` | 3 + 6 + 3 | tres metodos; pelo menos um com fio visivel. As seis do extra variam DUAS coisas ao mesmo tempo — o formato (reta, arqueada, caida nas pontas, grossa e curta, fina e longa, quebrada) e a espessura/densidade do fio. Variar so uma das duas daria seis irmas |
 | `nucleo.js` (`CRANIOS`) | 12 | seis originais + ovalada, achatada, alongada atras, diamante, trapezio e coracao. O indice viaja como byte, mas `APARENCIA_OPCOES` em `comum/protocolo.js` CORTA no numero de opcoes — catalogo que cresce sem atualizar aquela tabela chega cortado na tela dos outros jogadores |
 
+## 9b. O chapeu tapa tudo que esta acima dele
+
+Duas regras, uma de sistema e uma de catalogo, que juntas resolvem a queixa
+"o olho passa um pouco acima do chapeu aparecendo um olho dentro do chapeu":
+
+1. **Sistema** (`character.js`, `acomodarCabeloSobOChapeu`): o cabelo e
+   recortado POR VERTICE contra o pano do chapeu, medido por raio em 336
+   direcoes. Vertice mais longe do centro do cranio do que o pano naquela
+   direcao e trazido pra 4 mm por dentro dele; onde nao ha chapeu a tabela
+   devolve 0 e o vertice fica onde estava — e por isso que o cabelo continua
+   aparecendo pelos lados e por baixo. A posicao original fica guardada na
+   geometria (`geo.userData.posSemChapeu`), porque trocar de chapeu NAO
+   reconstroi o cabelo.
+
+2. **Catalogo** (`roupa/chapeus.js` e `chapeus-extra.js`): **nenhum pano de
+   chapeu pode ficar abaixo de y = 0.136 na regiao por cima do olho.** O olho
+   deste personagem e uma bola de desenho de 8 cm que se projeta bem alem da
+   superficie do cranio, e todo chapeu assenta NO cranio — abaixo dessa linha,
+   a bola atravessa o pano. Confira com `node tools/diag-chapeu.mjs`, que
+   imprime a linha de cada chapeu.
+
+O empurrao automatico do chapeu pra cima (`levantarChapeuAcimaDosOlhos`) e
+rede de seguranca, limitada a 2,5 cm — nao substitui a regra 2.
+
 ## 10. Como conferir um catalogo inteiro
 
 ```bash

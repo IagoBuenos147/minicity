@@ -344,7 +344,7 @@ function buildFloorAndTrim(g) {
   }
 }
 
-function buildCeilingAndLights(g, lights, fixtures) {
+function buildCeilingAndLights(g, lights) {
   const c = plane(IN.w, IN.d, M.ceiling, Math.PI / 2)
   c.position.set(IN.cx, CEIL_Y - 0.02, IN.cz)
   g.add(c)
@@ -1188,11 +1188,11 @@ export function buildGrocery(game) {
   const colliders = []
   const interactables = []
   const lights = []
-  const fixtures = {}
+
   const pool = newPool()
 
   buildFloorAndTrim(group)
-  buildCeilingAndLights(group, lights, fixtures)
+  buildCeilingAndLights(group, lights)
   buildGondolas(group, colliders, pool)
   buildWallShelves(group, colliders, pool)
   buildFridges(group, colliders, pool)

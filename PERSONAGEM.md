@@ -14,7 +14,7 @@ desta tabela **é** o protocolo.
 | # | campo | opções | observação |
 |---|---|---|---|
 | 0 | `cabeca` | 12 | formatos de crânio (6 originais + ovalada, achatada, alongada atrás, diamante, trapézio, coração) |
-| 1 | `olhos` | 15 | todos de desenho; cada um traz a própria íris e a própria pálpebra. Os 10 últimos mudam só o **miolo**: detalhe chapado (olheira, brilho duplo, cílios, anel na íris) e depois a pupila (miniatura, gigante, fenda de gato, íris tripla, reflexo em meia-lua, íris raiada) |
+| 1 | `olhos` | 14 | todos de desenho; cada um traz a própria íris e a própria pálpebra. Os 10 últimos mudam só o **miolo**: detalhe chapado (olheira, brilho duplo, cílios, anel na íris) e depois a pupila (miniatura, gigante, fenda de gato, íris tripla, reflexo em meia-lua). A íris raiada saiu por recusa do dono |
 | 2 | `palpebra` | 11 | **barra**: 0 = aberto, 10 = fechado. Ocupa o byte que era da pupila |
 | 3 | `nariz` | 1 | **campo morto**: o catálogo esvaziou, viaja sempre 0 |
 | 4 | `boca` | 17 | todas são linha |
@@ -23,11 +23,11 @@ desta tabela **é** o protocolo.
 | 7 | `pele` | 10 | tom |
 | 8 | `corCabelo` | 11 | |
 | 9 | `sobrancelha` | 12 | variam formato E espessura do fio ao mesmo tempo |
-| 10 | `chapeu` | 7 | 0 = nenhum |
-| 11 | `calcado` | 7 | 0 = descalço. A `bota` saiu por recusa do dono; entraram tênis de corrida, tênis de skate e sapato social |
+| 10 | `chapeu` | 11 | 0 = nenhum. O `bone` antigo saiu por recusa do dono; entraram cowboy elite, gorro elite, boné novo, boina e capacete. **Regra do catálogo: nenhum pano abaixo de y=0,136** na região acima do olho — abaixo disso a bola do olho atravessa o chapéu |
+| 11 | `calcado` | 10 | 0 = descalço. A `bota` saiu por recusa do dono; entraram tênis de corrida, tênis de skate, sapato social, bota de cowboy, tênis cano alto e bota chelsea |
 | 12 | `blusa` | 12 | 0 = nenhuma. A aba se chama **CAMISAS**. O catálogo foi REFEITO: das antigas só o `moletom` ficou (o único de dupla casca, com avesso visível na borda) e entraram 10 modas novas — regata, polo, flanela, corta-vento, havaiana, camisa de time, tricô, jaqueta jeans, oversized e colete |
 | 13 | `calca` | 13 | quatro delas são **bermudas**. As 10 novas saíram da mesma lista de modas das camisas, pra as duas abas combinarem |
-| 14 | `colar` | 4 | 0 = nenhum |
+| 14 | `colar` | 7 | 0 = nenhum. Só o `crucifixo` sobreviveu da leva antiga — foi o único aprovado, e o **caimento** dele (cordão que desce e pingente com peso no esterno) virou o padrão dos cinco novos. O colar **balança** ao andar: ver `animation.js`, `balancarColar` |
 | 15 | `anelAcess` | 4 | 0 = nenhum |
 | 16 | `tatuagem` | 4 | 0 = nenhuma |
 | 17 | `relogio` | 4 | 0 = nenhum |

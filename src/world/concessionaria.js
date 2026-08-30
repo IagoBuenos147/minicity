@@ -407,8 +407,15 @@ function paredes(g, colliders, occluders) {
       (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
   }
 
-  parede(B.x0, B.x0 + T, 0, H, B.z0, B.z1, true)
-  parede(B.x1 - T, B.x1, 0, H, B.z0, B.z1, true)
+  // As laterais param a uma espessura de cada ponta; a fachada e o fundo, que
+  // ja vao de x0 a x1, cobrem os quatro cantos. Se as laterais fossem de z0 a
+  // z1 inteiro (era assim), cada canto teria DUAS chapas no mesmo bloco e as
+  // faces externas delas cairiam no mesmo plano — uma com a cor `lateral`
+  // (0xd2d7db) e outra com a da frente (0xe8ebee). Da rua, os quatro cantos do
+  // galpao viravam uma tira de 30 cm alternando entre dois cinzas conforme o
+  // jogador anda. Foi a queixa "o mesmo bug na loja de carros".
+  parede(B.x0, B.x0 + T, 0, H, B.z0 + T, B.z1 - T, true)
+  parede(B.x1 - T, B.x1, 0, H, B.z0 + T, B.z1 - T, true)
   parede(B.x0, B.x1, 0, H, B.z1 - T, B.z1, false)
 
   for (const p of pilaresFachada()) parede(p[0], p[1], 0, H, fz0, fz1, false)
@@ -456,8 +463,11 @@ function vitrines(g) {
     const pano = box(w - 0.06, h - 0.06, 0.04, M.vidro, cx, cy, fz + T / 2)
     pano.castShadow = false
     g.add(pano)
-    g.add(box(w + 0.14, 0.14, T + 0.14, M.aco, cx, JAN_Y1 + 0.07, fz + T / 2 - 0.02))
-    g.add(box(w + 0.14, 0.12, T + 0.14, M.aco, cx, JAN_Y0 - 0.06, fz + T / 2 - 0.02))
+    // As duas travessas ENTRAM 4 cm na alvenaria. Encostadas nela — a verga
+    // comecando exatamente onde a bandeira comeca — as faces horizontais caem
+    // no mesmo plano, aco contra chapa clara, ao longo de toda a vitrine.
+    g.add(box(w + 0.14, 0.18, T + 0.14, M.aco, cx, JAN_Y1 + 0.05, fz + T / 2 - 0.02))
+    g.add(box(w + 0.14, 0.16, T + 0.14, M.aco, cx, JAN_Y0 - 0.04, fz + T / 2 - 0.02))
     // tres montantes por pano: a esquadria de showroom e alta e esbelta
     for (let i = 1; i <= 3; i++) {
       g.add(box(0.08, h, 0.10, M.aco, v[0] + (w / 4) * i, cy, fz - 0.02))
