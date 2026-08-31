@@ -221,6 +221,21 @@ const avatares = criarAvatares(scene)
 const voz = criarVoz({ rede, camera, player, aviso: (m) => hud.toast(m) })
 game.voz = voz
 
+/**
+ * O UNICO caminho pra ligar a voz — o botao do HUD e a tecla V passam os dois
+ * por aqui.
+ *
+ * Ele e chamado de DENTRO do clique (ou do keydown), e nao agendado pra depois:
+ * o navegador so mostra a pergunta da permissao se `getUserMedia` sair do
+ * proprio evento do gesto. Um `setTimeout` no meio do caminho, por menor que
+ * fosse, bastaria pra o pedido ser negado sem ninguem ver pergunta nenhuma.
+ */
+function ligarVoz() {
+  if (voz.ativa) { voz.alternarMudo(); return }
+  voz.ligar().then((ok) => { if (ok) hud.toast('Voz ligada — V para mudo') })
+}
+hud.onAtivarMic(ligarVoz)
+
 // Mapa interacao -> NPC. E por aqui que o "E" vira um PEDIDO ao servidor em
 // vez de o cliente decidir sozinho que a conversa comecou.
 const NPC_DA_INTERACAO = { 'barber-talk': 1000, 'grocery-clerk': 1002 }
@@ -1602,10 +1617,7 @@ function frame() {
   // V: a primeira vez PEDE o microfone (e o gesto que o navegador exige pra
   // perguntar); da segunda em diante so alterna mudo. Desligar de vez e a
   // saida do coop, que ja chama voz.desligar().
-  if (input.wasPressed('KeyV') && !uiAberta() && estado === 'jogo') {
-    if (voz.ativa) voz.alternarMudo()
-    else voz.ligar().then((ok) => { if (ok) hud.toast('Voz ligada — V para mudo') })
-  }
+  if (input.wasPressed('KeyV') && !uiAberta() && estado === 'jogo') ligarVoz()
   // C = clima. Sol -> chuva -> neve -> sol. Uma tecla so, como foi pedido: com
   // tres teclas separadas o jogador teria que decorar qual e qual.
   if (input.wasPressed('F8') && !uiAberta()) pedirReinicio()
@@ -1730,6 +1742,11 @@ function frame() {
   // atras do boneco que a esta emitindo.
   voz.atualizar(dt)
   hud.setVoz(voz.estado())
+  // O botao so existe enquanto DA pra clicar nele. Com o pointer lock ativo o
+  // cursor nao esta na tela, entao mostrar o botao ali seria oferecer uma coisa
+  // que nao responde — a tecla V e que atende esse momento. Ele volta junto com
+  // o cursor: no Esc, no menu, com uma janela aberta.
+  hud.setMicBotao(estado === 'jogo' && !voz.ativa && !input.isLocked())
 
   // Meu corpo sobe a 15 Hz, o mesmo ritmo do servidor. Mandar a 60 so gastaria
   // banda: o servidor nao tem o que fazer com o quadro do meio.

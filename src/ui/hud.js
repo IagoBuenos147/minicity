@@ -126,6 +126,41 @@ const CSS = `
 #hud-voz i { font-style: normal; opacity: .6; margin-left: 2px; }
 @keyframes vozPulsa { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
 
+/* --- ATIVAR MICROFONE ---
+   Um dos DOIS unicos pedacos do HUD que aceitam clique (o outro e a tela
+   inicial). O resto e pointer-events: none — ver o cabecalho do arquivo.
+
+   Ele so aparece com o CURSOR LIVRE, e nao o tempo todo. Este e um jogo de
+   mouse travado: com o pointer lock ativo o cursor nem existe na tela, e um
+   botao que nao da pra clicar em 95% do tempo de jogo nao e um botao, e um
+   enfeite que parece quebrado. Entao ele nasce junto com o cursor — no Esc, no
+   menu, com uma loja aberta — e nesses momentos e clicavel de verdade.
+
+   A tecla V faz a mesma coisa e vale sempre; a teclinha no canto do botao
+   existe pra ensinar isso na primeira vez. */
+#hud-mic {
+  position: absolute; left: 16px; bottom: 16px;
+  display: none; align-items: center; gap: 9px;
+  padding: 10px 15px;
+  font: inherit; font-size: 14px; color: #eaf1f8;
+  background: rgba(16, 19, 25, 0.9);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background .12s, border-color .12s;
+}
+#hud-mic:hover { background: rgba(30, 36, 46, .95); border-color: rgba(255,255,255,.3); }
+#hud-mic:active { background: rgba(10, 12, 16, .95); }
+#hud-mic.on { display: flex; }
+/* o desenho do microfone: capsula + arco + haste, sem imagem nenhuma */
+#hud-mic svg { width: 15px; height: 15px; flex: none; opacity: .9; }
+#hud-mic kbd {
+  font: inherit; font-size: 11px; letter-spacing: .04em;
+  padding: 1px 6px; margin-left: 3px; opacity: .65;
+  border: 1px solid rgba(255,255,255,.28); border-radius: 3px;
+}
+
 /* --- CANTO INFERIOR DIREITO: so o dinheiro --------------------------------
    Esta coluna ja empilhou tres coisas (a mao, o dinheiro e as vagas). Sobrou o
    dinheiro: as vagas viraram a barra unica do rodape (ver #hud-barra) e o que
@@ -474,6 +509,18 @@ export function createHUD() {
   const debug = el('div', 'panel', status)
   debug.id = 'hud-debug'
 
+  // O botao do microfone. E um <button> de verdade, e nao uma <div> clicavel:
+  // ele ganha foco, responde a Enter e ao leitor de tela de graca.
+  const micBtn = document.createElement('button')
+  micBtn.id = 'hud-mic'
+  micBtn.type = 'button'
+  micBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+    + ' stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/>'
+    + '<path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>'
+    + '<span>Ativar Microfone</span><kbd>V</kbd>'
+  root.appendChild(micBtn)
+
   // --- canto inferior direito: so o dinheiro (a barra de itens saiu daqui) ---
   const canto = el('div', null, root)
   canto.id = 'hud-canto'
@@ -657,6 +704,24 @@ export function createHUD() {
      * Chamado TODO QUADRO, entao escreve pouco: mexer em textContent sem
      * necessidade suja o layout do navegador 60 vezes por segundo por nada.
      */
+    /**
+     * Mostra ou esconde o botao de ligar o microfone.
+     *
+     * Quem decide e o main, porque a condicao mistura coisas que o HUD nao
+     * conhece: se ha partida, se a voz ja esta ligada e se o cursor esta livre.
+     */
+    setMicBotao(v) { micBtn.classList.toggle('on', !!v) },
+
+    /**
+     * O clique do botao.
+     *
+     * O HUD NAO chama getUserMedia — ele so avisa que houve clique. Pedir
+     * microfone e trabalho de `src/rede/voz.js`, e o que importa e que a
+     * chamada saia de DENTRO do evento de clique: e o gesto do usuario que o
+     * navegador exige pra sequer mostrar a pergunta da permissao.
+     */
+    onAtivarMic(fn) { micBtn.addEventListener('click', fn) },
+
     setVoz(v) {
       if (!v || !v.ativa) { vozRow.style.display = 'none'; return }
       vozRow.style.display = ''

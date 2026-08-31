@@ -40,6 +40,23 @@ function checar(nome, cond, extra) {
 }
 function secao(t) { console.log(t) }
 
+/**
+ * Espera uma CONDICAO, e nao um tempo.
+ *
+ * A primeira versao dormia 400 ms e conferia o botao. Falhava — nao por bug no
+ * jogo, mas porque `fluxo.jogar()` levanta a cidade inteira e o primeiro quadro
+ * depois disso demora bem mais que isso em headless (o proprio smoke mede
+ * 40 ms/quadro na rua, com o SwiftShader). Como e o laco de quadro que mostra e
+ * esconde o botao, dormir um numero fixo mede a velocidade da maquina, e nao o
+ * comportamento. E a mesma armadilha ja documentada em tools/teste-bebida.mjs.
+ */
+async function ate(page, expr, max) {
+  try {
+    await page.waitForFunction(expr, { timeout: max || 15000, polling: 100 })
+    return true
+  } catch (e) { void e; return false }
+}
+
 const CANDIDATOS = [
   process.env.CHROME_PATH,
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -112,6 +129,8 @@ try {
     const G = window.__game
     G.fluxo.jogar()
     if (G.menu && G.menu.fechar) G.menu.fechar()
+    // o veu inicial fica por cima de tudo e roubaria o clique no botao
+    document.querySelectorAll('.mcrp-menu, #hud-start').forEach((e) => { e.style.display = 'none' })
 
     window.__peerLog = { criados: [], chamadas: [], fechadas: [] }
 
@@ -169,16 +188,47 @@ try {
     }
   })
 
-  // --- ligar ---------------------------------------------------------------
-  secao('LIGAR')
-  const ligou = await page.evaluate(async () => {
-    const r = await window.__game.voz.ligar()
-    return { r, est: window.__game.voz.estado(), criados: window.__peerLog.criados }
+  // --- o botao -------------------------------------------------------------
+  // A parte que NAO da pra testar com element.click(): um clique disparado por
+  // script nao e ativacao de usuario. `page.click` manda o evento pelo CDP, que
+  // e confiavel do ponto de vista do navegador — o mesmo tipo de clique que
+  // libera a pergunta da permissao. Testar com o clique falso mediria outra
+  // coisa que nao a que interessa.
+  secao('O BOTAO')
+  const apareceu = await ate(page, "document.querySelector('#hud-mic').classList.contains('on')")
+  const botao = await page.evaluate(() => {
+    const b = document.querySelector('#hud-mic')
+    if (!b) return null
+    return {
+      texto: (b.querySelector('span') || {}).textContent,
+      tag: b.tagName,
+      visivel: b.classList.contains('on'),
+      clicavel: getComputedStyle(b).pointerEvents,
+      atalho: (b.querySelector('kbd') || {}).textContent,
+    }
   })
-  checar('o microfone abre e o Peer sobe', ligou.r === true && ligou.est.ativa === true, ligou.est.erro)
+  checar('o botao existe no HUD', !!botao)
+  checar('com o texto pedido', botao && botao.texto === 'Ativar Microfone', botao && botao.texto)
+  checar('e um <button>, nao uma div clicavel', botao && botao.tag === 'BUTTON', botao && botao.tag)
+  checar('aparece com o cursor livre', apareceu && botao && botao.visivel === true)
+  checar('aceita clique (o resto do HUD e pointer-events: none)',
+    botao && botao.clicavel === 'auto', botao && botao.clicavel)
+  checar('ensina a tecla V', botao && botao.atalho === 'V', botao && botao.atalho)
+
+  await page.click('#hud-mic')
+  await page.waitForFunction('window.__game.voz.ativa === true', { timeout: 15000 }).catch(() => {})
+
+  secao('LIGAR (pelo clique do botao)')
+  const ligou = await page.evaluate(() => {
+    return { r: window.__game.voz.ativa, est: window.__game.voz.estado(), criados: window.__peerLog.criados }
+  })
+  checar('o clique abre o microfone e sobe o Peer', ligou.r === true && ligou.est.ativa === true, ligou.est.erro)
   checar('o peer id deriva do id do jogador (sem pacote novo)',
     /^mcrp-[a-z0-9]+-1$/.test(ligou.est.meuPeerId), ligou.est.meuPeerId)
   checar('registrou exatamente um id no broker', ligou.criados.length === 1, String(ligou.criados))
+
+  const sumiu0 = await ate(page, "!document.querySelector('#hud-mic').classList.contains('on')")
+  checar('e o botao some depois de ligado', sumiu0 === true)
 
   // --- proximidade ---------------------------------------------------------
   secao('PROXIMIDADE (perto 15 m, longe 18 m)')
@@ -329,6 +379,8 @@ try {
     return { ativa: G.voz.ativa, hud: el.style.display, audios: document.querySelectorAll('audio').length }
   })
   checar('desligar mata o microfone', desligou.ativa === false)
+  const voltou0 = await ate(page, "document.querySelector('#hud-mic').classList.contains('on')")
+  checar('e o botao volta pra quem quiser ligar de novo', voltou0 === true)
   checar('e some com a linha do HUD', desligou.hud === 'none')
   checar('sem sobrar elemento de audio', desligou.audios === 0)
 

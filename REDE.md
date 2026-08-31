@@ -567,8 +567,26 @@ implantar/subir.ps1         da máquina local: manda o código e reinicia
 Quem está a **15 metros** ou menos se ouve. A voz sai de onde a pessoa está: se
 ela fala atrás de você, você ouve atrás; se atravessa a rua, a voz vai sumindo.
 
-Ligar é a tecla **V** — a primeira vez pede o microfone, as seguintes alternam
-mudo. Sair do coop desliga o microfone junto.
+## Ligar
+
+Dois caminhos, e os dois passam pela mesma função (`ligarVoz`, em `main.js`):
+
+- o botão **Ativar Microfone**, no canto inferior esquerdo;
+- a tecla **V**, que também alterna mudo depois de ligado.
+
+**Nunca no carregamento da página.** `getUserMedia` só faz o navegador *mostrar*
+a pergunta se a chamada sair de dentro do evento de um gesto do usuário — um
+clique ou uma tecla. Pedir automaticamente ao abrir a página é negado na hora, e
+pior: o Chrome guarda esse "não" por origem, então o pedido seguinte também
+morre. Por isso nem um `setTimeout` pode entrar no meio do caminho.
+
+**O botão só aparece com o cursor livre.** Este é um jogo de mouse travado: com
+o pointer lock ativo o cursor nem existe na tela, e um botão que não dá para
+clicar na maior parte do tempo não é um botão, é um enfeite que parece
+quebrado. Ele nasce junto com o cursor — no Esc, no menu, com uma loja aberta —
+e some assim que a voz liga. A tecla V é que atende o resto do tempo.
+
+Sair do coop desliga o microfone junto.
 
 ## Três canais, e só um deles é nosso
 
@@ -649,5 +667,6 @@ jogo, e segurar o grafo de áudio de alguém que não existe não tem defesa.
   build offline da Steam: `npm i peerjs@1.5.2` e `import Peer from 'peerjs'`
   dentro de `voz.js` — mesma API, e o Vite embute no bundle.
 
-Coberto por `node tools/teste-voz.mjs` (27 casos: proximidade, histerese,
-paciência, glare, chamada de estranho, saída e limpeza do grafo).
+Coberto por `node tools/teste-voz.mjs` (35 casos: o botão com clique de verdade,
+proximidade, histerese, paciência, glare, chamada de estranho, saída e limpeza
+do grafo).
