@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { CASA, interiorOf, apronOf, WALL_T } from './layout.js'
 import { LEVELS } from '../config.js'
+import { criarBar } from '../mobilia/bar.js'
 import {
   solid, stdMat, emissive, box, cyl, roundedBox, textPlaneMat, tex, concreteTex,
 } from './materials.js'
@@ -66,6 +67,16 @@ const ZA = 17.70                       // face sul da divisoria transversal
 // taco de 1,45 vira de lado sem raspar as duas paredes.
 const XA = 47.55                       // face oeste da divisoria do braco
 const BRACO_X0 = XA + TI               // 47.80 — sobra 2.80 m livres ate 50.6
+
+// O VAO ABERTO NA MARRA na divisoria transversal — o unico jeito de entrar no
+// comodo dos fundos. Mora aqui em cima, e nao dentro de paredesInternas(),
+// porque DUAS funcoes precisam saber onde ele fica: quem levanta a divisoria
+// (que ja o recortava) e quem forra a divisoria de papel de parede pelo lado de
+// DENTRO (que nao recortava — ver revestimento()).
+const PVX = 41.90                      // centro do vao interno
+const PVW = 1.40                       // largura util
+const PVH = 2.25                       // altura util
+const PV0 = PVX - PVW / 2, PV1 = PVX + PVW / 2
 
 // --- vaos da fachada -------------------------------------------------------
 // As duas janelas tem a MESMA faixa de altura de proposito: cada fileira de
@@ -1641,10 +1652,8 @@ function paredesInternas(g, colliders, occluders) {
   //
   // O vao tem 1,40 m de largura. Nao e numero redondo por acaso: a mesa de
   // sinuca tem 1,27 m de lado curto e precisa passar por aqui carregada.
-  const PVX = 41.90                 // centro do vao interno
-  const PVW = 1.40                  // largura util
-  const PVH = 2.25                  // altura util
-  const pv0 = PVX - PVW / 2, pv1 = PVX + PVW / 2
+  // PVX / PVW / PVH / PV0 / PV1 sao constantes de modulo (ver la em cima)
+  const pv0 = PV0, pv1 = PV1
 
   // a divisoria transversal, agora em DOIS trechos e uma verga
   const seg = [[IN.x0, pv0], [pv1, XA + TI]]
@@ -1705,10 +1714,34 @@ function revestimento(g) {
   const dzo = IN.z1 - IN.z0
   g.add(planoUV(dzo, alt, M.papel, IN.x0 + 0.02, alt / 2, (IN.z0 + IN.z1) / 2, Math.PI / 2, dzo / 1.15, alt / 1.15, 0.6, 0))
   g.add(planoUV(dz, alt, M.papel, IN.x1 - 0.02, alt / 2, (IN.z0 + ZA) / 2, -Math.PI / 2, dz / 1.15, alt / 1.15, 1.3, 0))
-  // parede do fundo do comodo novo, e o lado NORTE da divisoria
+  // parede do fundo do comodo novo
   const wf = XA - IN.x0
   g.add(planoUV(wf, alt, M.papel, IN.x0 + wf / 2, alt / 2, IN.z1 - 0.02, Math.PI, wf / 1.15, alt / 1.15, 0.2, 0))
-  g.add(planoUV(wf, alt, M.papel, IN.x0 + wf / 2, alt / 2, ZA + TI + 0.02, 0, wf / 1.15, alt / 1.15, 0.9, 0))
+
+  // O LADO NORTE DA DIVISORIA — e aqui estava o defeito.
+  //
+  // Este papel era UM plano de parede inteira, de IN.x0 ate XA, colado 2 cm a
+  // frente da divisoria. So que a divisoria TEM um vao (PVX, 1.40 x 2.25): e
+  // por ele que se entra no comodo dos fundos. O plano passava por cima do vao
+  // e o tapava — mas so por DENTRO, porque do lado da sala quem aparece e a
+  // propria caixa da divisoria, essa sim recortada.
+  //
+  // O resultado era exatamente o que o dono descreveu: entrava no comodo, olhava
+  // pra tras e a passagem tinha sumido, com cara de pano esticado no vao. Da
+  // sala nao dava pra ver nada de errado, que e o motivo de isso ter passado.
+  //
+  // Agora ele vem em tres pedacos que contornam o vao — os dois panos laterais e
+  // a faixa acima da verga — a mesma divisao que a divisoria de verdade usa.
+  for (const s of [[IN.x0, PV0], [PV1, XA]]) {
+    const w = s[1] - s[0]
+    if (w < 0.02) continue
+    g.add(planoUV(w, alt, M.papel, (s[0] + s[1]) / 2, alt / 2, ZA + TI + 0.02, 0,
+      w / 1.15, alt / 1.15, 0.9, 0))
+  }
+  if (alt - PVH > 0.02) {
+    g.add(planoUV(PVW, alt - PVH, M.papel, PVX, PVH + (alt - PVH) / 2, ZA + TI + 0.02, 0,
+      PVW / 1.15, (alt - PVH) / 1.15, 0.9, 0))
+  }
 
   // PAPEL DESCOLANDO. O giro TEM que sair da borda de cima, nao do centro do
   // plano: girando pelo centro a aba se afasta da parede pelos dois lados e
@@ -1754,7 +1787,15 @@ function revestimento(g) {
     map: papelTex(), roughness: 0.96, side: THREE.DoubleSide,
     emissive: 0xfff4de, emissiveMap: papelTex(), emissiveIntensity: 0.16,
   })
-  const marcas = [[41.1, ZA - 0.02, Math.PI, 0.62, 0.78], [43.6, ZA - 0.02, Math.PI, 0.5, 0.42],
+  // A marca que ficava em x=41.1 SAIU. Ela era a maior das tres (0.62 x 0.78) e
+  // caia a 45 cm do batente do vao interno: um retangulo claro, liso e sem
+  // moldura, encostado na quina de uma passagem. O dono a leu como defeito —
+  // "esse quadrado do lado da porta, ta parecendo bug" — e com razao: longe de
+  // um movel que explique a marca, e colada num batente, ela nao le como "aqui
+  // teve um quadro", le como textura que nao carregou. As outras duas ficam:
+  // uma no meio de um pano de parede vazio e outra na parede oeste, as duas com
+  // espaco em volta pra a leitura funcionar.
+  const marcas = [[43.6, ZA - 0.02, Math.PI, 0.5, 0.42],
     [IN.x0 + 0.03, 15.1, Math.PI / 2, 0.7, 0.55]]
   for (let i = 0; i < marcas.length; i++) {
     const m0 = marcas[i]
@@ -1914,17 +1955,116 @@ function moveis(g, colliders) {
     marca(c[0], c[1], c[2], c[2] * 0.86, 0.3, M.marcaPoeira)
   }
 
-  // --- balde virado no braco e jornal velho no chao -----------------------
-  const balde = cyl(0.17, 0.13, 0.3, M.metal, 12)
-  balde.position.set(49.2, 0.15, 20.4)   // encostado no fundo do braco
-  balde.rotation.z = 1.5
-  sombras(balde)
-  g.add(balde)
+  // --- jornal velho no chao -------------------------------------------------
+  // O balde virado que ficava no fundo do braco (49.2, 20.4) saiu a pedido do
+  // dono. Ele era enfeite de casa abandonada, e a casa deixou de ser so isso:
+  // e o estabelecimento dele, e chao livre vale mais que historia.
   for (let i = 0; i < 5; i++) {
     const j = box(0.3, 0.006, 0.22, M.lencol, 42.5 + i * 0.42, 0.006, 13.1 + (i % 2) * 0.5)
     j.rotation.y = i * 0.8
     j.castShadow = false
     g.add(j)
+  }
+}
+
+/**
+ * AS QUATRO TOMADAS DO COMODO DOS FUNDOS.
+ *
+ * Duas na parede da esquerda e duas na da direita de quem entra pelo vao — ou
+ * seja, na parede oeste (x = IN.x0) e na face oeste da divisoria do braco
+ * (x = XA), que sao as duas que ladeiam o comodo.
+ *
+ * ALTURA: 0,34 m acima do assoalho, que e altura de tomada baixa de verdade e
+ * e o que o dono pediu ("na parede porem mais abaixo"). O contra disso e que
+ * uma placa de 9 x 12 cm a 34 cm do chao some num comodo escuro, e ele tambem
+ * pediu que fossem BEM VISIVEIS — as duas coisas ao mesmo tempo. Resolvido pelo
+ * desenho e nao pela posicao: placa branca (o unico branco puro do comodo, que
+ * so tem bege e madeira), salientes 1,8 cm da parede para pegarem luz de lado e
+ * projetarem sombra propria, e os tres furos em preto chapado, que a essa
+ * distancia sao o que o olho acha primeiro.
+ *
+ * Sao 2P+T no padrao brasileiro: dois furos na horizontal e o terra embaixo, no
+ * meio, tudo dentro de um rebaixo redondo. Errar isso e o tipo de coisa que
+ * ninguem sabe dizer o que e, mas todo mundo ve.
+ */
+function tomadas(g) {
+  // O EMISSIVO FRACO NAO E ENFEITE. Este comodo tem uma lampada so e o canto
+  // das paredes fica em penumbra: com a placa dependendo so da luz que chega,
+  // ela sai cinza e some no bege do papel — foi como a primeira versao ficou.
+  // 0.14 e MUITO abaixo do limiar do bloom (0.85, core/engine.js), entao ela
+  // nao brilha nem estoura: so garante um piso de claridade que separa a placa
+  // da parede em qualquer canto do comodo.
+  const placaMat = stdMat('casa-tomada-placa', {
+    color: 0xfbf9f4, roughness: 0.36, metalness: 0.02,
+    emissive: 0xfff8ec, emissiveIntensity: 0.14,
+  })
+  const furoMat = solid(0x0d0b09, 0.95, 0.0)
+  const rebaixoMat = solid(0xd6d1c6, 0.5, 0.02)
+
+  const Y = 0.34                     // altura do centro, local (o miolo sobe BASE)
+  // 11,5 x 15 cm. Uma placa 4x2 de verdade tem 7,4 x 11,4, e nesse tamanho ela
+  // vira um selo branco a tres metros de distancia. Aqui ela e um pouco maior
+  // que a real de proposito: o pedido foi que fossem BEM VISIVEIS, e aumentar a
+  // placa custa menos leitura do que subi-la na parede (que era o outro jeito, e
+  // contraria o "mais abaixo" que ele pediu).
+  const PW = 0.115, PH = 0.150
+  const SAI = 0.024                  // salta 2,4 cm: pega luz de lado e faz sombra
+
+  // [x da superficie da parede, para que lado ela olha]
+  //   oeste: o papel esta em IN.x0 + 0.02 e a placa nasce dali pra dentro
+  //   leste: a face da divisoria do braco esta em XA, olhando pro -X
+  const paredes = [
+    { x: IN.x0 + 0.02, dir: 1 },
+    { x: XA, dir: -1 },
+  ]
+  // Os dois pares ficam ANTES e DEPOIS do meio do comodo (z 17.95..21.7), com
+  // folga das duas quinas: quem entra ve as quatro sem ter que procurar.
+  const ZS = [18.85, 20.70]
+
+  for (const p of paredes) {
+    for (const z of ZS) {
+      const u = new THREE.Group()
+      u.position.set(p.x, Y, z)
+      // a placa olha pra dentro do comodo: -X da parede leste, +X da oeste
+      u.rotation.y = p.dir > 0 ? Math.PI / 2 : -Math.PI / 2
+
+      // placa. A espessura fica toda pra frente da parede (z local positivo do
+      // grupo ja rodado), entao nada dela entra na alvenaria e nada de dela
+      // disputa pixel com o papel de parede.
+      const placa = roundedBox(PW, PH, SAI, 0.014, placaMat)
+      placa.position.z = SAI / 2
+      u.add(placa)
+
+      // O ESPELHO REDONDO, a peca por onde os pinos entram. Ele fica NA FRENTE
+      // da placa, salientes 4 mm — nao afundado. Nao da pra furar geometria
+      // aqui (nao ha CSG), entao a leitura de "furo" vem da ordem em Z: o disco
+      // claro na frente da placa, e os tres pretos na frente do disco. Quem
+      // esta mais perto do olho ganha, e o olho le o preto como buraco.
+      // ENTRA 2 mm na placa em vez de encostar nela: com o disco comecando
+      // exatamente em SAI, a face de tras dele cairia no mesmo plano da face da
+      // frente da placa. Aqui isso ate ficaria escondido (as duas olham pra
+      // lados opostos), mas encostar superficie em superficie e a fonte de
+      // metade dos "esta tremendo" deste projeto e nao vale abrir excecao.
+      const reb = cyl(0.040, 0.040, 0.006, rebaixoMat, 16)
+      reb.rotation.x = Math.PI / 2
+      reb.position.z = SAI + 0.001
+      u.add(reb)
+
+      // 2P + T: os dois de forca na horizontal, o terra embaixo no meio.
+      // Ficam 5 mm a frente do espelho redondo — na primeira versao estavam
+      // DENTRO dele (o disco ia ate SAI + 0.004 e os furos paravam em
+      // SAI + 0.003), entao a tomada saia sem furo nenhum: um selo branco com
+      // uma bolacha cinza no meio.
+      for (const f of [[-0.0200, 0.013], [0.0200, 0.013], [0, -0.022]]) {
+        const furo = cyl(0.0068, 0.0068, 0.008, furoMat, 10)
+        furo.rotation.x = Math.PI / 2
+        furo.position.set(f[0], f[1], SAI + 0.005)
+        u.add(furo)
+      }
+
+      sombras(u)
+      g.add(u)
+    }
   }
 }
 
@@ -1996,10 +2136,37 @@ export function buildCasaVelha(game) {
   revestimento(dentro)
   forro(dentro)
   moveis(dentro, colliders)
+  tomadas(dentro)
   // As teias balancam: o update as encontra por esta lista.
   const teiasQueBalancam = []
   teiasEPoeira(dentro, teiasQueBalancam)
   const lamp = lampada(dentro)
+
+  // --- O BAR ---------------------------------------------------------------
+  //
+  // Encostado na FACHADA, no trecho cego entre a janelinha oeste (que acaba em
+  // x = 40.30) e o batente da porta (que comeca em 42.15). E o unico pano de
+  // parede da sala da frente sem janela nem vao — as duas tabuas pregadas ali
+  // sao justamente o que sobrou dele.
+  //
+  // O modulo inteiro mora em mobilia/bar.js e nao conhece esta casa: recebe a
+  // caixa e devolve grupo, colisores e pontos. Se um dia houver um segundo bar
+  // em outro lugar, e a mesma chamada com outras medidas.
+  const bar = criarBar({
+    game,
+    zFundo: IN.z0,
+    medidas: {
+      x0: 38.45, x1: 42.05,
+      pratX0: 40.38, pratX1: 41.95,
+      balcZ: 13.85,
+    },
+  })
+  dentro.add(bar.grupo)
+  for (const c of bar.colliders) colliders.push(c)
+  for (const it of bar.interactables) interactables.push(it)
+  // (o colisor da bancada e registrado por criarBar, que precisa da caixa de
+  // verdade na mao pra liga-la e desliga-la — ver o comentario la)
+
   group.add(dentro)
 
   // --- interacao ----------------------------------------------------------
@@ -2077,6 +2244,7 @@ export function buildCasaVelha(game) {
 
   let t = 0
   function update(dt, gm) {
+    bar.update(dt, gm)
     t += Math.min(dt || 0, 0.1)
     const d = Math.min(dt || 0, 0.1)
 
@@ -2147,6 +2315,7 @@ export function buildCasaVelha(game) {
     interactables,
     occluders,
     update,
+    bar,
     // De onde a cutscene de abertura encara a fachada.
     //
     // ALTURA DE OLHO (1.72 m), porque o pedido foi literal: "mostrar os players

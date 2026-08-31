@@ -145,9 +145,45 @@ subia pela perna e o corpo inteiro vibrava — "parece bugado". Se um dia voltar
 tem que ser aplicado só na geometria do deck, nunca no pivô que carrega o
 piloto.
 
+Entre uma empurrada e a seguinte ele **plana**: terminada a varredura, o pé
+volta para o deck e fica lá por `planeioMin`..`planeioMax` segundos (0,34 s
+parado, 1,15 s em cruzeiro) mesmo com o `W` seguro. Em velocidade de cruzeiro
+isso dá **75% do tempo planando contra 25% empurrando** — é o que separa andar
+de skate de pisar numa esteira, e é também o que faz a empurrada ter impacto:
+sem pausa não há contraste, e sem contraste nenhum gesto pesa. `impulso` é 6.5 e
+não 4.0 justamente por causa da pausa: menos empurradas, cada uma valendo mais.
+
 O personagem fica **em pé** sobre o deck, de lado, com os dois pés em cima dos
 trucks (IK), joelhos moles e o peito virado para o nariz do skate; na empurrada
 o corpo agacha e a perna de trás vai até o chão.
+
+Três detalhes da pose que custaram caro para achar, e que valem para qualquer
+personagem montado atravessado em alguma coisa:
+
+1. **"Para frente" não é `rotation.x`.** O assento gira o skatista uns 73° em
+   cima do deck, então o `+Z` dele aponta para o *lado* do skate. Inclinar em
+   `rotation.x` inclinava o boneco na direção de cair, e quase nada na direção
+   em que ele estava indo — da câmera lateral isso se lê como um sujeito parado
+   e ereto. A inclinação é decomposta no eixo do nariz, lido do próprio
+   `assento.rotation.y` (se alguém trocar para goofy, acompanha sozinho).
+2. **Agachar 8 cm é o mesmo que não agachar.** A perna tem 75 cm; baixar o
+   quadril 8,5 cm dobra o joelho uns 15°, invisível na tela. São 17 cm.
+3. **Dobrar no `chest` corcunda.** Skatista dobra no quadril, de costas retas: o
+   peso vai quase todo para o `torso`, e a cabeça desfaz o resto no mesmo eixo
+   para continuar olhando para frente.
+
+O gesto tem **dois picos**, e são eles que dão o peso — `golpeDoPe()` (o baque
+do pé no asfalto, 1→0 em ~80 ms) e o assentamento quando o pé volta ao deck. O
+mesmo `golpeDoPe()` alimenta o corpo *e* o deck (que mergulha e rola), para os
+dois não saírem de fase. A força da empurrada também não é constante: ela
+estoura no contato e cai até o pé sair do chão, com a mesma curva que a pose usa
+— o que se vê e o que se sente são o mesmo número.
+
+Sai **poeira** em três momentos e só neles: no pé que varre, na aterrissagem de
+um pulo (nas quatro rodas) e no pé do freio. Rolar liso não solta nada — se
+soltasse, viraria papel de parede e os outros três deixariam de significar algo.
+Os **trucks viram** com a inclinação do deck (o da frente para dentro da curva, o
+de trás para fora): é a tesoura que faz o skate curvar de verdade.
 
 **Helicóptero** — verde. `W`/`S` inclinam para frente/trás e é essa inclinação
 que o faz andar; `A`/`D` giram; `Espaço` sobe, `Shift` desce. Tem inércia: não

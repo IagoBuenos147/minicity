@@ -2999,12 +2999,20 @@ export function buildCity() {
   apron.castShadow = false; apron.receiveShadow = true
   add(apron)
 
+  // Onde a fonte esta, guardado pro gate de distancia da agua la no update().
+  // Declarado ANTES do grupo nascer: `let` tem zona morta temporal, e a
+  // atribuicao acontece tres linhas abaixo.
+  let FONTE_X = 0, FONTE_Z = 0
+
   // --- fonte central --------------------------------------------------------
   // Ponto focal da praca: bacia redonda de verdade (44 lados), borda em torus,
   // degrau de acesso, jatos em arco e agua translucida.
   const FSEG = 44
   const fountain = new THREE.Group()
   fountain.position.set(pcx, PARK_Y, pcz)
+  // guardadas pro gate de distancia da agua, la no update()
+  FONTE_X = pcx
+  FONTE_Z = pcz
   const stoneMat = solid(0xd6cfbe, 0.9)
   const stoneDark = solid(0xb3a994, 0.92)
 
@@ -3987,7 +3995,7 @@ export function buildCity() {
   }
 
   let t = 0
-  function update(dt) {
+  function update(dt, gm) {
     t += dt
     // animacoes dos props resgatados do forno (ventoinha de AC, relogio...)
     for (let i = 0; i < animUpdates.length; i++) animUpdates[i](dt)
@@ -4001,24 +4009,45 @@ export function buildCity() {
     poleTex.offset.y = (poleTex.offset.y - dt * 0.28) % 1
 
     // --- agua da fonte -----------------------------------------------------
-    // 1) superficies: senoides radiais + direcionais deformando os vertices
-    for (let s = 0; s < waterSurfaces.length; s++) {
-      const m = waterSurfaces[s]
-      const u = m.userData
-      const pos = m.geometry.attributes.position
-      const base = u.base
-      const amp = u.amp, fq = u.freq, sp = u.speed
-      for (let i = 0, n = pos.count; i < n; i++) {
-        const i3 = i * 3
-        const bx = base[i3], bz = base[i3 + 2]
-        const r = Math.sqrt(bx * bx + bz * bz)
-        const y = Math.sin(r * fq - t * sp) * amp
-          + Math.sin(bx * fq * 0.68 + t * sp * 0.75) * amp * 0.55
-          + Math.sin(bz * fq * 0.93 - t * sp * 1.25) * amp * 0.45
-        pos.array[i3 + 1] = y
+    //
+    // ELA SO ONDULA COM ALGUEM POR PERTO, e isso foi medido.
+    //
+    // Sao 735 vertices entre as duas superficies, cada um com um `sqrt` e tres
+    // `sin`, MAIS dois `computeVertexNormals()` (que refazem o produto vetorial
+    // de ~1250 triangulos e alocam vetores por chamada), MAIS quatro uploads de
+    // atributo pra GPU — tudo isso TODO QUADRO, da cidade inteira, estando o
+    // jogador dentro da fonte ou a oitenta metros dela do outro lado do mapa.
+    //
+    // 34 m e o raio: a bacia tem 4,4 m e fica no meio da praca; dali pra fora a
+    // ondulacao da agua nao e legivel em tela nenhuma. Quando o jogador se
+    // afasta, a agua congela na ultima onda — que e exatamente o que ninguem vai
+    // ver. A conta que substitui tudo isso e uma subtracao e uma comparacao.
+    const pj = gm && gm.player && gm.player.position
+    let ondular = true
+    if (pj) {
+      const fdx = pj.x - FONTE_X, fdz = pj.z - FONTE_Z
+      ondular = fdx * fdx + fdz * fdz < 34 * 34
+    }
+    if (ondular) {
+      // 1) superficies: senoides radiais + direcionais deformando os vertices
+      for (let s = 0; s < waterSurfaces.length; s++) {
+        const m = waterSurfaces[s]
+        const u = m.userData
+        const pos = m.geometry.attributes.position
+        const base = u.base
+        const amp = u.amp, fq = u.freq, sp = u.speed
+        for (let i = 0, n = pos.count; i < n; i++) {
+          const i3 = i * 3
+          const bx = base[i3], bz = base[i3 + 2]
+          const r = Math.sqrt(bx * bx + bz * bz)
+          const y = Math.sin(r * fq - t * sp) * amp
+            + Math.sin(bx * fq * 0.68 + t * sp * 0.75) * amp * 0.55
+            + Math.sin(bz * fq * 0.93 - t * sp * 1.25) * amp * 0.45
+          pos.array[i3 + 1] = y
+        }
+        pos.needsUpdate = true
+        m.geometry.computeVertexNormals()
       }
-      pos.needsUpdate = true
-      m.geometry.computeVertexNormals()
     }
     // 2) jatos
     const p = 1 + Math.sin(t * 5.5) * 0.06

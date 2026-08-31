@@ -3,6 +3,9 @@ import {
   solid, stdMat, glass, box, cyl, sphere, roundedBox, woodTex, tex, textPlaneMat,
 } from '../world/materials.js'
 import { BEBIDAS } from './bebidas.js'
+import { ERVAS } from './erva.js'
+import { CACA_NIQUEIS } from './caca-niquel.js'
+import { VIDEO_POKER } from './video-poker.js'
 
 // ---------------------------------------------------------------------------
 // src/mobilia/catalogo.js — o que a loja de jogos vende e o que entra na casa.
@@ -606,6 +609,11 @@ function fichaSinuca() {
 //               nao se joga.
 //   naCasa      false = nao e movel (baralho e ficha vao pro bolso, nao pro chao)
 // ---------------------------------------------------------------------------
+// As MAQUINAS moram em arquivo proprio (mobilia/caca-niquel.js e
+// mobilia/video-poker.js) e entram aqui no fim da lista. O criterio e o mesmo
+// que separou bebidas de moveis: cada familia com a sua propria linguagem de
+// modelagem no seu proprio arquivo, e UMA lista so pro que a loja vende e o
+// jogo conhece.
 export const MOBILIA = [
   {
     id: 'baralho-beira', nome: 'Baralho Beira de Mesa', cat: 'baralhos',
@@ -672,7 +680,7 @@ export const MOBILIA = [
     desc: 'Feltro azul novo, tabelas restauradas, ainda de segunda mao.',
     build: () => mesaDeSinuca(2.60, 1.45, '#1e5aa8', false),
   },
-]
+].concat(CACA_NIQUEIS, VIDEO_POKER)
 
 // ---------------------------------------------------------------------------
 // O REGISTRO DE IDS — UM SO PRO JOGO INTEIRO
@@ -688,10 +696,17 @@ export const MOBILIA = [
 // na vitrine da loja de jogos seria simplesmente errado. Mas a lata comprada no
 // mercado vai pra MESMA mochila, entao itemDe('cerveja-lata') tem que
 // responder. Dois catalogos, um registro.
+//
+// E o mesmo vale pra ERVAS (mobilia/erva.js): vendida no mercado, guardada na
+// mochila, levantada na mao. Quem NAO entra aqui e a juncao do mercado
+// (mobilia/mercado.js) — aquele arquivo diz o que a LOJA vende; este diz o que
+// o JOGO conhece, e as duas listas nao sao a mesma coisa (o revolver esta aqui
+// e nao esta a venda em lugar nenhum).
 // ---------------------------------------------------------------------------
 const POR_ID = new Map()
 for (const m of MOBILIA) POR_ID.set(m.id, m)
 for (const b of BEBIDAS) POR_ID.set(b.id, b)
+for (const e of ERVAS) POR_ID.set(e.id, e)
 
 export function itemDe(id) { return POR_ID.get(id) || null }
 
@@ -732,6 +747,7 @@ export const CATEGORIAS = [
   { id: 'sinuca', label: 'SINUCA' },
   { id: 'musica', label: 'MUSICA' },
   { id: 'fichas', label: 'FICHAS' },
+  { id: 'caca-niquel', label: 'MAQUINAS' },
 ]
 
 export { poteDeFichas, mesaDeSinuca, jukebox, baralho, cartaEspadas, espadas, maletaDeFichas, ALT_MESA }

@@ -551,8 +551,103 @@ tools/teste-protocolo-veiculos.mjs  ida e volta das mensagens de veículo + regr
 tools/teste-online.mjs      dois navegadores de verdade: sala, diálogo, telecinese
                             e o zumbi igual nas duas telas
 src/rede/avatares.js        bonecos dos outros jogadores (usa createCharacter)
+src/rede/voz.js             chat de voz por proximidade (PeerJS + WebRTC + PannerNode)
+tools/teste-voz.mjs         a máquina de estado da voz, com Peer dublê e microfone falso
 src/poder/anel.js           o anel verde: visual, mira, agarrar, arremessar
 implantar/minicity.service  systemd
 implantar/atualizar.sh      atualizar no servidor com um comando
 implantar/subir.ps1         da máquina local: manda o código e reinicia
 ```
+
+
+---
+
+# VOZ POR PROXIMIDADE
+
+Quem está a **15 metros** ou menos se ouve. A voz sai de onde a pessoa está: se
+ela fala atrás de você, você ouve atrás; se atravessa a rua, a voz vai sumindo.
+
+Ligar é a tecla **V** — a primeira vez pede o microfone, as seguintes alternam
+mudo. Sair do coop desliga o microfone junto.
+
+## Três canais, e só um deles é nosso
+
+| | por onde | quem hospeda |
+|---|---|---|
+| **sinalização** | servidor público do PeerJS (`0.peerjs.com`) | terceiro, de graça |
+| **áudio** | WebRTC, direto de um jogador ao outro | ninguém: é P2P |
+| **posição** | o WebSocket que já existia (`rede.jogadores`) | o nosso `servidor/` |
+
+O `servidor/` deste repositório **não ganhou uma linha**. Ele já sabe onde todo
+mundo está, e é só disso que o áudio posicional precisa.
+
+## O endereço não é trocado — é derivado
+
+O caminho óbvio seria um pacote `MEU_PEER_ID` espalhado pela sala. Isso mexeria
+em `protocolo.js` e em `sala.js` para transportar uma informação que **já dá
+para calcular**: todo jogador tem um id numérico próprio e estável (a regra que
+não se quebra, lá em cima). Então:
+
+```
+mcrp-<resumo de location.host>-<id do jogador>
+```
+
+Quem já enxerga o outro em `rede.jogadores` já sabe o endereço dele. **Zero
+bytes a mais na rede, zero mudança de protocolo.**
+
+O pedaço do host não é decoração: o broker do PeerJS é **público e compartilhado
+com o mundo inteiro**. Sem ele, dois servidores diferentes do jogo brigariam
+pelo id `mcrp-3` e um roubaria a chamada do outro.
+
+Pela mesma razão, **toda chamada que chega é conferida**: só é atendida se o
+endereço de quem liga decodificar para um jogador que o *nosso* servidor diz
+estar na sala. Quem não está no snapshot não existe.
+
+## Só o id menor liga
+
+Se os dois lados ligassem ao mesmo tempo (o *glare* clássico do WebRTC), cada um
+ficaria com duas chamadas e duas streams da mesma pessoa — todo mundo em dobro,
+com eco. `meuId < id` resolve sem negociação nenhuma.
+
+## Duas distâncias, não uma
+
+| | |
+|---|---|
+| `PERTO` | **15 m** — começa a ouvir |
+| `LONGE` | **18 m** — para de ouvir |
+| `PACIENCIA` | **2 s** além de `LONGE` antes de desligar de fato |
+
+Com um número só, quem para em cima da linha faz a chamada abrir e fechar sem
+parar: uma negociação WebRTC inteira por passo, e a voz picotando. A faixa entre
+os dois é zona morta. A paciência cobre quem dobra a esquina e volta — abrir uma
+chamada custa segundos de ICE e DTLS, e pagar isso de novo é pior que esperar.
+
+Já **quem some do snapshot cai na hora**, sem paciência: essa pessoa saiu do
+jogo, e segurar o grafo de áudio de alguém que não existe não tem defesa.
+
+## Duas armadilhas que fazem o som sumir sem erro nenhum
+
+1. **O `<audio>` mudo.** Uma MediaStream vinda do WebRTC só toca pelo Web Audio
+   se também estiver presa a um elemento `<audio>` no documento. Sem isso,
+   `createMediaStreamSource` conecta, o grafo fica bonito, o `PannerNode` se
+   move — e não sai som. O elemento é mudo (quem toca é o panner) e existe só
+   para o Chrome puxar os pacotes. **Parece código morto e não é.**
+2. **`getUserMedia` exige contexto seguro.** Abrir o jogo por
+   `http://192.168.x.x` para jogar em rede local **não dá microfone**: o
+   navegador nem pergunta, some com a API. Vale `localhost` e vale `https`. Em
+   LAN, a saída é um túnel (`ngrok`, `cloudflared`) ou um certificado local.
+
+## O que ainda não é
+
+- **Sem servidor TURN.** O PeerJS de graça traz STUN, que resolve a maioria das
+  casas, mas dois jogadores atrás de NAT simétrico (4G, alguns corporativos)
+  não fecham conexão. TURN custa banda, e por isso ninguém dá de graça.
+- **O broker grátis não tem contrato.** `0.peerjs.com` é limitado e cai. Para
+  valer, ou se sobe um `peer-server` junto do `servidor.js`, ou a sinalização
+  passa pelo WebSocket que já existe — aí sim com pacote novo no protocolo.
+- **O `<script>` vem do unpkg.** Um pedido de rede por carregamento. Para a
+  build offline da Steam: `npm i peerjs@1.5.2` e `import Peer from 'peerjs'`
+  dentro de `voz.js` — mesma API, e o Vite embute no bundle.
+
+Coberto por `node tools/teste-voz.mjs` (27 casos: proximidade, histerese,
+paciência, glare, chamada de estranho, saída e limpeza do grafo).

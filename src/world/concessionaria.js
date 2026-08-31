@@ -663,7 +663,7 @@ function piso(g) {
 }
 
 /** Trelica metalica aparente, calhas de luz e as duas luzes de verdade. */
-function forroELuz(g) {
+function forroELuz(g, raiz) {
   const cx = (IN.x0 + IN.x1) / 2, cz = (IN.z0 + IN.z1) / 2
   const t = plane(IN.x1 - IN.x0, IN.z1 - IN.z0, solid(0x3d4249, 0.92), Math.PI / 2)
   t.position.set(cx, CEIL, cz)
@@ -707,14 +707,38 @@ function forroELuz(g) {
   // tools/smoke.mjs). O que enche este galpao de luz visual sao as oito calhas
   // emissivas la em cima; estas duas sao as que de fato poem luz na lataria dos
   // carros, que e a unica coisa aqui que precisa de brilho especular.
+  //
+  // AS PointLight NAO MORAM AQUI DENTRO — ELAS VAO PRA `raiz`.
+  //
+  // Isto foi um BUG de travamento, medido e nao suposto. O LOD deste modulo
+  // esconde o miolo por distancia, e as luzes estavam DENTRO do que ele esconde:
+  // atravessar a fronteira mudava a CONTAGEM DE LUZES VISIVEIS DA CENA.
+  //
+  // No three.js o programa de shader de cada material e montado a partir dessa
+  // contagem. Quando ela muda, TODO material da cena vira programa novo e o
+  // renderer recompila a cena inteira no meio do quadro — um engasgo de varios
+  // quadros, sempre no mesmo ponto do mapa, nos dois sentidos. Era exatamente o
+  // que o dono descreveu: "travamentos ao chegar perto da loja de carros ou do
+  // hotel". A medicao (tools/perfil-fps.mjs e a sonda de luz) mostrou a
+  // contagem pulando 20 -> 22 -> 24 numa unica descida da avenida.
+  //
+  // E a MESMA armadilha que render/luzes-efeito.js foi escrito pra evitar, e que
+  // world/adega.js e world/cortico.js ja tratam do jeito certo. A regra e uma
+  // so: LUZ DE INTERIOR FICA NA RAIZ DO MODULO, que nunca e escondida. Ela
+  // continua custando o laco por fragmento (a contagem e constante, que e o
+  // ponto), e iluminar um comodo que ninguem esta vendo nao acende pixel nenhum
+  // a mais.
+  //
+  // O `+ BASE` no Y existe porque `dentro` esta levantado no piso da loja e a
+  // raiz nao: mudar de pai muda o referencial.
   for (const L of [
     { x: -21.0, y: 4.2, z: -43.4, i: 42 },   // as duas vagas da frente
     { x: -20.4, y: 4.0, z: -37.6, i: 34 },   // prato, balcao e o fundo
   ]) {
     const pl = new THREE.PointLight(0xeaf2ff, L.i, 22, 2)
-    pl.position.set(L.x, L.y, L.z)
+    pl.position.set(L.x, L.y + BASE, L.z)
     pl.castShadow = false
-    g.add(pl)
+    raiz.add(pl)
   }
 }
 
@@ -983,7 +1007,7 @@ export function buildConcessionaria(game) {
   dentro.name = 'auto-showroom'
   dentro.position.y = BASE
   piso(dentro)
-  forroELuz(dentro)
+  forroELuz(dentro, group)
   fundo(dentro)
   balcao(dentro, colliders)
   const prato = palcos(dentro, colliders)

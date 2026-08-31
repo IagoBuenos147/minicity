@@ -105,7 +105,9 @@ game = {
 | `src/armas/revolver.js` | `criarRevolver(opts)` | revólver de 6 balas, mira, recarga tambor a tambor, `aoAcerto` |
 | `src/inventario/inventario.js` | `criarInventario(opts)` | as 9 vagas da mochila, que **são a barra de itens** (teclas 1–9, centrada no rodapé). `adicionar` é **atômico**: simula antes e só escreve se couber inteiro |
 | `src/mobilia/bebidas.js` | `BEBIDAS`, `CATEGORIAS_BEBIDAS`, `bebidaDe`, `lataCerveja`, `garrafaVodka`, `garrafaWhiskey` | as bebidas: peças de MÃO, em pé com a base em y=0. Cada uma traz `mao: { pegaY, pegaR }`, que é o contrato com `player/mao.js` |
-| `src/mobilia/catalogo.js` | `MOBILIA`, `itemDe`, `limiteDe` | os 9 itens da loja (geometria + preço + pegada em metros). Um item = um `build()` que devolve um `Object3D` |
+| `src/mobilia/catalogo.js` | `MOBILIA`, `itemDe`, `limiteDe` | os itens da loja (geometria + preço + pegada em metros). Um item = um `build()` que devolve um `Object3D` |
+| `src/mobilia/caca-niquel.js` | `CACA_NIQUEIS` | as duas máquinas de rolete (`slot-madeira`, `slot-neon`): mesmos símbolos clássicos, gabinetes de linguagem oposta — nogueira envernizada com plinto e pés de canto contra esmalte vermelho com plinto único e topo de neon. `userData.update` só pulsa letreiro, nunca gira rolo sozinho |
+| `src/mobilia/video-poker.js` | `VIDEO_POKER` | o gabinete de vídeo pôquer, único móvel com TELA VIVA: canvas 512×384 próprio de cada instância, jacks-or-better 9/6 escrito aqui (não vem de `cassino/poker.js`, que é pôquer de DUAS cartas). A tela é `MeshBasicMaterial` — é fonte de luz, não superfície iluminada |
 | `src/world/loja-jogos.js` | `buildLojaJogos(game)` | a loja TACO DE OURO: fachada, salão, balcão, mostruário e a Wanda atrás do balcão |
 | `src/world/hotel.js` | `buildHotel(game)` | o HOTEL PARAÍSO: casca própria (fachada em z0, marquise, 3 andares de sacada, letreiro de cobertura), porta de vidro automática, saguão com recepção, sala de espera, escada simbólica, elevador e a Íris |
 | `src/world/concessionaria.js` | `buildConcessionaria(game)`, `CATALOGO_AUTO`, `criarGaragem`, `fotoDeVeiculo` | a GARAGEM DO NANDO: showroom com os quatro veículos de verdade em exposição, prato giratório, cavaletes de preço e o Nando. O catálogo e a "garagem" (o inventário de forma compatível com `loja-ui.js`) saem daqui, e é assim que ela usa a MESMA janela de loja do Taco de Ouro |
@@ -268,6 +270,71 @@ camera e a torneira no mundo a um metro, sem ela o jorro cai ao lado do copo.
 `mirar` poe o alvo da pose no ESPACO DE CAMERA do bico, e `torneira.cortar(true)`
 encurta a coluna pra ela terminar dentro do vidro.
 
+## O TRAVAMENTO PERTO DAS LOJAS — a regra da luz na raiz
+
+O dono relatou "travamentos e quedas de FPS ao chegar perto da loja de carros ou
+do hotel". Travao e queda de FPS sao coisas diferentes e tem causas diferentes,
+e neste caso era travao: engasgos de varios quadros, SEMPRE NOS MESMOS PONTOS do
+mapa, nos dois sentidos.
+
+**A causa.** Tres lojas tinham as PointLight DENTRO do grupo que o LOD delas
+esconde por distancia:
+
+| modulo | luzes | raio do LOD | onde estavam |
+|---|---|---|---|
+| `world/hotel.js` | 2 | 52 m | `forroELuz(dentro)` |
+| `world/concessionaria.js` | 2 | 52 m | `forroELuz(dentro)` |
+| `world/loja-jogos.js` | **4** | **32 m** | `forroELuz(group)` — a raiz do modulo |
+
+Grupo invisivel quer dizer que o `projectObject` do three nao empurra as luzes
+dele pra lista do quadro. E o programa de shader de CADA material da cena e
+montado a partir da CONTAGEM DE LUZES VISIVEIS: mudou a contagem, todo material
+vira programa novo e o renderer recompila a cena inteira no meio do quadro.
+
+E a armadilha que `render/luzes-efeito.js` documenta desde que existe, e que
+`world/adega.js` e `world/cortico.js` ja evitavam de proposito. As tres lojas
+mais antigas nao.
+
+**A medida.** Uma sonda que conta a visibilidade EFETIVA (a luz E todos os pais)
+andando pela avenida:
+
+```
+z=  20   luzes visiveis = 20
+z= 2.3   luzes visiveis = 22   <<< garagem entrou
+z=-0.7   luzes visiveis = 24   <<< hotel entrou
+```
+
+e no Taco de Ouro, 20 -> 24 num passo so. Tres recompilacoes numa descida.
+Depois do conserto a contagem fica parada em 28, e o numero de programas do
+renderer caiu de **124 para 51**.
+
+Atencao pra um detalhe que faz a diferenca entre achar e nao achar: contar
+`o.visible` da propria luz NAO acha nada. `Object3D.traverse` nao pula subarvore
+invisivel, e quem o LOD desliga e o GRUPO em volta — a luz continua com o flag
+dela ligado. Tem que subir a cadeia de pais.
+
+**A regra, agora com trava.** LUZ DE INTERIOR MORA NA RAIZ DO MODULO, nunca
+dentro do que o LOD esconde. Ela continua custando o laco por fragmento (a
+contagem e constante, que e justamente o ponto), e iluminar um comodo que
+ninguem esta vendo nao acende pixel nenhum a mais. `tools/smoke.mjs` tem um caso
+que anda pelas quatro fronteiras e reprova se a contagem se mexer.
+
+**Dois outros custos por quadro, achados na mesma varredura e tambem corrigidos:**
+
+- `systems/encaixe.js` — `movelNaMira()` fazia `Box3.setFromObject` (que percorre
+  a subarvore inteira do movel) pra CADA movel instalado, todo quadro, sem teste
+  de distancia: o custo crescia com o quanto o jogador tinha comprado, em
+  qualquer lugar do mapa. Agora ha uma peneira de distancia antes da caixa.
+- `world/city.js` — a agua da fonte deformava 735 vertices (`sqrt` + 3 `sin`
+  cada) e chamava `computeVertexNormals()` duas vezes por quadro, sempre, com o
+  jogador a oitenta metros dela. Agora so ondula dentro de 34 m.
+
+Fica registrado tambem, sem conserto por enquanto: `cenario/cenarios.js` liga e
+desliga TODAS as luzes de poste de uma vez quando o sol cruza o horizonte
+(`lighting.js` chama quando `sunDir.y` passa de 0.02). E a mesma recompilacao,
+so que duas vezes por ciclo de dia em vez de a cada esquina. O conserto certo e
+o mesmo do pool de efeito: deixar as luzes na cena e zerar a `intensity`.
+
 ## O CORTICO 117 — e o dia em que o jogo ganhou ANDAR
 
 O pedido foi "aqueles lugares de filme de acao onde varias pessoas moram
@@ -417,6 +484,28 @@ Quatro módulos que se seguram pelas bordas. A ordem entre eles é a regra:
 `podeEm(id, x, z, giro)`, `mirarEm(x, z, giro)` e `guardarEm(i)` existem para o
 teste de fumaça e para o console: mirar com a câmera num teste testaria o
 raycaster, e não os três testes de encaixe, que são o que importa.
+
+5. **Móvel posto pode ter quadro, e quem dá é o encaixe.** Até as máquinas
+   caça-níquel, todo móvel era geometria parada: o encaixe punha no chão e
+   acabava. A tela do vídeo pôquer precisava rodar uma partida sozinha, e daí
+   nasceu `encaixe.atualizar(dt)` (chamado no `main.js`, ao lado do
+   `mercadoUI.atualizar`). A regra é curta: se o grupo que o `build()` devolve
+   tiver `userData.update = (dt, obj) => {}`, ele recebe quadro — **e só
+   enquanto o jogador estiver a menos de 14 m** (`PERTO_UPDATE`). Longe disso a
+   função nem é chamada, então a peça pausa sozinha sem custar nada e sem
+   precisar de cuidado nenhum de quem a escreve.
+
+   **A ordem importa e quebra dos dois lados.** `bakeStatic()` funde tudo que
+   não estiver marcado, e a marca sobe pelos pais. Se o grupo topo já tiver o
+   `.update` ANTES do `bakeStatic(grupo)`, a subida bate nele para qualquer
+   filho e **nada funde** — o gabinete inteiro fica em dezenas de draw calls. Se
+   a parte viva não carregar `userData.dynamic` própria, ela **funde junto** e
+   para de atualizar para sempre. A sequência certa é: montar (marcando só a
+   parte viva) → `bakeStatic(grupo)` → só então `grupo.userData.update`.
+
+   Custo: a tela é um canvas 512×384 que **não** se redesenha todo quadro. Só
+   redesenha quando algo mudou nela, e ainda passa por um acumulador que trava o
+   ritmo em ~8 Hz. Fora dos eventos, `atualizar()` só adianta temporizadores.
 
 ## Dois mundos, e a tecla que troca
 

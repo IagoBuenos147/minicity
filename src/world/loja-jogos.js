@@ -182,7 +182,7 @@ function piso(g) {
  * De quebra, pendente e o que um salao de sinuca tem. Calha de escritorio no
  * teto de um salao de bilhar sempre foi a coisa errada no lugar certo.
  */
-function forroELuz(g) {
+function forroELuz(g, raiz) {
   const cx = (IN.x0 + IN.x1) / 2
   const t = plane(IN.x1 - IN.x0, IN.z1 - IN.z0, M.forro, Math.PI / 2)
   t.position.set(cx, CEIL, (IN.z0 + IN.z1) / 2)
@@ -318,15 +318,35 @@ function forroELuz(g) {
     { x: 46.6, y: 2.02, z: -20.4, i: 42 },     // mesa da direita + parede leste
     { x: BALCAO.x, y: 2.02, z: -25.2, i: 34 }, // balcao e o fundo do salao
   ]
+  //
+  // AS QUATRO PointLight NAO MORAM NO MIOLO — ELAS VAO PRA `raiz`.
+  //
+  // Isto foi um BUG de travamento, medido e nao suposto, e aqui era o PIOR dos
+  // tres casos do jogo: quatro luzes de uma vez, num raio de 32 m, que e a
+  // calcada da avenida — ou seja, no caminho de quem simplesmente passa em
+  // frente. O LOD deste modulo escondia o `group` inteiro, e as luzes estavam
+  // dentro dele: cruzar a fronteira mudava a CONTAGEM DE LUZES VISIVEIS DA CENA.
+  //
+  // No three.js o programa de shader de cada material e montado a partir dessa
+  // contagem. Quando ela muda, TODO material da cena vira programa novo e o
+  // renderer recompila a cena inteira no meio do quadro — um engasgo de varios
+  // quadros, sempre no mesmo ponto do mapa, nos dois sentidos. A sonda mediu a
+  // contagem pulando de 20 pra 24 num passo so, aqui.
+  //
+  // E a MESMA armadilha que render/luzes-efeito.js foi escrito pra evitar. A
+  // regra: LUZ DE INTERIOR FICA NA RAIZ DO MODULO, que nunca e escondida.
+  //
+  // O `+ BASE` no Y existe porque o miolo esta levantado no piso da loja e a
+  // raiz nao: trocar de pai troca o referencial.
   for (const L of LUZES) {
     // ALCANCE 16 e nao 13: `distance` no three e onde a luz e cortada a zero, e
     // com 13 num salao de 19 m de largura o corte caia ANTES da parede. O
     // decaimento ja e quadratico — quem controla o brilho e a intensidade, o
     // alcance so decide onde a conta para de valer.
     const pl = new THREE.PointLight(0xffe9c8, L.i, 16, 2)
-    pl.position.set(L.x, L.y, L.z)
+    pl.position.set(L.x, L.y + BASE, L.z)
     pl.castShadow = false
-    g.add(pl)
+    raiz.add(pl)
   }
 }
 
@@ -871,14 +891,22 @@ function criarWanda(g, colliders) {
 }
 
 export function buildLojaJogos(game) {
+  // DOIS GRUPOS, e o de fora existe SO pra segurar as luzes.
+  //
+  // O LOD la embaixo esconde o salao por distancia, e ele nao pode esconder as
+  // PointLight junto (ver o paragrafo em forroELuz). `raiz` e o que vai pra
+  // cena e nunca some; `group` e o salao, e e ele que o LOD apaga.
+  const raiz = new THREE.Group()
+  raiz.name = 'loja-jogos'
   const group = new THREE.Group()
   group.name = 'loja-jogos-interior'
+  raiz.add(group)
   const colliders = []
   const interactables = []
   const occluders = []
 
   piso(group)
-  forroELuz(group)
+  forroELuz(group, raiz)
   paredes(group, occluders)
   balcao(group, colliders)
   entrada(group, colliders)
@@ -978,7 +1006,9 @@ export function buildLojaJogos(game) {
     if (typeof npc.update === 'function') npc.update(dt)
   }
 
-  return { group, colliders, interactables, occluders, update }
+  // `group: raiz` e nao `group`: quem vai pra cena e a raiz, que carrega o
+  // salao E as luzes. O LOD continua apagando so o salao.
+  return { group: raiz, colliders, interactables, occluders, update }
 }
 
 export default buildLojaJogos

@@ -318,6 +318,18 @@ export function construir() {
     //           estercar — e no skate quem vira e o deck, nunca a roda.
     eixoRodas.userData.raio = RODA_R
     eixoRodas.userData.esterca = false
+    // O HANGER, pra quem quiser fazer o truck virar.
+    //
+    // Um skate nao esterca com as maos: quando o deck tomba, a bucha cede e o
+    // hanger GIRA junto do pino, virando as duas rodas daquele truck. Sao os
+    // trucks que fazem a curva, e sem eles virando o deck inclina com as
+    // quatro rodas apontando pra frente, feito carrinho de rolima.
+    //
+    // Ele vai pelo userData e nao por eixoRodas.parent porque o forno de
+    // geometria pode dissolver grupos intermediarios; `dynamic` o protege, e
+    // o campo garante que quem le sempre ache o no certo.
+    truck.userData.dynamic = true
+    eixoRodas.userData.truck = truck
     rodas.push(eixoRodas)
   }
 

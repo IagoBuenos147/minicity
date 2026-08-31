@@ -183,3 +183,39 @@ export function setVolume(v) {
 export function disponivel() { return !quebrado }
 
 export default { bater, porta, setVolume, disponivel, DURACAO_BATIDA }
+
+// ---------------------------------------------------------------------------
+// O CONTEXTO, EMPRESTADO.
+//
+// O chat de voz (src/rede/voz.js) precisa de um AudioContext pra pendurar os
+// PannerNode das vozes. Ele NAO cria o dele: navegador limita quantos contextos
+// uma aba pode ter (o Chrome corta em 6), cada um come uma thread de audio, e
+// dois contextos teriam dois relogios diferentes — o "toc toc" da porta e a voz
+// de quem esta do lado dela sairiam de linhas do tempo distintas.
+//
+// A armadilha do primeiro clique, explicada la em cima, vale igual aqui: quem
+// chamar isto antes de qualquer gesto do usuario recebe um contexto SUSPENSO.
+// Por isso `voz.js` so chama depois da tecla que liga o microfone.
+// ---------------------------------------------------------------------------
+
+/** O AudioContext do jogo, criado na primeira chamada. `null` se nao da. */
+export function contextoDeAudio() { return contexto() }
+
+/**
+ * Onde a VOZ se pendura — e de proposito NAO e o `mestre`.
+ *
+ * O `mestre` carrega o volume dos efeitos (setVolume), e abaixar o volume do
+ * jogo pra ouvir alguem falar nao pode calar justamente essa pessoa. Voz e
+ * fala, efeito e cenario: dois barramentos.
+ */
+let vozBus = null
+export function barramentoDeVoz() {
+  const c = contexto()
+  if (!c) return null
+  if (!vozBus) {
+    vozBus = c.createGain()
+    vozBus.gain.value = 1
+    vozBus.connect(c.destination)
+  }
+  return vozBus
+}

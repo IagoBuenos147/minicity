@@ -59,7 +59,11 @@ const POSE_ANDAR = {
   // maior peca de mao do jogo: a 0.42 m ela comia metade da tela, e o meio
   // metro daqui e onde ela para de tapar a cidade sem virar um enfeite pequeno
   // no canto. A lata de 15,7 cm nasce certa junto, porque a pose e da PEGA.
-  pos: new THREE.Vector3(0.268, -0.292, -0.510),
+  // z = -0.44, e nao -0.51: a mao precisa estar PERTO o bastante pra nao ler
+  // como flutuando na frente do rosto. Longe demais ela vira um objeto solto no
+  // meio da tela — nao ha braco pra ancorar (ele foi removido de proposito), e
+  // sem ancora a unica coisa que diz "isto e a MINHA mao" e a proximidade.
+  pos: new THREE.Vector3(0.252, -0.276, -0.440),
   // z = +0.235: o topo cai um pouco pra ESQUERDA, na direcao do centro da tela.
   // Vertical em pe a peca vira uma coluna colada na borda e some da leitura.
   // y = -0.26: mostra a FRENTE do rotulo. Mais que isso e a peca de perfil, que
@@ -89,7 +93,7 @@ const POSE_CORRER = {
   // de queda o punho saia do enquadramento e o que restava era uma lasca de
   // gargalo no canto — a pose de corrida existia e ninguem a via. Quem carrega
   // a leitura da corrida aqui e a ROTACAO, nao a altura.
-  pos: new THREE.Vector3(0.315, -0.352, -0.455),
+  pos: new THREE.Vector3(0.296, -0.336, -0.400),
   rot: new THREE.Euler(0.60, -0.55, -0.18),
 }
 // Pose na mao DE VERDADE (3a pessoa): a junta handR e o PULSO, entao a peca
@@ -113,29 +117,16 @@ const ACIMA_REF = 0.20
  * direita segura uma garrafa de verdade, e o que as fotos de referencia mostram.
  */
 const PUNHO = {
-  // Azimute da pega: de que lado a mao entra e, sobretudo, DE QUE LADO DA PECA
-  // OS DEDOS PASSAM.
+  // A PEGA ESCOLHIDA PELO DONO, na folha de contato de tools/shot-bebida.mjs.
   //
-  // O VALOR SAI DE UMA MEDIDA, e a medida certa e a da PONTA DOS DEDOS — nao a
-  // do centro de massa da mao, que foi como escolhi antes e escolhi errado (o
-  // centro mistura palma, dorso e dedos e nao diz quem tapa o que). Com
-  // api.medirPega() da pra ler, no espaco da peca, onde as quatro pontas caem:
+  // Chegou aqui por eliminacao visual, nao por deducao: folha grossa de 30 em 30
+  // pra achar a regiao, `par` pra decidir a quiralidade, `fino` de 15 em 15 e
+  // por fim `pega`, que varia os tres eixos juntos. Foi a celula #5 da ultima.
   //
-  //   giro   ponta Z   ponta X   pulso X
-  //   0.8     +3.0      +1.4      -2.4
-  //   1.2     ~+2.2     ~+2.3     ~-5.0   <- este
-  //   1.6     +1.1      +3.1      -7.3
-  //   1.9      ~0       ...       ...     <- o valor antigo, na borda
-  //   2.4     -1.4      +3.0      -7.8
-  //
-  // Z POSITIVO E ATRAS DA PECA (longe da camera) e X NEGATIVO e a direita da
-  // tela — o `orienta` da meia-volta na peca. Entao a janela boa vai de ~0.8 a
-  // ~1.6: fora dela as pontas cruzam pra FRENTE e tapam a bebida, que era
-  // exatamente a queixa. Em 1.9 elas estavam em cima do zero.
-  //
-  // 1.2 e o meio dessa janela: dedos com 2 cm de folga atras, pontas
-  // reaparecendo na borda esquerda e o pulso 5 cm pra direita.
-  giro: 1.2,
+  // Nenhum destes quatro numeros deve ser mexido "no olho": cada um muda o que
+  // aparece na tela de um jeito que nao da pra prever lendo o codigo — foi a
+  // licao de cinco rodadas de chute. Pra mexer, rode a ferramenta e escolha.
+  giro: 2.618,
   // Pra cima ou pra baixo: decide se o polegar sobe ou desce na peca. Sao os
   // dois unicos graus de liberdade da colocacao, e AS COMBINACOES SAO QUATRO —
   // por isso eles sao ajustaveis por fora (api.ajustarPunho) em vez de cravados.
@@ -143,6 +134,49 @@ const PUNHO = {
   // tres espacos (mao -> peca -> camera, com a meia-volta do `orienta` no meio),
   // e cada erro parece plausivel; na tela leva um segundo.
   cima: true,
+  /**
+   * ESPELHA A MALHA — troca a mao direita pela esquerda.
+   *
+   * Existe pra poder CONFERIR, nao porque devesse ser usada: a geometria vem de
+   * MALHA_MAO, que e a mesma tabela da mao DIREITA do boneco (o espelho, em
+   * character.js, so e aplicado pra fazer a esquerda dele). Rotacao nao muda
+   * quiralidade, entao o punho e a direita — a menos que haja um erro em algum
+   * lugar do caminho, e a unica forma de descobrir e ver as duas lado a lado.
+   */
+  // LIGADO: o dono pediu a mao invertida. Ver o comentario acima — o que a
+  // tabela do boneco chama de "direita" nao e o que ele ve na tela, e quem
+  // decide isso e ele, olhando.
+  espelhar: true,
+
+  /**
+   * INCLINACAO DO POLEGAR. Componente X da direcao dele no espaco da mao.
+   *
+   * Maior = mais DEITADO pra direita, encostando na parede da peca; menor = mais
+   * em pe, subindo pela lata. O dedao e o unico dedo que aparece inteiro nesta
+   * pega (os outros quatro passam por tras), entao ele sozinho decide metade da
+   * leitura — por isso e um botao e nao um numero enterrado na funcao.
+   */
+  polegarX: 1.30,
+
+  /**
+   * APERTO: quantos metros a mao inteira avanca NA DIRECAO DA PECA.
+   *
+   * Zero e a mao pousada na circunferencia de pega. Positivo fecha a palma
+   * contra a lata — e o que tira aquela folga entre a palma e o aluminio que faz
+   * a mao parecer encostada em vez de segurando. Nao pode exagerar: passado uns
+   * 8 mm a palma atravessa a parede da peca e aparece por dentro dela.
+   */
+  aperto: 0.008,
+
+  /**
+   * QUANTO O POLEGAR ENROLA. Multiplica a curva dele.
+   *
+   * Baixo, ele fica em pe encostado na parede; alto, ele da a volta e a POLPA
+   * vai parar na FRENTE da peca, servindo de apoio — que e o que uma mao faz de
+   * verdade e o que o dono pediu. E o dedo oposto aos outros quatro: se ele nao
+   * chega na frente, nada esta sendo apertado contra nada.
+   */
+  polegarCurva: 1.5,
 }
 
 const AMP_BOB_ANDAR = 0.016   // quanto a peca sobe e desce andando
@@ -282,11 +316,22 @@ function construirPunho(r) {
     [primeiro[0] + 0.020, primeiro[1] * 0.52, primeiro[2] * 0.52, 2.1, 0],
     [primeiro[0] + 0.011, primeiro[1] * 0.88, primeiro[2] * 0.88, 2.2, 0],
   ]
+  // A PALMA DO PUNHO NAO E A DA MAO ABERTA.
+  //
+  // A tabela do boneco sobe o expoente da superelipse ate 3.10 na linha dos nos
+  // — quase um retangulo — porque numa mao ABERTA e ali que os cinco metacarpos
+  // ficam lado a lado e a mao e mesmo chata. Num PUNHO FECHADO a mao enrola:
+  // a secao volta a ser quase oval, e reaproveitar o 3.10 e o que fazia a palma
+  // ler como um BLOCO, que foi a queixa.
+  //
+  // Entao aqui o expoente e puxado pra baixo (teto de 2.45) e as colunas sobem
+  // de 10 pra 16: a superelipse de expoente alto mostra os cantos como facetas,
+  // e esta mao aparece a vinte centimetros do olho.
   let ant = null
   let anelDoPulso = null
   for (const [y, a, b, n, dx] of aPulso.concat(M.PALMA_ANEIS)) {
     o.set(dx, y, 0)
-    const A = M.anel(ma, o, U, V, a, b, n, 10)
+    const A = M.anel(ma, o, U, V, a, b, Math.min(2.45, n), 16)
     if (ant) M.costurar(ma, ant, A)
     else anelDoPulso = A
     ant = A
@@ -297,7 +342,7 @@ function construirPunho(r) {
     let antT = null
     for (const [y, a, b] of M.TENAR) {
       o.set(0.0035, y, 0.0250)
-      const A = M.anel(ma, o, U, V, a, b, 2.2, 8)
+      const A = M.anel(ma, o, U, V, a, b, 2.1, 12)
       if (antT) M.costurar(ma, antT, A)
       antT = A
     }
@@ -396,15 +441,24 @@ function construirPunho(r) {
   //
   // Ele dobra POUCO e em torno de -Y: e o eixo que empurra a ponta contra o
   // vidro sem tirar o dedo do plano da parede.
-  const curvaPol = Math.min(0.75, 0.052 / (r + 0.0126) * 0.42)
+  const curvaPol = Math.min(1.9, 0.052 / (r + 0.0126) * 0.42 * PUNHO.polegarCurva)
   M.dedo(
     ma,
     new THREE.Vector3(-0.002, -0.034, 0.0330),
-    new THREE.Vector3(0.40, 0.26, 0.86),
+    new THREE.Vector3(PUNHO.polegarX, 0.26, 0.86),
     0.058, curvaPol, 0.0128, 0.72, 10, 6, EIXO_POLEGAR_DEITADO, 2.1,
   )
 
-  const geo = ma.geo()
+  let geo = ma.geo()
+  if (PUNHO.espelhar) {
+    // ESPELHAR A MALHA NAO BASTA: o centro da pega e as pontas foram calculados
+    // no espaco da mao ANTIGA, e e por eles que a malha e encaixada na peca e
+    // que a oclusao de pintarPele e medida. Sem virar o x dos dois junto, a mao
+    // espelhada nasce deslocada da bebida e com a sombra do lado errado.
+    geo = M.espelharX(geo)
+    cx = -cx
+    for (const pt of pontas) pt.x = -pt.x
+  }
   pintarPele(geo, cx, cy, r)
   return { geo, centro: _v3.set(cx, cy, 0).clone(), pontas }
 }
@@ -511,7 +565,13 @@ export function punhoEmVolta(r, pele) {
   // pivo: gira e translada a malha da mao inteira
   const pivo = new THREE.Group()
   const malhaMao = new THREE.Mesh(geo, matPele)
-  malhaMao.position.set(-centro.x, -centro.y, 0)
+  // O APERTO empurra a mao na direcao da peca. `centro` e o eixo do cilindro no
+  // espaco da mao, entao o vetor centro->origem normalizado e exatamente "pra
+  // dentro" — some com a folga entre palma e lata sem mexer em mais nada.
+  const dist = Math.hypot(centro.x, centro.y) || 1
+  const ax = (centro.x / dist) * PUNHO.aperto
+  const ay = (centro.y / dist) * PUNHO.aperto
+  malhaMao.position.set(-centro.x + ax, -centro.y + ay, 0)
   pivo.add(malhaMao)
   // eixo Z da mao -> eixo Y da peca. O sinal e o 'cima'.
   pivo.rotation.x = PUNHO.cima ? -Math.PI / 2 : Math.PI / 2
@@ -759,6 +819,10 @@ export function criarMao({ scene, camera, player, character, aparencia } = {}) {
     ajustarPunho(op) {
       if (op && typeof op.giro === 'number') PUNHO.giro = op.giro
       if (op && typeof op.cima === 'boolean') PUNHO.cima = op.cima
+      if (op && typeof op.espelhar === 'boolean') PUNHO.espelhar = op.espelhar
+      if (op && typeof op.polegarX === 'number') PUNHO.polegarX = op.polegarX
+      if (op && typeof op.aperto === 'number') PUNHO.aperto = op.aperto
+      if (op && typeof op.polegarCurva === 'number') PUNHO.polegarCurva = op.polegarCurva
       const id = atual && atual.id
       const ficha = atual && atual.ficha
       // TIRA O QUE ESTAVA NA MAO ANTES de zerar `atual`: segurar() so remove o
@@ -769,13 +833,23 @@ export function criarMao({ scene, camera, player, character, aparencia } = {}) {
       atual = null
       cache.clear()
       if (id && ficha) api.segurar(id, ficha)
-      return { giro: PUNHO.giro, cima: PUNHO.cima }
+      return {
+        giro: PUNHO.giro, cima: PUNHO.cima, espelhar: PUNHO.espelhar,
+        polegarX: PUNHO.polegarX, aperto: PUNHO.aperto,
+      }
     },
 
     get id() { return atual ? atual.id : null },
     get segurando() { return !!atual },
     /** Pro HUD e pro save: o que esta na mao agora. */
     get ficha() { return atual ? atual.ficha : null },
+    /**
+     * O grupo da peca que esta na mao, ou null. Existe pras FERRAMENTAS:
+     * tools/shot-item.mjs precisa saber onde a peca esta no mundo pra por uma
+     * camera perto dela e fotografar o item de perto — a camera do jogo nao
+     * serve, porque a peca e filha dela e andar com ela leva a peca junto.
+     */
+    get grupo() { return atual ? atual.grupo : null },
 
     /**
      * Poe uma peca na mao.

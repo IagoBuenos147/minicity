@@ -109,6 +109,23 @@ const CSS = `
 }
 #hud-fps b { font-variant-numeric: tabular-nums; font-size: 14px; }
 
+/* --- o microfone ---
+   Linha que so existe quando ha voz ligada. O ponto e a informacao inteira:
+   VERDE pulsando = o microfone esta aberto e os outros te ouvem; VERMELHO
+   parado = mudo. Uma pessoa precisa saber, sem ler, se esta com o microfone
+   aberto — e o unico item do HUD onde errar custa privacidade. */
+#hud-voz { display: none; }
+#hud-voz .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #7fd8a0; box-shadow: 0 0 7px #7fd8a0;
+  animation: vozPulsa 1.6s ease-in-out infinite;
+}
+#hud-voz.mudo .dot {
+  background: #e2564a; box-shadow: 0 0 7px #e2564a; animation: none;
+}
+#hud-voz i { font-style: normal; opacity: .6; margin-left: 2px; }
+@keyframes vozPulsa { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+
 /* --- CANTO INFERIOR DIREITO: so o dinheiro --------------------------------
    Esta coluna ja empilhou tres coisas (a mao, o dinheiro e as vagas). Sobrou o
    dinheiro: as vagas viraram a barra unica do rodape (ver #hud-barra) e o que
@@ -449,6 +466,11 @@ export function createHUD() {
   fpsRow.id = 'hud-fps'
   const fpsVal = el('b', null, fpsRow, '--')
   el('span', null, fpsRow, 'FPS')
+  const vozRow = el('div', 'row panel', status)
+  vozRow.id = 'hud-voz'
+  el('span', 'dot', vozRow)
+  const vozTxt = el('span', null, vozRow, 'Voz')
+  const vozQtd = el('i', null, vozRow, '')
   const debug = el('div', 'panel', status)
   debug.id = 'hud-debug'
 
@@ -627,6 +649,24 @@ export function createHUD() {
       mode = m === 'third' ? 'third' : 'first'
       modeTxt.textContent = mode === 'third' ? 'Camera 3a pessoa' : 'Camera 1a pessoa'
       refreshCross()
+    },
+
+    /**
+     * O estado do microfone, vindo de `voz.estado()`. `null` esconde a linha.
+     *
+     * Chamado TODO QUADRO, entao escreve pouco: mexer em textContent sem
+     * necessidade suja o layout do navegador 60 vezes por segundo por nada.
+     */
+    setVoz(v) {
+      if (!v || !v.ativa) { vozRow.style.display = 'none'; return }
+      vozRow.style.display = ''
+      const mudo = !!v.mudo
+      if (vozRow.classList.contains('mudo') !== mudo) vozRow.classList.toggle('mudo', mudo)
+      const txt = mudo ? 'Mudo' : 'Voz'
+      if (vozTxt.textContent !== txt) vozTxt.textContent = txt
+      const n = (v.ouvindo && v.ouvindo.length) || 0
+      const q = n ? '· ' + n : ''
+      if (vozQtd.textContent !== q) vozQtd.textContent = q
     },
 
     /** obj = { chave: valor }. null/vazio esconde o painel. */

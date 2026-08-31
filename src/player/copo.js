@@ -40,25 +40,31 @@ import { copoDe } from '../mobilia/copos.js'
 // -Z e pra frente, +X a direita da tela, +Y pra cima. As mesmas convencoes de
 // player/mao.js, inclusive a meia-volta do grupo `orienta`.
 
+// As quatro poses vieram PRA PERTO junto com as de player/mao.js (ver o
+// comentario la): sem braco, o que ancora a mao no jogador e a proximidade.
 const POSE_OCIOSA = {
-  pos: new THREE.Vector3(0.238, -0.268, -0.430),
+  pos: new THREE.Vector3(0.226, -0.254, -0.382),
   rot: new THREE.Euler(0.10, -0.38, 0.16),
 }
 const POSE_CORRER = {
-  pos: new THREE.Vector3(0.282, -0.392, -0.360),
+  pos: new THREE.Vector3(0.268, -0.372, -0.322),
   rot: new THREE.Euler(0.52, -0.66, 0.42),
 }
 // ESTENDIDA: a mao sai pra frente e ANDA PRO CENTRO da tela. O copo tem que
 // ficar debaixo da mira, senao o jogador nao acredita que ele vai receber ali.
 const POSE_ESTENDIDA = {
-  pos: new THREE.Vector3(0.118, -0.196, -0.560),
+  // SERVIR: sai pra frente mas nao tanto quanto antes — o copo tem que ficar
+  // debaixo da mira sem a mao virar um ponto distante no meio da tela.
+  pos: new THREE.Vector3(0.112, -0.186, -0.492),
   rot: new THREE.Euler(-0.06, -0.16, 0.02),
 }
 // NA BOCA: o copo sobe, vem pro centro e INCLINA PRA TRAS (rot.x positivo joga
 // a boca do copo na direcao do rosto). Fica baixo na tela de proposito: o copo
 // na altura dos olhos taparia a tela inteira.
 const POSE_BOCA = {
-  pos: new THREE.Vector3(0.052, -0.150, -0.250),
+  // BEBER: ja era a mais perta das quatro; encurtou o suficiente pra ficar
+  // coerente com as outras tres, sem o copo tapar a tela.
+  pos: new THREE.Vector3(0.048, -0.142, -0.232),
   rot: new THREE.Euler(0.62, -0.05, -0.10),
 }
 

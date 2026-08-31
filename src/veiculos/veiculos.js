@@ -66,6 +66,17 @@ const PULO_SKATE = 3.4
 // voltando pro deck. E o que separa "empurrar" de "acelerar".
 const VARRE_INI = 0.16
 const VARRE_FIM = 0.56
+
+/**
+ * O BAQUE DO PE NO ASFALTO, 1 -> 0 em ~80 ms a partir do contato.
+ *
+ * Mora aqui fora porque DUAS coisas leem o mesmo numero: o corpo do boneco
+ * (que comprime) e o deck (que mergulha e rola). Se cada um tivesse a sua
+ * conta, uma hora elas iam sair de fase e o impacto viraria dois impactos.
+ */
+function golpeDoPe(v) {
+  return v.empurra >= VARRE_INI ? Math.exp(-(v.empurra - VARRE_INI) * 26) : 0
+}
 const GRAVIDADE = PLAYER.GRAVITY
 // Bateu: a velocidade cai pra isto (nao atravessa, nao capota, so para).
 const PERDA_BATIDA = 0.18
@@ -342,6 +353,7 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       vy: 0, noAr: false,
       // Skate: -1 = pe no deck; 0..1 = fase do ciclo de empurrada.
       empurra: -1,
+      planeio: 0,        // skate: segundos de rolo antes de poder empurrar de novo
       freando: 0,        // skate: o pe raspando o chao (S), 0..1
       freioMao: false,   // carro: o Espaco
       alturaCorpo: 0,    // afundar da carroceria (peso na suspensao)
@@ -577,17 +589,39 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       // passa embaixo). E o que faz o skate ter uma velocidade de cruzeiro
       // gostosa em vez de ir sempre ate o teto.
       const ciclo = c.ciclo || 0.85
+      // O PLANEIO. Terminada uma empurrada o pe volta pro deck e fica la: com o
+      // W apertado ou nao, a proxima so comeca depois de `v.planeio` segundos.
+      // E o que separa "andar de skate" de "pisar numa esteira" — e sem isso a
+      // empurrada nao tem impacto nenhum, porque nunca para.
+      if (v.planeio > 0) v.planeio -= dt
       if (v.empurra >= 0) {
         v.empurra += dt / ciclo
-        if (v.empurra >= 1) v.empurra = (e.frente && !e.tras) ? 0 : -1
-      } else if (e.frente && !e.tras && !v.noAr) {
+        if (v.empurra >= 1) {
+          v.empurra = -1
+          // Quanto mais rapido, mais tempo ele aproveita o rolo antes de
+          // empurrar de novo. Parado sao empurradas quase coladas (e assim que
+          // se arranca); em cruzeiro, uma e o suficiente por bastante tempo.
+          const r = clamp01(Math.abs(v.vel) / c.velMax)
+          const pMin = c.planeioMin !== undefined ? c.planeioMin : 0.34
+          const pMax = c.planeioMax !== undefined ? c.planeioMax : 1.15
+          v.planeio = pMin + (pMax - pMin) * r
+        }
+      } else if (e.frente && !e.tras && !v.noAr && v.planeio <= 0) {
         v.empurra = 0
       }
-      if (e.tras && v.empurra >= 0) v.empurra = -1
+      if (e.tras && v.empurra >= 0) { v.empurra = -1; v.planeio = 0 }
       if (v.noAr) v.empurra = v.empurra >= 0 ? Math.min(0.99, v.empurra) : -1
       if (v.empurra >= VARRE_INI && v.empurra <= VARRE_FIM) {
+        const t = (v.empurra - VARRE_INI) / (VARRE_FIM - VARRE_INI)
+        // A FORCA DO PE NAO E CONSTANTE. Ela estoura no instante em que o pe
+        // encontra o asfalto e cai ate ele sair do chao — pisar e um pico, nao
+        // um empurrao parelho. O expoente 2.4/(1-t)^1.4 tem integral 1 no
+        // trecho, entao a empurrada inteira continua rendendo o mesmo total:
+        // muda so ONDE o ganho acontece, e e essa concentracao que da o
+        // solavanco que faltava.
+        const forca = 2.4 * Math.pow(1 - t, 1.4)
         const rende = Math.pow(clamp01(1 - Math.abs(v.vel) / c.velMax), 1.4)
-        v.vel += (c.impulso || 2.4) * (0.10 + 0.90 * rende) * dt / (VARRE_FIM - VARRE_INI)
+        v.vel += (c.impulso || 2.4) * (0.10 + 0.90 * rende) * forca * dt / (VARRE_FIM - VARRE_INI)
       }
       // S = pe raspando o chao. Freia devagar (e um pe, nao um disco) e a pose
       // mostra o pe de fora do deck. PARADO, o mesmo S da RE: o pe continua no
@@ -774,6 +808,15 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       // contrario — invisivel num pneu liso, obvio numa roda de cinco raios.
       r.obj.rotation.x += (v.vel * dt) / r.raio
       if (r.esterca) r.obj.rotation.y = noPivo ? 0 : v.giro
+      // SKATE: quem vira sao os TRUCKS, e eles viram porque o deck tombou.
+      // O da frente aponta pra dentro da curva e o de tras pro lado contrario
+      // — e essa tesoura que gira o skate. O sinal vem do proprio z do truck,
+      // entao nao ha ordem pra acertar entre os dois.
+      const truck = r.obj.userData && r.obj.userData.truck
+      if (truck) {
+        const frente = truck.position.z > 0 ? 1 : -1
+        truck.rotation.y = -v.rolagem * 0.62 * frente
+      }
     }
   }
 
@@ -832,6 +875,23 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     // giro das rodas, nao o ruido. Se um dia voltar, tem que ser aplicado so
     // na geometria do deck, nunca no pivo que carrega o piloto.
 
+    // O DECK REAGINDO A EMPURRADA, e sao duas coisas que na verdade sao uma so:
+    // o peso. No baque o nariz cai (o corpo joga o peso pra frente em cima do
+    // truck da frente) e o deck ROLA pro lado de fora, porque o pe que segurava
+    // aquele lado acabou de sair de cima dele. Somado aqui, na hora de escrever
+    // a rotacao, e nao dentro de v.mergulho/v.rolagem: o baque e um transiente
+    // curto e nao tem por que sujar o estado que a rede interpola.
+    //
+    // Isto NAO e a trepidacao que saiu daqui. Aquela era ruido de alta
+    // frequencia e chacoalhava o boneco inteiro; esta e um gesto de 80 ms
+    // amarrado a uma acao que o jogador mandou fazer, que e o oposto.
+    let exMerg = 0, exRol = 0
+    if (v.impulso && !v.noAr && v.empurra >= 0) {
+      const g = golpeDoPe(v)
+      exMerg = 0.055 * g
+      exRol = 0.048 * g
+    }
+
     v.grupo.position.copy(v.pos)
     if (v.carroceria) {
       // as rodas ficam no chao; quem mergulha e rola e o CORPO
@@ -842,10 +902,10 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       v.alturaCorpo = damp(v.alturaCorpo, -carga, 9, dt)
       v.carroceria.position.y = v.alturaCorpo
     } else if (v.pivoInclina) {
-      v.grupo.rotation.set(v.mergulho, v.yaw, 0)
-      v.pivoInclina.rotation.z = v.rolagem
+      v.grupo.rotation.set(v.mergulho + exMerg, v.yaw, 0)
+      v.pivoInclina.rotation.z = v.rolagem + exRol
     } else {
-      v.grupo.rotation.set(v.mergulho, v.yaw, v.rolagem)
+      v.grupo.rotation.set(v.mergulho + exMerg, v.yaw, v.rolagem + exRol)
     }
   }
 
@@ -1043,6 +1103,12 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     return a + (b - a) * t * t * (3 - 2 * t)
   }
 
+  // Fim da recolhida. De VOLTA_FIM ate 1 o pe ja esta no deck e o que roda e o
+  // PESO caindo em cima dele — antes a recolhida ocupava os 44% finais do ciclo
+  // e o pe subia em camera lenta, que e metade do motivo de a empurrada nao ter
+  // impacto: o gesto inteiro era lento igual, do comeco ao fim.
+  const VOLTA_FIM = 0.80
+
   function posarSkatista(v, dt, p, baixo) {
     const alvo = alvosDePe(v)
     const cfg = v.piloto || {}
@@ -1054,12 +1120,42 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     const zFrente = rep ? rep[0].position.z : 0.15
     const zTras = rep ? rep[1].position.z : -0.15
 
-    // o pe da frente nao sai do deck nunca
-    alvo[0].position.set(0, topo, zFrente)
+    const f = v.empurra
+    const rapidez = clamp01(Math.abs(v.vel) / 9)
+
+    // --- OS DOIS SOLAVANCOS ---------------------------------------------------
+    //
+    // Um gesto so ganha peso se tiver um PICO. Sem isso o corpo apenas desliza
+    // de uma pose pra outra e o olho le "flutuando", que e exatamente a queixa.
+    // Sao dois, e cada um tem o seu momento:
+    //
+    //   golpe   nasce 1 no instante em que o pe encontra o asfalto e morre em
+    //           ~80 ms. E o baque da empurrada.
+    //   assenta nasce 1 quando o pe volta pro deck e o peso do corpo cai em
+    //           cima dele. E o "toc" que fecha o ciclo.
+    //
+    // Os dois sao calculados da PROPRIA fase, sem guardar estado: exponencial
+    // decrescente a partir do quadro do contato. Assim eles nao dessincronizam
+    // se o quadro atrasar, e nao ha o que reinicializar quando o jogador desce
+    // do skate no meio de uma empurrada.
+    const golpe = golpeDoPe(v)
+    const assenta = f >= VOLTA_FIM ? Math.exp(-(f - VOLTA_FIM) * 22) : 0
+
+    // o pe da frente nao sai do deck nunca — mas ele AFUNDA no baque, que e por
+    // onde o impacto entra no corpo (o peso todo passa pra ele)
+    alvo[0].position.set(0, topo - 0.022 * golpe, zFrente)
 
     // --- o pe de tras: deck -> chao -> varre -> volta ------------------------
-    let agacha = 0.085                 // joelhos sempre moles: skate nao e pose de pe
-    const f = v.empurra
+    //
+    // 0.17 e nao 0.085. A perna do boneco tem 75 cm do quadril ao tornozelo:
+    // baixar o quadril 8,5 cm dobra o joelho uns 15 graus, que na tela e
+    // indistinguivel de perna reta — e era por isso que ele parecia UM SUJEITO
+    // EM PE EM CIMA DE UMA TABUA, e nao um skatista. 17 cm ja poe o joelho na
+    // frente do tornozelo, que e a silhueta que se reconhece.
+    //
+    // E agacha MAIS rapido do que devagar, como todo mundo: em cruzeiro o
+    // centro de gravidade desce, porque e assim que nao se cai.
+    let agacha = 0.17 + 0.055 * rapidez
     if (v.freando > 0.02 && f < 0) {
       // pe raspando o chao atras: arrasta e treme um pouco
       const w = v.freando
@@ -1073,24 +1169,45 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       // ATENCAO AO ALCANCE. A perna tem 75 cm do quadril ao tornozelo; com o
       // quadril 80 cm acima do asfalto, um pe mandado 44 cm pra tras fica a
       // 90 cm do quadril e o IK trava a meio caminho — o pe fica PENDURADO no
-      // ar e a empurrada nao le. Por isso a varredura e curta (30 cm) e vem
+      // ar e a empurrada nao le. Por isso a varredura e curta (31 cm) e vem
       // junto com um agachamento: e agachando que o pe alcanca o chao, que e
       // exatamente o que um skatista faz.
       let x, y, z
-      if (f < VARRE_INI) {                       // sai do deck e desce
+      if (f < VARRE_INI) {
+        // SAI DO DECK E CAI. O Y usa t*t e nao smoothstep: smoothstep FREIA no
+        // fim, entao o pe pousava de mansinho, e um pe que pousa de mansinho
+        // nao bate em nada. Com t*t ele cai acelerando, feito perna que
+        // encontra o chao, e chega no asfalto na velocidade maxima.
         const t = f / VARRE_INI
-        x = suave(0, -0.185, t); y = suave(topo, solo, t); z = suave(zTras, 0.04, t)
-      } else if (f <= VARRE_FIM) {               // VARRE: e daqui que vem a velocidade
+        x = suave(0, -0.185, t); y = topo + (solo - topo) * t * t; z = suave(zTras, 0.05, t)
+      } else if (f <= VARRE_FIM) {
+        // VARRE: e daqui que vem a velocidade. Ease-out (1-(1-t)^2.2) e nao
+        // smoothstep porque a perna sai FORTE do contato e vai perdendo — a
+        // mesma curva que a forca usa la em acelerar(), pra o que se ve e o que
+        // se sente serem a mesma coisa.
         const t = (f - VARRE_INI) / (VARRE_FIM - VARRE_INI)
-        x = -0.185; y = solo; z = suave(0.04, -0.28, t)
-      } else {                                   // recolhe pro deck
-        const t = (f - VARRE_FIM) / (1 - VARRE_FIM)
-        x = suave(-0.185, 0, t); y = suave(solo, topo, t * 1.3); z = suave(-0.28, zTras, t)
+        const e = 1 - Math.pow(1 - t, 2.2)
+        x = -0.185; y = solo; z = 0.05 + (-0.31 - 0.05) * e
+      } else if (f <= VOLTA_FIM) {
+        // RECOLHE, e rapido: 0.30 s pra trazer o pe de volta. O joelho sobe
+        // primeiro (o Y adianta) e so depois o pe assenta na lixa.
+        const t = (f - VARRE_FIM) / (VOLTA_FIM - VARRE_FIM)
+        x = suave(-0.185, 0, t); y = suave(solo, topo, clamp01(t * 1.45)); z = suave(-0.31, zTras, t)
+      } else {
+        // FIRMA: pe parado na lixa, afundando de leve com o peso que chegou
+        x = 0; y = topo - 0.018 * assenta; z = zTras
       }
       alvo[1].position.set(x, y, z)
-      agacha += 0.115 * Math.sin(clamp01(f / 0.85) * Math.PI)
+      // agachamento do gesto: fundo no contato, subindo ao longo da varredura
+      // (e empurrando o chao que o corpo sobe), e um respingo no assentamento
+      agacha += 0.13 * Math.sin(clamp01(f / VOLTA_FIM) * Math.PI)
+      agacha += 0.055 * golpe + 0.030 * assenta
     } else {
+      // PLANANDO. Um balanco lento de 8 mm, na casa de 0.6 Hz — nao e
+      // trepidacao (aquela saiu, e com razao): e o peso do corpo trabalhando em
+      // cima do deck. Cresce com a velocidade porque parado ninguem se mexe.
       alvo[1].position.set(0, topo, zTras)
+      agacha += Math.sin(tempo * 3.8) * 0.008 * rapidez
     }
     if (v.noAr) agacha += 0.05
 
@@ -1098,18 +1215,60 @@ export function criarVeiculos({ scene, camera, player, character, collision,
 
     // TRONCO: peito virado pro nariz do skate (que fica no +X do boneco) e um
     // tanto pra frente. Sem essa torcao ele anda de lado olhando pra parede.
-    somar(p.torso, 0.17, 0.06)
-    somar(p.chest, 0.11, 0.30)
-    somar(p.neck, -0.22, 0.14)
-    // na curva o corpo tomba pra dentro junto com o deck
-    somar(p.hips, 0, 0.05, clamp(v.rolagem * 0.5, -0.10, 0.10))
+    //
+    // O tanto pra frente agora depende da VELOCIDADE (0.17 parado, 0.30 em
+    // cruzeiro): ninguem anda a 30 km/h em pe reto. E no baque da empurrada ele
+    // dobra mais um pouco e desdobra — o impacto subindo pelo corpo.
+    // PARA QUE LADO E "PRA FRENTE"?
+    //
+    // Esta era a coisa errada mais cara da pose inteira, e ela nao aparece
+    // lendo o codigo: a inclinacao ia toda em rotation.x, que inclina o boneco
+    // pra frente DELE. Só que o skatista esta ATRAVESSADO no deck — o assento
+    // gira ele uns 73 graus — entao "a frente dele" aponta pro LADO do skate.
+    // O boneco vinha se inclinando de lado, na direcao de cair do skate, e
+    // quase nada na direcao em que estava indo. Da camera lateral isso se le
+    // como um sujeito parado e ereto, que era a queixa.
+    //
+    // O nariz do skate, escrito no sistema do boneco, e (naX, 0, naZ) — e com
+    // 73 graus isso da 0.96 em X contra 0.30 em Z, ou seja quase tudo pro lado.
+    // Le do proprio assento em vez de fixar o numero: se um dia alguem mudar o
+    // angulo do pe (goofy, por exemplo), a inclinacao acompanha sozinha.
+    const giroAss = v.assento ? v.assento.rotation.y : -Math.PI / 2 + 0.30
+    const naX = -Math.sin(giroAss), naZ = Math.cos(giroAss)
+    // e ONDE ela acontece importa tanto quanto: dobrar no `chest` corcunda o
+    // boneco. Skatista dobra no QUADRIL, de costas retas — entao o peso vai
+    // quase todo pro torso e o chest fica quase parado.
+    const curva = 0.26 + 0.14 * rapidez + 0.10 * golpe
+    somar(p.torso, curva * naZ, 0.06, -curva * naX)
+    const cPeito = 0.09 + 0.06 * golpe
+    somar(p.chest, cPeito * naZ, 0.30, -cPeito * naX)
+    // E a cabeca desfaz o resto, no MESMO eixo: ela fica olhando pra frente do
+    // skate, nao pro asfalto. E essa contra-rotacao que faz o boneco parecer
+    // que sabe o que esta fazendo em vez de estar caindo.
+    const cPesc = -0.30 - 0.10 * rapidez - 0.10 * golpe
+    somar(p.neck, cPesc * naZ, 0.14, -cPesc * naX)
+    // na curva o corpo tomba pra dentro junto com o deck; na varredura o
+    // quadril TORCE pro lado do pe que empurra, que e de onde a forca sai
+    const torce = f >= VARRE_INI && f <= VARRE_FIM
+      ? Math.sin((f - VARRE_INI) / (VARRE_FIM - VARRE_INI) * Math.PI) * 0.16 : 0
+    somar(p.hips, 0, 0.05 - torce, clamp(v.rolagem * 0.5, -0.10, 0.10))
 
-    // BRACOS abertos pra equilibrio, e balancando na empurrada
-    const bal = f >= 0 ? Math.sin(f * Math.PI * 2) * 0.55 : 0
-    somar(p.armRUpper, -0.30 - bal * 0.5, 0, 0.60)
-    somar(p.armLUpper, -0.30 + bal * 0.5, 0, -0.52)
-    somar(p.armRLower, -0.55, 0, 0)
-    somar(p.armLLower, -0.62, 0, 0)
+    // BRACOS. Abertos pra equilibrio, e agora com CONTRA-BALANCO: o braco de
+    // tras vai pra frente enquanto a perna de tras vai pra tras, que e o que
+    // todo corpo faz pra nao rodar em cima do proprio eixo. O balanco antigo
+    // era um seno de ciclo inteiro, entao os bracos remavam mesmo quando o pe
+    // ja estava de volta no deck.
+    // O braco da FRENTE (o direito, do lado do nariz) fica adiantado e mais
+    // aberto: e ele que aponta pra onde o skate vai, e e o que da a leitura de
+    // "esta indo pra la" em vez de "esta parado com os bracos abertos". O de
+    // tras fica pra tras, contrapesando. Os dois abrem mais com a velocidade.
+    const bal = f >= 0 && f <= VOLTA_FIM
+      ? Math.sin(clamp01(f / VOLTA_FIM) * Math.PI) * 0.85 : 0
+    const abre = 0.16 * rapidez
+    somar(p.armRUpper, -0.52 - bal * 0.55 - 0.14 * rapidez, 0, 0.78 + abre)
+    somar(p.armLUpper, -0.14 + bal * 0.40, 0, -0.62 - abre - bal * 0.22)
+    somar(p.armRLower, -0.70 - bal * 0.30, 0, 0)
+    somar(p.armLLower, -0.48 + bal * 0.18, 0, 0)
 
     v.grupo.updateMatrixWorld(true)
 
@@ -1118,7 +1277,10 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     // pe da frente atravessado no deck (como todo skatista poe), pe de tras
     // acompanhando a canela pra nao ficar de ponta quando raspa o chao
     p.footR.rotation.set(-p.legRLower.rotation.x * 0.5, 0.38, 0)
-    p.footL.rotation.set(-p.legLLower.rotation.x * 0.5, 0.08, 0)
+    // no contato o pe de tras aponta a ponta pra baixo primeiro (e assim que um
+    // pe encosta no chao: metatarso antes do calcanhar) e depois se achata
+    const pontaPe = f >= 0 && f < VARRE_INI ? (f / VARRE_INI) * 0.30 : 0
+    p.footL.rotation.set(-p.legLLower.rotation.x * 0.5 + pontaPe - 0.30 * golpe, 0.08, 0)
 
     if (typeof character.setHeadLook === 'function') {
       character.setHeadLook(0, 0.45 + clamp(v.giro * 0.4, -0.3, 0.3))
@@ -1213,6 +1375,68 @@ export function criarVeiculos({ scene, camera, player, character, collision,
       if (r.esterca) continue                 // so as de tras fumegam
       r.obj.getWorldPosition(_rodaW)
       soltarFumaca(_rodaW.x, chaoEm(_rodaW.x, _rodaW.z), _rodaW.z, forca)
+    }
+  }
+
+  /**
+   * POEIRA DO SKATE.
+   *
+   * O skate nao derrapa, entao ele nunca entrava no fumacaDaDerrapagem — e sem
+   * NADA saindo das rodas, quatro rodinhas girando em silencio parecem quatro
+   * rodinhas patinando no lugar. Poeira sai em tres momentos, e cada um conta
+   * uma coisa diferente pro jogador:
+   *
+   *   1. no baque da empurrada, no pe que varre o asfalto — e o que faz a
+   *      empurrada TOCAR o chao em vez de mimicar tocar;
+   *   2. na aterrissagem de um pulo, nas quatro rodas de uma vez;
+   *   3. no pe raspando o freio (S), continuo enquanto durar.
+   *
+   * Rolar liso NAO solta poeira: se soltasse, viraria papel de parede e as
+   * outras tres deixariam de significar qualquer coisa.
+   */
+  const _peW = new THREE.Vector3()
+  function poeiraDoSkate(v, dt) {
+    if (!v.impulso) return
+    const vel = Math.abs(v.vel)
+
+    // 1) a varredura da empurrada
+    if (!v.noAr && v.empurra >= VARRE_INI && v.empurra <= VARRE_FIM) {
+      v.tPoeira = (v.tPoeira || 0) + dt
+      if (v.tPoeira >= 0.045) {
+        v.tPoeira = 0
+        // o pe de tras esta no alvo[1], que ja mora pendurado no deck
+        const pe = v.alvoPe && v.alvoPe[1]
+        if (pe) {
+          pe.getWorldPosition(_peW)
+          soltarFumaca(_peW.x, chaoEm(_peW.x, _peW.z), _peW.z, 0.16 + 0.20 * clamp01(vel / 9))
+        }
+      }
+    }
+
+    // 2) a aterrissagem: uma pancada de poeira nas quatro rodas
+    if (v.noAr) { v.caiuDe = Math.max(v.caiuDe || 0, -v.vy) }
+    else if (v.caiuDe) {
+      const f = clamp01((v.caiuDe - 1.2) / 4)
+      if (f > 0) {
+        for (let i = 0; i < v.rodas.length; i++) {
+          v.rodas[i].obj.getWorldPosition(_rodaW)
+          soltarFumaca(_rodaW.x, chaoEm(_rodaW.x, _rodaW.z), _rodaW.z, 0.20 + 0.34 * f)
+        }
+      }
+      v.caiuDe = 0
+    }
+
+    // 3) o pe no freio
+    if (v.freando > 0.35 && vel > 1.2 && !v.noAr) {
+      v.tFreio = (v.tFreio || 0) + dt
+      if (v.tFreio >= 0.05) {
+        v.tFreio = 0
+        const pe = v.alvoPe && v.alvoPe[1]
+        if (pe) {
+          pe.getWorldPosition(_peW)
+          soltarFumaca(_peW.x, chaoEm(_peW.x, _peW.z), _peW.z, 0.14 + 0.26 * clamp01(vel / 8))
+        }
+      }
     }
   }
 
@@ -1575,6 +1799,9 @@ export function criarVeiculos({ scene, camera, player, character, collision,
     animarRotores(meu, dt, true)
     aplicarPose(meu, taxa, acelReal, dt)
     prenderNoAssento(meu, dt)
+    // depois de prenderNoAssento: e ele que poe o pe de tras no lugar deste
+    // quadro, e a poeira sai de onde o pe REALMENTE esta, nao de onde estava
+    poeiraDoSkate(meu, dt)
     if (meu.aoAnimar) {
       meu.aoAnimar(dt, { vel: meu.vel, giro: meu.giro, dirigindo: true, ligado: true })
     }

@@ -249,6 +249,22 @@ export function criarEncaixe({ scene, camera, player, hud, inventario, casa, col
     let melhor = null
     let melhorD = ALCANCE_PEGAR
     for (const p of postos) {
+      // PENEIRA BARATA ANTES DA CAIXA CARA.
+      //
+      // `Box3.setFromObject` percorre a SUBARVORE INTEIRA do movel e transforma
+      // a caixa de cada mesh — numa mesa de sinuca sao dezenas de malhas. Isto
+      // roda todo quadro, pra TODO movel instalado, e antes desta peneira rodava
+      // com o jogador do outro lado da cidade: o custo crescia com o quanto o
+      // jogador tinha comprado, em lugar nenhum do mapa.
+      //
+      // A distancia de pegar e ALCANCE_PEGAR; se o movel esta mais longe que
+      // isso mais o raio dele, nao ha raio possivel que o alcance. Uma
+      // subtracao e uma comparacao substituem a varredura.
+      const px = p.obj.position.x - _olho.x
+      const pz = p.obj.position.z - _olho.z
+      const py = p.obj.position.y - _olho.y
+      const limite = ALCANCE_PEGAR + 2.6      // 2.6 = meia diagonal do maior movel
+      if (px * px + py * py + pz * pz > limite * limite) continue
       _cx.setFromObject(p.obj)
       // O raio contra a caixa: o proprio Box3 sabe. Sem intersectBox nao daria
       // pra fazer isto sem alocar um Ray por movel.
@@ -352,8 +368,42 @@ export function criarEncaixe({ scene, camera, player, hud, inventario, casa, col
     return true
   }
 
+  // Distancia em que um movel posto ainda recebe atualizacao. Alem disso a tela
+  // dele nem cabe em um pixel, e redesenhar canvas fora de vista e o tipo de
+  // custo que so aparece quando a casa esta cheia.
+  const PERTO_UPDATE = 14
+  const _pJog = new THREE.Vector3()
+
+  /**
+   * Da um quadro aos moveis que se mexem.
+   *
+   * MOVEL POSTO NAO TINHA VIDA ATE AQUI, e nao por esquecimento: mesa de
+   * sinuca, maleta e jukebox sao todos peca parada. A tela do video poker foi o
+   * primeiro movel que precisa de tempo, e o caminho e o mesmo que o forno de
+   * geometria (bake.js) ja reconhece: quem quer quadro marca `userData.update`
+   * no proprio grupo, e nao existe registro, lista nem contrato novo. Peca sem
+   * a marca continua custando zero.
+   *
+   * So atualiza o que esta PERTO do jogador. Uma casa com dez maquinas
+   * redesenharia dez canvas por quadro por causa de telas que ninguem esta
+   * vendo.
+   */
+  function atualizar(dt) {
+    if (!postos.length) return
+    if (player && player.position) _pJog.copy(player.position)
+    for (let i = 0; i < postos.length; i++) {
+      const o = postos[i].obj
+      const f = o && o.userData && o.userData.update
+      if (typeof f !== 'function') continue
+      const dx = o.position.x - _pJog.x, dz = o.position.z - _pJog.z
+      if (dx * dx + dz * dz > PERTO_UPDATE * PERTO_UPDATE) continue
+      f(dt, o)
+    }
+  }
+
   return {
     grupo,
+    atualizar,
     get ativo() { return ativo },
     get temMiraEmMovel() { return !!miraNoMovel },
     entrar,

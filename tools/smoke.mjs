@@ -246,6 +246,64 @@ try {
   check('orcamento de luzes caras <= 36', scene.luzCara <= 36,
     'caras=' + scene.luzCara + ' (total com as ambientes=' + scene.lights + ')')
   check('colisores registrados', scene.colliders > 100, String(scene.colliders))
+
+  /* A CONTAGEM DE LUZES NAO PODE MUDAR ANDANDO PELA CIDADE.
+     -------------------------------------------------------------------------
+     Este caso nasceu de um bug que o dono sentiu antes de qualquer medida:
+     "travamentos ao chegar perto da loja de carros ou do hotel". Nao era FPS
+     baixo — eram engasgos de varios quadros, sempre nos mesmos pontos do mapa.
+
+     A causa: tres lojas (hotel, concessionaria e loja de jogos) tinham as
+     PointLight DENTRO do grupo que o LOD delas esconde por distancia. Cruzar a
+     fronteira tirava a luz da cena, e no three.js o programa de shader de CADA
+     material e montado a partir da CONTAGEM DE LUZES VISIVEIS — muda a
+     contagem, recompila a cena inteira no meio do quadro. Uma descida da
+     avenida cruzava tres fronteiras: 20 -> 22 -> 24 luzes, tres recompilacoes.
+
+     E a mesma armadilha que render/luzes-efeito.js documenta e que world/adega.js
+     e world/cortico.js ja evitavam pondo a luz na RAIZ do modulo. O conserto foi
+     fazer o mesmo nos outros tres.
+
+     ESTE CASO E A TRAVA. Ele anda por cima das quatro fronteiras e exige que a
+     contagem EFETIVA (a luz e todos os pais visiveis — `traverse` nao pula
+     subarvore invisivel, entao contar so `o.visible` da sempre o mesmo numero e
+     nao acha nada) fique parada do comeco ao fim. Qualquer luz nova que nasca
+     dentro de um grupo com LOD reprova aqui. */
+  const luzAndando = await page.evaluate(() => {
+    const G = window.__game
+    const mods = [G.hotel, G.autoMundo, G.casinoMundo, G.lojaMundo, G.adegaMundo,
+      G.cortico, G.casa, G.city]
+    const tick = (dt) => { for (const m of mods) if (m && m.update) m.update(dt, G) }
+    const efetiva = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true }
+    const conta = () => {
+      let n = 0
+      G.scene.traverse((o) => { if (o.isLight && !o.isAmbientLight && efetiva(o)) n++ })
+      return n
+    }
+    // as quatro travessias que cruzam LOD de loja
+    const rotas = [
+      { nome: 'hotel', x: -38.5, z0: 20, z1: -42 },
+      { nome: 'garagem', x: -21, z0: 20, z1: -42 },
+      { nome: 'taco de ouro', x: 42, z0: 36, z1: -8 },
+      { nome: 'cassino', x: 24, z0: 64, z1: 16 },
+    ]
+    const vistos = []
+    let inicial = null
+    for (const r of rotas) {
+      for (let i = 0; i <= 20; i++) {
+        const z = r.z0 + (r.z1 - r.z0) * (i / 20)
+        G.player.teleport(r.x, z, 0)
+        for (let k = 0; k < 4; k++) { G.player.update(1 / 60); tick(1 / 60) }
+        const L = conta()
+        if (inicial === null) inicial = L
+        if (L !== inicial) vistos.push(r.nome + ' em z=' + z.toFixed(1) + ': ' + inicial + ' -> ' + L)
+      }
+    }
+    return { inicial, mudancas: vistos.slice(0, 4), total: vistos.length }
+  })
+  check('a contagem de luzes nao muda andando pela cidade',
+    luzAndando.total === 0,
+    luzAndando.total + ' mudanca(s): ' + luzAndando.mudancas.join(' | '))
   for (const id of ['barber-talk', 'barber-chair', 'barber-mirror', 'grocery-clerk', 'grocery-buy']) {
     check('interacao "' + id + '" existe', scene.inter.includes(id))
   }

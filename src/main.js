@@ -50,6 +50,7 @@ import { createHUD } from './ui/hud.js'
 import { createCustomizer } from './ui/customizer.js'
 import { criarRede } from './rede/cliente-rede.js'
 import { criarAvatares } from './rede/avatares.js'
+import { criarVoz } from './rede/voz.js'
 import { criarVeiculos } from './veiculos/veiculos.js'
 import { criarMao } from './player/mao.js'
 import { criarCopo } from './player/copo.js'
@@ -62,6 +63,7 @@ import { criarCarteira } from './cassino/carteira.js'
 import { criarCassinoUI } from './ui/cassino-ui.js'
 import { criarLojaUI } from './ui/loja-ui.js'
 import { buildCasaVelha } from './world/casa-velha.js'
+import { buildNpcsCasa } from './world/npcs-casa.js'
 import { buildLojaJogos } from './world/loja-jogos.js'
 import { buildHotel } from './world/hotel.js'
 import { buildAdega } from './world/adega.js'
@@ -78,13 +80,14 @@ import { criarAbertura } from './cena/abertura.js'
 import { criarTutorial, MISSOES_INICIAIS } from './ui/tutorial.js'
 import { criarRevolver, ITEM_REVOLVER } from './armas/revolver.js'
 import { criarDialogo } from './ui/dialogo.js'
+import { criarConversa } from './ui/conversa.js'
 import { criarInventario } from './inventario/inventario.js'
 import { criarEncaixe } from './systems/encaixe.js'
 import { criarSave } from './save/save.js'
 import { criarSaveUI } from './ui/save-ui.js'
 import { criarFotografo } from './ui/miniatura3d.js'
 import { itemDe, limiteDe, registrarItem } from './mobilia/catalogo.js'
-import { BEBIDAS, CATEGORIAS_BEBIDAS } from './mobilia/bebidas.js'
+import { CATALOGO_MERCADO, CATEGORIAS_MERCADO } from './mobilia/mercado.js'
 import { COPOS, ehCopo, copoDe } from './mobilia/copos.js'
 import { ADEGA_CATALOGO, ADEGA_CATEGORIAS } from './mobilia/destilados.js'
 import { TICK_HZ, NPCS } from './comum/mundo.js'
@@ -206,6 +209,17 @@ let meuNome = (() => {
 const rede = criarRede({ nome: meuNome, aparencia: appearance })
 game.rede = rede
 const avatares = criarAvatares(scene)
+
+// CHAT DE VOZ POR PROXIMIDADE (src/rede/voz.js).
+//
+// Nasce DESLIGADO, de proposito: microfone e a unica coisa neste jogo que sai
+// da maquina da pessoa pro mundo, e ligar sozinho ao abrir a pagina nao e uma
+// escolha que o codigo pode fazer por ela. Quem liga e a tecla V.
+//
+// As ORELHAS sao a `camera`; a DISTANCIA sai do `player`. Os dois motivos
+// estao escritos em voz.js, em `moverListener`.
+const voz = criarVoz({ rede, camera, player, aviso: (m) => hud.toast(m) })
+game.voz = voz
 
 // Mapa interacao -> NPC. E por aqui que o "E" vira um PEDIDO ao servidor em
 // vez de o cliente decidir sozinho que a conversa comecou.
@@ -544,6 +558,17 @@ if (city && typeof city.groundY === 'function') {
   game.groundY = () => 0
 }
 
+// --- os tres da calcada ----------------------------------------------------
+// DEPOIS do groundY: eles pousam no chao de verdade (calcada, meio-fio,
+// asfalto) em vez de num 0.16 chutado. Antes desta linha o amostrador ainda nao
+// existe e os tres nasceriam enterrados ou flutuando.
+// A CONVERSA nasce ANTES dos NPCs: o onInteract deles chama `game.conversa`, e
+// um NPC criado antes dela guardaria um `undefined` no fecho.
+const conversa = criarConversa({ camera, player })
+game.conversa = conversa
+
+mount(buildNpcsCasa(game), 'npcs-casa')
+
 // --- veiculos --------------------------------------------------------------
 // Depois da cidade: precisa do groundY e dos colisores.
 const veiculos = criarVeiculos({
@@ -730,8 +755,10 @@ game.loja = lojaUI
 // interior da loja de jogos chama 'game.loja'.
 const mercadoUI = criarLojaUI({
   game, carteira, inventario, fotoDe,
-  catalogo: BEBIDAS,
-  categorias: CATEGORIAS_BEBIDAS,
+  // O catalogo do mercado nao e mais "as bebidas": ver mobilia/mercado.js, que
+  // junta as familias (bebida, erva) e deixa cada uma no seu proprio arquivo.
+  catalogo: CATALOGO_MERCADO,
+  categorias: CATEGORIAS_MERCADO,
   kicker: 'MERCEARIA CENTRAL',
   titulo: 'Geladeira do fundo',
   falas: {
@@ -1183,7 +1210,14 @@ const menu = criarMenu({
     aoVoltar(de) {
       // Sair da sala e sair de VERDADE: ficar conectado no lobby depois de
       // voltar pro menu deixaria o anfitriao esperando por um fantasma.
-      if (de === 'lobby' && rede.conectado) { rede.fechar(); conectando = null }
+      if (de === 'lobby' && rede.conectado) {
+        // O microfone MORRE JUNTO. Sair da sala e continuar com a luzinha
+        // vermelha da webcam acesa e exatamente o tipo de coisa que ninguem
+        // perdoa — e sem sala nao ha com quem falar de qualquer forma.
+        voz.desligar()
+        rede.fechar()
+        conectando = null
+      }
     },
     aoContinuar() {
       // A tela dos cinco lugares. Ela sobe POR CIMA do menu (z-index 92 contra
@@ -1370,6 +1404,9 @@ function uiAberta() {
   return customizer.isOpen() || palcoAtivo
     || (cassinoUI && cassinoUI.aberto) || (lojaUI && lojaUI.aberto)
     || (mercadoUI && mercadoUI.aberto) || (autoUI && autoUI.aberto)
+    // A conversa entra aqui pra o E de interacao e as teclas 1-9 da barra nao
+    // dispararem por baixo dela — as opcoes usam os MESMOS numeros.
+    || (conversa && conversa.aberta)
     || (saveUI && saveUI.aberto)
     || (menu && menu.aberto) || (criacao && criacao.aberto)
 }
@@ -1562,6 +1599,13 @@ function frame() {
   // ajuda (Tab)
   if (input.wasPressed('Tab')) hud.showHelp(helpOn = !helpOn)
   if (input.wasPressed('F3')) hud.toggleF3()
+  // V: a primeira vez PEDE o microfone (e o gesto que o navegador exige pra
+  // perguntar); da segunda em diante so alterna mudo. Desligar de vez e a
+  // saida do coop, que ja chama voz.desligar().
+  if (input.wasPressed('KeyV') && !uiAberta() && estado === 'jogo') {
+    if (voz.ativa) voz.alternarMudo()
+    else voz.ligar().then((ok) => { if (ok) hud.toast('Voz ligada — V para mudo') })
+  }
   // C = clima. Sol -> chuva -> neve -> sol. Uma tecla so, como foi pedido: com
   // tres teclas separadas o jogador teria que decorar qual e qual.
   if (input.wasPressed('F8') && !uiAberta()) pedirReinicio()
@@ -1681,6 +1725,11 @@ function frame() {
   // ---- online ----
   rede.atualizar(dt)
   avatares.sincronizar(rede.jogadores, rede.meuId, dt)
+  // DEPOIS de rede.atualizar: as posicoes que o PannerNode usa sao as que
+  // acabaram de ser interpoladas. Antes, a voz de todo mundo ficaria um quadro
+  // atras do boneco que a esta emitindo.
+  voz.atualizar(dt)
+  hud.setVoz(voz.estado())
 
   // Meu corpo sobe a 15 Hz, o mesmo ritmo do servidor. Mandar a 60 so gastaria
   // banda: o servidor nao tem o que fazer com o quadro do meio.
@@ -1724,9 +1773,15 @@ function frame() {
   if (cassinoUI && typeof cassinoUI.atualizar === 'function') cassinoUI.atualizar(dt)
   if (lojaUI && typeof lojaUI.atualizar === 'function') lojaUI.atualizar(dt)
   if (mercadoUI && typeof mercadoUI.atualizar === 'function') mercadoUI.atualizar(dt)
+  // Movel posto que se mexe (a tela do video poker e o primeiro): quem quer
+  // quadro marca userData.update no proprio grupo. Ver encaixe.atualizar.
+  if (encaixe && typeof encaixe.atualizar === 'function') encaixe.atualizar(dt)
   if (adegaUI && typeof adegaUI.atualizar === 'function') adegaUI.atualizar(dt)
   if (autoUI && typeof autoUI.atualizar === 'function') autoUI.atualizar(dt)
   dialogo.atualizar(player.position)
+  // DEPOIS do player.update: a camera so esta no lugar final do quadro depois
+  // que o controller andou, e e nela que a saudacao e projetada.
+  conversa.atualizar(dt)
   legenda.atualizar(dt)
 
   // DEPOIS de todo mundo escrever nas suas "luzes": o pool escolhe as duas mais

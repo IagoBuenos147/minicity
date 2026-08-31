@@ -678,7 +678,7 @@ function construirMao() {
  * todos os bonecos da cena.
  */
 export const MALHA_MAO = {
-  malha, anel, costurar, tampa, dedo,
+  malha, anel, costurar, tampa, dedo, espelharX,
   EIXO_DEDO, EIXO_POLEGAR,
   PALMA_ANEIS, TENAR, DEDOS,
 }

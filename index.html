@@ -14,6 +14,18 @@
 </head>
 <body>
   <div id="app"></div>
+  <!-- PeerJS: SO A SINALIZACAO do chat de voz (src/rede/voz.js). O audio em si
+       e WebRTC direto entre os jogadores e nao encosta em servidor nenhum.
+
+       `defer` porque nada no carregamento depende disto: o `window.Peer` so e
+       lido quando alguem aperta V pra abrir o microfone, muito depois da pagina
+       montar. Sem `defer`, uma ida lenta ao unpkg atrasaria o jogo inteiro.
+
+       ATENCAO PRO EMPACOTAMENTO: isto e um pedido de rede a cada carregamento.
+       Pra build offline (Steam), trocar por `npm i peerjs@1.5.2` e
+       `import Peer from 'peerjs'` dentro de voz.js — a API e a mesma, e o Vite
+       passa a embutir a biblioteca no bundle. -->
+  <script defer src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

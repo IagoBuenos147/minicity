@@ -227,9 +227,23 @@ export const DIRIGIR = {
   // cruzeiro (uns 34 km/h) em vez de ir sempre ao teto. `ciclo` e quanto dura
   // a empurrada inteira: pe fora do deck, varredura e volta. O `atrito` baixo
   // e o que faz ele rolar sozinho por muito tempo, como skate de verdade.
+  //
+  // `planeioMin`/`planeioMax` sao a PAUSA entre uma empurrada e a proxima, com
+  // o W continuando apertado. Sem ela o boneco varria o pe sem parar, feito
+  // esteira, e o skate virava um carro lento — a queixa "a perna esta sem
+  // impacto". Ninguem anda de skate assim: empurra, RECOLHE o pe e deixa
+  // correr. A pausa cresce com a velocidade (0.34 s parado, 1.15 s em
+  // cruzeiro) porque parado voce precisa de empurrada atras de empurrada pra
+  // arrancar, e a 30 km/h uma so ja segura o rolo por bastante tempo.
+  //
+  // `impulso` subiu de 4.0 pra 6.5 por causa dessa pausa: com uma empurrada a
+  // cada ~2.1 s em vez de a cada 1.25 s, o mesmo 4.0 daria um skate que nunca
+  // sai do lugar. 6.5 devolve a mesma velocidade de cruzeiro (uns 34 km/h) com
+  // MENOS empurradas, o que e o ponto — cada uma passa a valer, e da pra ver o
+  // skate ganhar velocidade de degrau em degrau e perder devagar no planeio.
   skate: {
     velMax: 11.5, re: 3.2, acel: 4.2, freio: 5.5, atrito: 0.55,
-    impulso: 4.0, ciclo: 1.25,
+    impulso: 6.5, ciclo: 1.25, planeioMin: 0.34, planeioMax: 1.15,
     giroMax: 0.9, giroVel: 3.0, agarra: 0.97, limite: 7,
     inclina: 0.30, alturaCam: 1.9, distCam: 4.6,
   },

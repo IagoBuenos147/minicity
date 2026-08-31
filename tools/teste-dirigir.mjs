@@ -251,10 +251,40 @@ try {
     vCruzeiro.toFixed(2) + ' m/s = ' + Math.round(vCruzeiro * 3.6) + ' km/h')
 
   // --- 8. SKATE: rola sozinho por muito tempo -------------------------------
+  //
+  // A segunda amostra e em 12.0 s e nao em 13.0 por um motivo bobo e real: com
+  // a empurrada nova o skate arranca mais rapido, e nesses 12 s ele ja andou os
+  // 97 m que separam a vaga do fim da rua (x = -73). Em 13 s a serie ja esta
+  // medindo o skate ENCOSTADO na parede, que da velocidade zero e nao diz nada
+  // sobre inercia. Entre 10.1 e 12.0 a queda medida e de 0.55 m/s por segundo,
+  // que e exatamente o `atrito` de MUNDO.DIRIGIR.skate — que e o que este caso
+  // quer provar.
   const vSolto0 = velEm(skate.serie, 10.1)
-  const vSolto1 = velEm(skate.serie, 13.0)
+  const vSolto1 = velEm(skate.serie, 12.0)
   ok('solto, o skate rola por inercia em vez de parar',
-    vSolto1 > vSolto0 * 0.4, vSolto0.toFixed(2) + ' -> ' + vSolto1.toFixed(2) + ' m/s em 3 s')
+    vSolto1 > vSolto0 * 0.6, vSolto0.toFixed(2) + ' -> ' + vSolto1.toFixed(2) + ' m/s em 1.9 s')
+
+  // --- 8a. SKATE: ele PARA de empurrar entre uma empurrada e outra ----------
+  //
+  // O dono pediu isto com todas as letras: "quero que ele use a perna um pouco
+  // depois espera um pouco pra aproveitar o skate sem pegar impulso". Antes,
+  // com o W segurado, o ciclo reiniciava no quadro seguinte ao que terminava e
+  // a perna varria sem parar — e uma perna que nunca para nao tem impacto
+  // nenhum, porque nao ha contraste.
+  //
+  // Como se mede sem espiar variavel interna: em regime, a velocidade do skate
+  // SOBE so durante a varredura e CAI no resto (o atrito). Contando as amostras
+  // que sobem no trecho de cruzeiro da pra saber que fatia do tempo ele passa
+  // empurrando. Sem pausa isso fica perto de 40%; com a pausa que a fisica usa
+  // hoje (0.34 s parado ate 1.15 s em cruzeiro), cai pra menos de um quarto.
+  const trecho = []
+  for (let t = 6.0; t < 9.4; t += 0.05) trecho.push(velEm(skate.serie, t))
+  let empurrando = 0
+  for (let i = 1; i < trecho.length; i++) if (trecho[i] > trecho[i - 1] + 0.005) empurrando++
+  const fEmpurra = empurrando / (trecho.length - 1)
+  ok('em cruzeiro ele passa mais tempo planando do que empurrando',
+    fEmpurra > 0.05 && fEmpurra < 0.40,
+    'empurrando em ' + Math.round(fEmpurra * 100) + '% do tempo')
 
   // --- 8b. SKATE: da RE -----------------------------------------------------
   const re = await correr('skate', [24, -5.4, -Math.PI / 2], [

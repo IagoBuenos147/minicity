@@ -1035,7 +1035,7 @@ function revestimento(g) {
 }
 
 /** Forro em caixotoes, sanca acesa, lustre e as tres luzes de verdade. */
-function forroELuz(g) {
+function forroELuz(g, raiz) {
   const cx = (IN.x0 + IN.x1) / 2, cz = (IN.z0 + IN.z1) / 2
   const t = plane(IN.x1 - IN.x0, IN.z1 - IN.z0, M.forro, Math.PI / 2)
   t.position.set(cx, CEIL, cz)
@@ -1132,11 +1132,36 @@ function forroELuz(g) {
     { x: B.door.center, y: 3.55, z: -42.6, i: 34 },  // lustre / sala de espera
     { x: -42.0, y: 3.10, z: -39.4, i: 30 },          // balcao da recepcao
   ]
+  //
+  // AS PointLight NAO MORAM AQUI DENTRO — ELAS VAO PRA `raiz`.
+  //
+  // Isto foi um BUG de travamento, medido e nao suposto. O LOD deste modulo
+  // esconde o miolo por distancia, e as luzes estavam DENTRO do que ele esconde:
+  // atravessar a fronteira mudava a CONTAGEM DE LUZES VISIVEIS DA CENA.
+  //
+  // No three.js o programa de shader de cada material e montado a partir dessa
+  // contagem. Quando ela muda, TODO material da cena vira programa novo e o
+  // renderer recompila a cena inteira no meio do quadro — um engasgo de varios
+  // quadros, sempre no mesmo ponto do mapa, nos dois sentidos. Era exatamente o
+  // que o dono descreveu: "travamentos ao chegar perto da loja de carros ou do
+  // hotel". A medicao (tools/perfil-fps.mjs e a sonda de luz) mostrou a
+  // contagem pulando 20 -> 22 -> 24 numa unica descida da avenida.
+  //
+  // E a MESMA armadilha que render/luzes-efeito.js foi escrito pra evitar, e que
+  // world/adega.js e world/cortico.js ja tratam do jeito certo. A regra e uma
+  // so: LUZ DE INTERIOR FICA NA RAIZ DO MODULO, que nunca e escondida. Ela
+  // continua custando o laco por fragmento (a contagem e constante, que e o
+  // ponto), e iluminar um comodo que ninguem esta vendo nao acende pixel nenhum
+  // a mais.
+  //
+  // O `+ BASE` no Y existe porque `dentro` esta levantado no piso da loja e a
+  // raiz nao: mudar de pai muda o referencial, e sem isso as duas luzes
+  // desceriam 16 cm.
   for (const L of LUZES) {
     const pl = new THREE.PointLight(0xffeacb, L.i, 20, 2)
-    pl.position.set(L.x, L.y, L.z)
+    pl.position.set(L.x, L.y + BASE, L.z)
     pl.castShadow = false
-    g.add(pl)
+    raiz.add(pl)
   }
 }
 
@@ -1926,7 +1951,7 @@ export function buildHotel(game) {
   dentro.position.y = BASE
   piso(dentro)
   revestimento(dentro)
-  forroELuz(dentro)
+  forroELuz(dentro, group)
   balcao(dentro, colliders)
   const assentos = salaDeEspera(dentro, colliders)
   escada(dentro, colliders)
