@@ -40,6 +40,7 @@
     "servidor": "node servidor.js",
     "teste-online": "node tools/teste-online.mjs",
     "teste-voz": "node tools/teste-voz.mjs",
+    "teste-https": "node tools/teste-https.mjs",
     "teste-coplanar": "node tools/teste-coplanar.mjs"
   },
   "dependencies": {

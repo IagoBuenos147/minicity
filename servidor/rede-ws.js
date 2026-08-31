@@ -20,11 +20,150 @@
 // ---------------------------------------------------------------------------
 
 import http from 'node:http'
+import https from 'node:https'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
+
+// ---------------------------------------------------------------------------
+// HTTPS / WSS
+//
+// O WebSocket NAO precisa de nada de especial: `ws` se pendura no servidor que
+// receber, e um `https.Server` serve tanto quanto um `http.Server`. Quem faz o
+// upgrade virar wss:// e o proprio TLS por baixo. O cliente ja escolhe sozinho
+// (`montarUrl`, em src/rede/cliente-rede.js: pagina https -> wss://), entao
+// nao ha uma linha de cliente pra mudar.
+//
+// O QUE PRECISA DE CUIDADO E A RENOVACAO. O Let's Encrypt dura 90 dias e o
+// certbot renova por volta do 60o. O processo do jogo, porem, leu os arquivos
+// UMA vez, no boot: sem alguem avisar, ele continua apresentando o certificado
+// velho ate alguem reiniciar o servico — e o sintoma chega em forma de "sua
+// conexao nao e particular" na tela de todo mundo, dois meses depois do deploy,
+// quando ninguem mais lembra que mexeu nisso. `vigiarCertificado` fecha esse
+// buraco sem derrubar ninguem.
+// ---------------------------------------------------------------------------
+
+/** Le o par de arquivos do certbot. Erro aqui e FATAL e explicado, nunca mudo. */
+export function lerCertificado(tls) {
+  const saida = {}
+  for (const [campo, caminho] of [['cert', tls.cert], ['key', tls.key]]) {
+    try {
+      saida[campo] = fs.readFileSync(caminho)
+    } catch (e) {
+      // EACCES e o erro numero um deste assunto, e a mensagem crua do Node nao
+      // conta a parte que resolve. privkey.pem nasce 0600 root:root, e o
+      // servico roda como `ubuntu` — ver implantar/HTTPS.md.
+      const dica = e.code === 'EACCES' ? [
+        '',
+        '  Sem permissao de leitura. O privkey.pem do certbot e root:root 0600, e o',
+        '  servico nao roda como root. Libere por grupo (uma vez so, como root):',
+        '',
+        '    sudo groupadd -f ssl-cert',
+        '    sudo usermod -aG ssl-cert ubuntu',
+        '    sudo chgrp -R ssl-cert /etc/letsencrypt/live /etc/letsencrypt/archive',
+        '    sudo chmod -R g+rX /etc/letsencrypt/live /etc/letsencrypt/archive',
+        '',
+        '  Depois: sudo systemctl restart minicity   (o grupo so vale em processo novo)',
+      ].join('\n') : e.code === 'ENOENT' ? [
+        '',
+        '  O arquivo nao existe. Confira o dominio no caminho e se o certbot ja rodou:',
+        '    sudo certbot certificates',
+      ].join('\n') : ''
+      const erro = new Error('nao consegui ler ' + campo + ' em ' + caminho + ': ' + e.message + dica)
+      erro.code = e.code
+      throw erro
+    }
+  }
+  return saida
+}
+
+function impressao(par) {
+  return crypto.createHash('sha256').update(par.cert).update(par.key).digest('hex')
+}
+
+/**
+ * Recarrega o certificado quando o certbot trocar os arquivos, SEM reiniciar.
+ *
+ * Por que comparar o CONTEUDO e nao usar fs.watch: os caminhos de
+ * /etc/letsencrypt/live/ sao LINKS SIMBOLICOS pra /etc/letsencrypt/archive/, e
+ * a renovacao troca o link, nao o arquivo. Um fs.watch resolve o link na hora
+ * de vigiar e passa a vigiar o arquivo antigo — ele continua vendo o de sempre,
+ * calado, exatamente ate o certificado vencer. Reler e comparar o hash nao tem
+ * como errar isso, custa alguns KB por hora, e funciona igual se um dia alguem
+ * trocar os arquivos na mao.
+ *
+ * `setSecureContext` troca o certificado das conexoes NOVAS; quem ja esta
+ * jogando nao sente nada, porque a sessao TLS dele ja esta estabelecida.
+ */
+function vigiarCertificado(servidorTls, tls, log, intervaloMs) {
+  let atual = impressao(lerCertificado(tls))
+  const timer = setInterval(() => {
+    let par
+    try { par = lerCertificado(tls) } catch (e) {
+      // Falhar aqui NAO derruba o jogo: o certificado que ja esta em memoria
+      // continua valendo, e o certbot pode estar no meio da troca dos arquivos.
+      log('aviso: nao consegui reler o certificado (' + e.message.split('\n')[0] + ')')
+      return
+    }
+    const nova = impressao(par)
+    if (nova === atual) return
+    atual = nova
+    try {
+      servidorTls.setSecureContext(par)
+      log('certificado recarregado (o certbot renovou) — sem derrubar ninguem')
+    } catch (e) {
+      log('aviso: certificado novo recusado: ' + e.message)
+    }
+  }, intervaloMs || 60 * 60 * 1000)
+  if (timer.unref) timer.unref()
+  return timer
+}
+
+/**
+ * O servidor da porta 80: manda todo mundo pro https.
+ *
+ * Com UMA excecao, e ela e a razao de este servidor existir em vez de a porta
+ * 80 ficar simplesmente fechada: `/.well-known/acme-challenge/`. E por ali,
+ * em HTTP puro, que o Let's Encrypt confere que o dominio e seu — na emissao e
+ * em toda renovacao. Redirecionar esse caminho pro https quebra a renovacao, e
+ * o estrago so aparece 90 dias depois.
+ */
+export function subirRedirecionador({ porta, host, webroot, portaHttps, log }) {
+  const servidor = http.createServer((req, res) => {
+    const url = req.url || '/'
+
+    if (webroot && url.indexOf('/.well-known/acme-challenge/') === 0) {
+      const nome = path.basename(url.split('?')[0])
+      const arq = path.join(webroot, '.well-known', 'acme-challenge', nome)
+      fs.readFile(arq, (err, dados) => {
+        if (err) { res.writeHead(404); res.end(); return }
+        res.writeHead(200, { 'Content-Type': 'text/plain' })
+        res.end(dados)
+      })
+      return
+    }
+
+    // Sem Host nao da pra montar o destino; 400 e melhor que redirecionar pra
+    // um endereco inventado.
+    const hostPedido = req.headers.host
+    if (!hostPedido) { res.writeHead(400); res.end(); return }
+    const semPorta = hostPedido.replace(/:\d+$/, '')
+    const alvo = 'https://' + semPorta + (portaHttps && portaHttps !== 443 ? ':' + portaHttps : '') + url
+    res.writeHead(301, { Location: alvo, 'Cache-Control': 'no-store' })
+    res.end()
+  })
+  servidor.on('error', (e) => {
+    // Nao e fatal: sem a porta 80 o jogo funciona igual, so nao ha atalho pra
+    // quem digita o endereco sem o https://.
+    log('aviso: porta ' + porta + ' (redirecionamento pro https) nao subiu: ' + e.code)
+  })
+  servidor.listen(porta, host, () => {
+    log('porta ' + porta + ' redirecionando pro https' + (webroot ? '  (acme-challenge servido de ' + webroot + ')' : ''))
+  })
+  return servidor
+}
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url))
 const PROJETO = path.join(AQUI, '..')
@@ -153,6 +292,8 @@ export function subir(sala, opcoes = {}) {
   const porta = opcoes.porta || 8001
   const host = opcoes.host || '0.0.0.0'
   const comprimir = opcoes.comprimir !== false
+  /* { cert, key }: caminhos dos arquivos do certbot. Ausente = HTTP puro. */
+  const tls = opcoes.tls || null
   const servirArquivos = opcoes.servirArquivos !== false
   const log = opcoes.aoLog || console.log
   const subiuEm = Date.now()
@@ -171,7 +312,7 @@ export function subir(sala, opcoes = {}) {
   }
   const versaoArquivos = versaoCache
 
-  const http_ = http.createServer((req, res) => {
+  function atender(req, res) {
     // gancho para quem sobe este servidor precisar de rota propria
     if (opcoes.rotaExtra && opcoes.rotaExtra(req, res)) return
 
@@ -237,7 +378,16 @@ export function subir(sala, opcoes = {}) {
       })
       res.end(dados)
     })
-  })
+  }
+
+  /* HTTP OU HTTPS — e a UNICA diferenca entre os dois modos.
+     Tudo o que vem depois (o WebSocket, as rotas, o laco do mundo, o parar)
+     nao sabe nem precisa saber qual dos dois esta embaixo: `ws` se pendura
+     igual nos dois, e e o TLS que faz o ws:// virar wss://. */
+  const http_ = tls
+    ? https.createServer(lerCertificado(tls), atender)
+    : http.createServer(atender)
+  if (tls) vigiarCertificado(http_, tls, log, opcoes.intervaloCert)
 
   const wss = new WebSocketServer({
     server: http_,
@@ -369,6 +519,11 @@ export function subir(sala, opcoes = {}) {
 
   const servidor = {
     http: http_,
+    /* `http` continua sendo o nome do campo mesmo em https, pra nao quebrar
+       quem ja usa (tools/teste-lobby.mjs e companhia). `seguro` diz a verdade
+       sobre o que ele e. */
+    seguro: !!tls,
+    esquema: tls ? 'https' : 'http',
     wss,
     conexoes,
     comprimir,
@@ -388,7 +543,9 @@ export function subir(sala, opcoes = {}) {
         http_.listen(porta, host, () => {
           proximo = Date.now()
           laco()
-          log('mini-city-rp ouvindo em ' + host + ':' + porta)
+          log('mini-city-rp ouvindo em ' + (tls ? 'https' : 'http') + '://' + host + ':' + porta
+            + (tls ? '   (WebSocket em wss://)' : ''))
+          if (tls) log('certificado: ' + tls.cert)
           log('mundo a ' + sala.C.TICK_HZ + ' Hz  ·  compressao: ' + (comprimir ? 'LIGADA' : 'desligada'))
           if (servirArquivos) {
             log('servindo ' + RAIZ + (RAIZ === DIST ? '' : '  (dist/ ainda nao existe: rode `npm run build`)'))

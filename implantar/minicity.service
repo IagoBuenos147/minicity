@@ -10,8 +10,17 @@
 #     direito em vez de sumir no meio de um tique.
 #
 # ATENCAO: esta maquina ja roda o mago-pvp na porta 8001 (conferido no ar em
-# 27/08/2026). Este arquivo
-# nao encosta nele. Nos somos a porta 8001, pasta /home/ubuntu/minicity.
+# 27/08/2026). Este arquivo nao encosta nele. Nos somos a pasta
+# /home/ubuntu/minicity, e agora as portas 443 (jogo) e 80 (redirecionamento).
+#
+# (Este bloco dizia "nos somos a porta 8001" e "8002 e do vizinho" - estava
+# trocado nos dois lugares, contra o que o proprio servidor.js documenta:
+# mago-pvp = 8001, minicity = 8002. Corrigido junto com o HTTPS.)
+#
+# HTTPS: ver implantar/HTTPS.md. Duas coisas nao obvias moram aqui embaixo -
+# a capacidade de abrir a porta 443 sem ser root, e o grupo que da acesso de
+# leitura ao privkey.pem do certbot. Sem qualquer uma das duas o servico nao
+# sobe, e o erro no journal explica qual falta.
 #
 # Instalar (na Lightsail, uma vez so):
 #   sudo cp /home/ubuntu/minicity/implantar/minicity.service /etc/systemd/system/
@@ -23,7 +32,7 @@
 #   journalctl -u minicity -f
 # =========================================================
 [Unit]
-Description=Mini City RP (porta 8002)
+Description=Mini City RP (HTTPS 443, redirecionamento 80)
 After=network-online.target
 Wants=network-online.target
 
@@ -35,10 +44,54 @@ ExecStart=/usr/bin/node servidor.js
 Restart=always
 RestartSec=2
 
-# NADA de porta escrita no codigo: entra por aqui. 8002 e do vizinho.
-Environment=PORTA=8002
+# NADA de porta escrita no codigo: entra por aqui. 8001 e do vizinho.
+Environment=PORTA=443
 Environment=HOST=0.0.0.0
 Environment=NODE_ENV=production
+
+# --- HTTPS -----------------------------------------------------------------
+# SSL_DOMINIO monta sozinho os dois caminhos do certbot:
+#   /etc/letsencrypt/live/<dominio>/fullchain.pem
+#   /etc/letsencrypt/live/<dominio>/privkey.pem
+# Sempre pelo live/, que e o link pro certificado ATUAL. Apontar pro archive/
+# congelaria o servidor numa emissao e a renovacao passaria despercebida.
+Environment=SSL_DOMINIO=minicity-rp.duckdns.org
+
+# A porta 80 nao serve o jogo: ela redireciona pro https E entrega o
+# /.well-known/acme-challenge/ da renovacao, em HTTP puro, como o Let's
+# Encrypt exige. Sem ela, a renovacao para de funcionar em silencio e o
+# estrago aparece 90 dias depois.
+Environment=PORTA_HTTP=80
+Environment=ACME_WEBROOT=/var/www/letsencrypt
+
+# ABRIR A PORTA 443 SEM SER ROOT.
+# Porta abaixo de 1024 pede privilegio. A saida obvia - User=root - trocaria
+# um problema pequeno (uma porta) por um grande (o jogo inteiro rodando como
+# root, servindo arquivo e aceitando WebSocket do mundo). A capacidade da SO
+# a permissao de abrir a porta baixa; o resto do processo continua sendo o
+# usuario ubuntu de sempre.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# LER O privkey.pem.
+# Ele nasce root:root 0600 e o servico nao e root. SupplementaryGroups resolve
+# no proprio servico - sem `usermod`, sem precisar deslogar e logar de novo
+# pro grupo valer. O grupo precisa existir e ser dono dos arquivos:
+#   sudo groupadd -f ssl-cert
+#   sudo chgrp -R ssl-cert /etc/letsencrypt/live /etc/letsencrypt/archive
+#   sudo chmod -R g+rX     /etc/letsencrypt/live /etc/letsencrypt/archive
+SupplementaryGroups=ssl-cert
+
+# O certificado entra so pra leitura. Barato e sem efeito colateral.
+#
+# NAO ha NoNewPrivileges/ProtectSystem/ProtectHome aqui de proposito: o
+# primeiro tem interacao conhecida com AmbientCapabilities, e os outros dois
+# mudam o que o processo enxerga do disco. Endurecimento que ninguem pediu, e
+# que eu nao tenho como testar de fora da Lightsail, nao entra junto com uma
+# mudanca de rede - se o servico nao subir, ninguem vai saber qual das seis
+# linhas foi.
+ReadOnlyPaths=/etc/letsencrypt
+PrivateTmp=yes
 
 # A instancia e pequena e JA TEM outro jogo nela. Este teto e de proposito
 # mais baixo que o do mago-pvp (380M): se a gente vazar memoria, o systemd

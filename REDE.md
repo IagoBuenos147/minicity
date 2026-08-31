@@ -14,6 +14,7 @@ aceitação**. O servidor é a verdade, o cliente desenha.
 | Porta | `PORTA`/`PORT` do ambiente, padrão **8002** (a 8001 é do mago-pvp — conferido no servidor) |
 | Colisão entre jogadores | **não existe**, atravessam |
 | Transporte | WebSocket, com os dois canais do contrato (`enviar(buf, confiavel)`) |
+| Em produção | **HTTPS na 443 e WSS na mesma porta** — ver [implantar/HTTPS.md](implantar/HTTPS.md) |
 
 ## A regra que não se quebra
 
@@ -552,6 +553,8 @@ tools/teste-online.mjs      dois navegadores de verdade: sala, diálogo, telecin
                             e o zumbi igual nas duas telas
 src/rede/avatares.js        bonecos dos outros jogadores (usa createCharacter)
 src/rede/voz.js             chat de voz por proximidade (PeerJS + WebRTC + PannerNode)
+implantar/HTTPS.md          certificado do certbot, porta 443, renovação sem queda
+tools/teste-https.mjs       https e wss com certificado autoassinado, sem certbot
 tools/teste-voz.mjs         a máquina de estado da voz, com Peer dublê e microfone falso
 src/poder/anel.js           o anel verde: visual, mira, agarrar, arremessar
 implantar/minicity.service  systemd
@@ -652,8 +655,12 @@ jogo, e segurar o grafo de áudio de alguém que não existe não tem defesa.
    para o Chrome puxar os pacotes. **Parece código morto e não é.**
 2. **`getUserMedia` exige contexto seguro.** Abrir o jogo por
    `http://192.168.x.x` para jogar em rede local **não dá microfone**: o
-   navegador nem pergunta, some com a API. Vale `localhost` e vale `https`. Em
-   LAN, a saída é um túnel (`ngrok`, `cloudflared`) ou um certificado local.
+   navegador nem pergunta, some com a API. Vale `localhost` e vale `https`.
+
+   Em produção isso está resolvido: o servidor serve HTTPS com o certificado do
+   certbot, e o WebSocket vira `wss://` na mesma porta —
+   [implantar/HTTPS.md](implantar/HTTPS.md). Em LAN, sem certificado, continua
+   valendo só `localhost` (ou um túnel: `ngrok`, `cloudflared`).
 
 ## O que ainda não é
 
