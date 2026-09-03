@@ -181,10 +181,15 @@ const LAYOUT = {
     // e de proposito. Ver a nota sobre a lente logo abaixo: cada centimetro
     // entre a mao da casa e a minha e um centimetro que a camera precisa
     // recuar, e recuar encolhe a carta na tela ao quadrado.
+    // AS MINHAS CARTAS FICAM DE PE aqui tambem — ver a nota longa sobre
+    // 'inclina' no layout do poker. A da CASA nao: carta da casa fica deitada no
+    // pano porque uma delas esta tapada, e carta virada pra baixo escorada le
+    // como bug. Ela so levanta no fim, quando a tapada ganha face, e essa e a
+    // virada de mesa que antes exigia um enquadramento so pra ela ('revelar').
     filas: {
-      dealer: { x: 0.00, z: -0.30, passo: 0.076, leque: 0.038 },
-      mao0: { x: 0.00, z: -0.66, passo: 0.076, leque: -0.038 },
-      mao1: { x: -0.20, z: -0.66, passo: 0.062, leque: -0.038 },
+      dealer: { x: 0.00, z: -0.28, passo: 0.076, leque: 0.038, inclina: 0.55 },
+      mao0: { x: 0.00, z: -0.60, passo: 0.082, leque: -0.038, inclina: 0.80, inclinaVerso: 0.80 },
+      mao1: { x: -0.30, z: -0.60, passo: 0.066, leque: -0.038, inclina: 0.80, inclinaVerso: 0.80 },
     },
     // A aposta cai na FRENTE da mao, como numa mesa de verdade — mas a 16 cm
     // dela, e nao no circulo impresso a 52 cm. O circulo impresso do feltro foi
@@ -199,6 +204,13 @@ const LAYOUT = {
       aposta1: { x: -0.260, z: -0.82 },
       pago1: { x: -0.445, z: -0.82 },
     },
+    // O CAIXOTE: as MINHAS fichas, em cima do pano, uma pilha por valor.
+    //
+    // E o lugar mais perto da lente que ainda e feltro, e tem que ser: e dali
+    // que sai toda aposta. Cinco casas espacadas de 16,5 cm — 6,3 cm de ficha
+    // mais 10 de folga, o bastante pra o clique nao errar de pilha e pra as
+    // pilhas nao encostarem uma na outra quando estao cheias.
+    caixote: { z: -1.06, passo: 0.175, altura: 8 },
     // pra onde a ficha vai quando alguem leva o dinheiro
     casa: { x: -0.10, z: 0.14 },
     eu: { x: 0.00, z: -1.30 },
@@ -213,18 +225,29 @@ const LAYOUT = {
     // exatamente o primeiro enquadramento que este arquivo teve, e ele nao
     // atendia o pedido ("ve as cartas bem nitidas... tudo grande").
     //
-    //   aposta  — carta 6%: e o plano de SITUACAO, o unico que mostra a
-    //             atendente inteira atras da corda.
-    //   jogo    — carta 20% e a mao da casa em 12%, com a aposta no quadro.
-    //             44 graus de inclinacao e lente longa (32): achata a
-    //             perspectiva sem virar vista de cima.
-    //   duas    — o mesmo, aberto o bastante pras DUAS maos de um split.
-    //   revelar — 25% na mao da casa, pro instante de virar a carta tapada.
+    // A LENTE FOI REFEITA PRA CABER O CAIXOTE. Ela agora tem que segurar, de
+    // baixo pra cima: as minhas pilhas em z=-1.06, a aposta em -0.82, a minha
+    // mao em -0.60 e a da casa em -0.28. Sao 78 cm de pano num quadro so, e o
+    // que paga a conta e a carta ficar de pe (ver 'filas'): deitada ela cairia
+    // pra 4% da tela nesta distancia.
+    //
+    // Medido projetando: pilha do caixote com a base a 86% da altura da tela
+    // (a faixa de botoes comeca em ~87% agora que a fileira de fichas saiu
+    // dela), aposta a 67%, minha carta a 50% e 13% de altura, carta da casa a
+    // 43% e 9%. Nenhum mergulho: e um quadro so a mao inteira, como no poker.
+    //
+    // A LENTE FICA ALTA (43 graus de inclinacao) DE PROPOSITO, e nao e
+    // capricho: e a inclinacao que SEPARA as duas maos. Numa lente baixa a
+    // perspectiva comprime o fundo e a mao da casa (z=-0.28) cai quase em cima
+    // da minha (z=-0.60) — foi o que a primeira versao deste quadro fez, e as
+    // duas maos liam como uma so no meio da tela.
+    //
+    // Remedido depois disso: mao da casa a 34% da altura da tela com 10% de
+    // altura de carta, minha mao a 47% com 13%, aposta a 65% e a base das
+    // minhas pilhas a 86%.
     quadros: {
-      aposta: { pos: [0.00, 1.70, -1.95], alvo: [0.02, 1.02, -0.28], fov: 44 },
-      jogo: { pos: [0.00, 1.58, -1.30], alvo: [0.02, 0.95, -0.64], fov: 32 },
-      duas: { pos: [0.00, 1.70, -1.30], alvo: [0.02, 0.95, -0.58], fov: 40 },
-      revelar: { pos: [0.03, 1.28, -0.86], alvo: [0.03, 0.95, -0.30], fov: 26 },
+      jogo: { pos: [0.00, 1.86, -1.60], alvo: [0.00, 0.95, -0.62], fov: 46 },
+      duas: { pos: [0.00, 1.92, -1.66], alvo: [0.00, 0.95, -0.62], fov: 52 },
     },
   },
   poker: {
@@ -262,13 +285,27 @@ const LAYOUT = {
     // como bug. Ele so levanta as dele no showdown — quando ganham face — e
     // essa e a virada de mesa que antes exigia a camera atravessar o feltro.
     filas: {
-      eu: { x: 0.00, z: -0.80, passo: 0.122, leque: -0.040, inclina: 0.87, inclinaVerso: 0.87 },
+      eu: { x: 0.00, z: -0.58, passo: 0.122, leque: -0.040, inclina: 0.87, inclinaVerso: 0.87 },
       ele: { x: 0.00, z: 0.62, passo: 0.116, leque: 0.055, inclina: 0.95 },
     },
+    // AS DUAS ENTRADAS DO POTE SAIRAM DO EIXO DO MEIO, e o motivo e oclusao.
+    //
+    // Elas ficavam em x=0, na mesma coluna das minhas cartas. Com a carta
+    // deitada isso nao era problema; com ela DE PE (11 cm de altura) a carta
+    // passou a tapar tudo que esta atras dela ate uns 17 cm de pano — e a minha
+    // propria aposta sumia por tras da minha mao, que e a informacao que o
+    // jogador mais precisa ver enquanto decide. Empurradas 28 cm pro +X (a
+    // esquerda da tela) elas viram uma coluna livre: a minha embaixo, perto de
+    // mim; a dele em cima, perto dele.
     pilhas: {
-      minha: { x: 0.00, z: -0.20 },
-      dele: { x: 0.00, z: 0.20 },
+      minha: { x: 0.28, z: -0.30 },
+      dele: { x: 0.28, z: 0.26 },
     },
+    // O CAIXOTE: as MINHAS fichas em cima do pano, uma pilha por valor, na
+    // beirada do oval do meu lado. Em z=-0.93 com x ate 0.35 a elipse do tampo
+    // (rx 1.55, rz 1.05) ainda tem pano — a conta e (x/1.55)^2+(z/1.05)^2 < 1 —
+    // e a pilha fica na frente das minhas cartas (z=-0.68) sem tapa-las.
+    caixote: { z: -0.90, passo: 0.185, altura: 8 },
     casa: { x: 0.00, z: 0.90 },
     eu: { x: 0.00, z: -0.96 },
     brilho: { x: 0.00, z: 0.00, r: 0.85 },
@@ -285,23 +322,28 @@ const LAYOUT = {
     // INCLINACAO DA CARTA (ver 'filas' acima). Sobrou uma unica lente, e ela
     // foi medida — nao escolhida no olho — projetando tres pontos:
     //
-    //   carta minha  — centro a 71% da altura da tela, base a 77,5%: encostada
-    //                  na faixa de botoes (que comeca em ~82%) sem ser comida
-    //                  por ela, e 12% de altura de tela por carta.
-    //   carta dele   — 39% da tela, na metade de cima, onde o olho procura o
-    //                  adversario. Tapada ela e pequena de proposito; no
-    //                  showdown ela levanta e triplica sem a lente se mexer.
-    //   chapeu dele  — 3,5% abaixo da borda de cima. E a folga mais apertada do
-    //                  quadro e a que manda no fov: 52 graus e o menor campo em
-    //                  que o ricaco INTEIRO ainda cabe com a carta nesse
-    //                  tamanho. Fechar mais corta a aba do chapeu.
+    //   caixote      — a base das minhas pilhas a 84% da altura da tela. E a
+    //                  folga de BAIXO, contra a faixa de botoes (que comecou a
+    //                  caber em ~87% depois que a fileira de fichas saiu dela e
+    //                  foi pro pano).
+    //   carta minha  — centro a 67%, 11% de altura de tela por carta. Perdeu
+    //                  dois pontos pro caixote e vale: dez vezes mais que os
+    //                  5% da versao de lente aberta, e agora com o dinheiro na
+    //                  mesa junto.
+    //   carta dele   — na metade de cima, onde o olho procura o adversario.
+    //                  Tapada ela e pequena de proposito; no showdown ela
+    //                  levanta e triplica sem a lente se mexer.
+    //   chapeu dele  — 7% abaixo da borda de cima. E a folga de CIMA e a que
+    //                  manda no fov junto com a de baixo: 56 graus e o menor
+    //                  campo em que o caixote e o ricaco INTEIRO cabem no mesmo
+    //                  quadro. Fechar mais corta a aba do chapeu ou come as
+    //                  minhas pilhas.
     //
     // 'aposta' e so a chegada — quase a mesma lente, um passo atras, pro corte
     // de entrada na mesa ter pra onde assentar. A diferenca e pequena de
     // proposito: e o unico movimento de camera que sobrou na mesa.
     quadros: {
-      aposta: { pos: [0.00, 1.70, -2.10], alvo: [0.00, 0.80, 0.05], fov: 56 },
-      jogo: { pos: [0.00, 1.56, -1.80], alvo: [0.00, 0.77, 0.00], fov: 52 },
+      jogo: { pos: [0.00, 1.56, -1.74], alvo: [0.00, 0.81, 0.00], fov: 52 },
     },
   },
 }
@@ -1104,6 +1146,86 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   }
 
   /**
+   * UMA ficha caindo no nivel `i` da pilha `p`. Saiu de dentro de fichas() pra
+   * o CAIXOTE poder reusar o mesmo gesto: la a pilha nao vem de decompor um
+   * valor, vem de uma denominacao so, e duplicar 40 linhas de queda seria ter
+   * duas fisicas diferentes na mesma mesa.
+   *
+   * `de` diz de onde ela vem: 'casa' (a atendente pagando, do outro lado),
+   * 'caixote' (a minha mao empurrando do meu lado) ou 'jogador' (o padrao).
+   */
+  function cairNaPilha(p, d, i, atraso, de) {
+    const lugar = posicaoNaPilha(i)
+    const pouso = {
+      x: p.base.x + lugar.dx, y: Y_CHAO + lugar.dy, z: p.base.z + lugar.dz,
+    }
+    const f = novaFicha(pouso.x, pouso.y, pouso.z, lugar.ry, d.cor, d.bri)
+    fichasVivas.push(f)
+    p.itens.push(f)
+    // De onde a ficha cai. Muda so o ponto de partida, e e o que faz "apostei",
+    // "recebi" e "tirei do caixote" parecerem tres coisas diferentes: a da casa
+    // vem de la de cima do outro lado do pano, a minha vem de baixo, e a do
+    // caixote vem RASANTE, do lado, porque e ficha empurrada e nao jogada.
+    const origem = de === 'casa'
+      ? { x: p.base.x - 0.25, y: Y_CHAO + 0.34, z: p.base.z + 0.55 }
+      : de === 'caixote'
+        ? { x: p.base.x + 0.10, y: Y_CHAO + 0.10, z: p.base.z - 0.30 }
+        : { x: p.base.x + 0.16, y: Y_CHAO + 0.30, z: p.base.z - 0.34 }
+    const nivel = i
+    // GIRO NO AR. Meia volta e o teto do que da pra ler nos 0,19 s de voo —
+    // uma volta inteira, com 8 insercoes simetricas no aro, vira serrilhado
+    // (o olho ve a mancha piscar 8 vezes e nao entende que girou).
+    const ry0 = lugar.ry - (1.9 + hash01(i * 7 + 3) * 1.8)
+    // TOMBO: a ficha nao cai deitada, cai de canto e assenta. O eixo do
+    // tombo e sorteado, senao todas as fichas caem do mesmo lado e a pilha
+    // inteira pisca junto.
+    const tombo = 0.28 + hash01(i * 13 + 5) * 0.34
+    const eixo = hash01(i * 17 + 11) * Math.PI * 2
+    f.x = origem.x; f.y = origem.y; f.z = origem.z; f.ry = ry0
+    let tocou = false
+    anima({
+      atraso,
+      dur: DUR_QUEDA,
+      marca: 'ficha',
+      passo(k2, cru) {
+        const q = Math.min(1, cru / TOQUE)
+        const e = freia(q)
+        f.x = origem.x + (pouso.x - origem.x) * e
+        f.z = origem.z + (pouso.z - origem.z) * e
+        f.ry = ry0 + (lugar.ry - ry0) * e
+        if (cru < TOQUE) {
+          // A DESCIDA E q*q (gravidade) e nao o mesmo 'freia' do horizontal.
+          // Com um ease so nos tres eixos a ficha chega devagar no fim e
+          // parece descer de paraquedas; com q*q ela chega ACELERANDO, e e
+          // isso que faz o toque no feltro ter peso. O seno por cima e o
+          // arco: ela sobe um dedo antes de cair, como quem joga a ficha.
+          f.y = origem.y + (pouso.y - origem.y) * (q * q) + Math.sin(Math.PI * q) * 0.030
+          f.rx = Math.cos(eixo) * tombo * (1 - e)
+          f.rz = Math.sin(eixo) * tombo * (1 - e)
+        } else {
+          if (!tocou) { tocou = true; impacto(p, f, i, nivel) }
+          // QUIQUE: um pulo e meio morrendo em (1-b)^2. Sem ele o pouso e
+          // reto e a ficha parece imantada no feltro.
+          const b = (cru - TOQUE) / (1 - TOQUE)
+          f.y = pouso.y + Math.abs(Math.sin(Math.PI * b * 1.6)) * QUIQUE * (1 - b) * (1 - b)
+          f.rx = 0; f.rz = 0
+        }
+        void k2
+      },
+      fim() {
+        if (!tocou) impacto(p, f, i, nivel)
+        f.x = pouso.x; f.y = pouso.y; f.z = pouso.z
+        f.rx = 0; f.rz = 0; f.ry = lugar.ry
+      },
+      cancelar() {
+        f.x = pouso.x; f.y = pouso.y; f.z = pouso.z
+        f.rx = 0; f.rz = 0; f.ry = lugar.ry; f.sq = 0
+      },
+    })
+    return f
+  }
+
+  /**
    * Sincroniza uma pilha de fichas com um valor.
    *
    * Crescer EMPILHA ficha por ficha, com estalo por ficha e um atraso entre
@@ -1146,72 +1268,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     let atraso = Number.isFinite(o.atraso) ? o.atraso : 0
     for (let c = 0; c < lista.length; c++) {
       if (fichasVivas.length >= POOL_FICHAS || p.itens.length >= FICHA_MAX * 2) break
-      const d = lista[c]
-      const i = p.itens.length
-      const lugar = posicaoNaPilha(i)
-      const pouso = {
-        x: p.base.x + lugar.dx, y: Y_CHAO + lugar.dy, z: p.base.z + lugar.dz,
-      }
-      const f = novaFicha(pouso.x, pouso.y, pouso.z, lugar.ry, d.cor, d.bri)
-      fichasVivas.push(f)
-      p.itens.push(f)
-      // De onde a ficha cai: do lado do jogador (mao dele) ou do lado da casa
-      // (a atendente pagando). Muda so o ponto de partida, e e o que faz
-      // "apostei" e "recebi" parecerem coisas diferentes.
-      const origem = o.de === 'casa'
-        ? { x: p.base.x - 0.25, y: Y_CHAO + 0.34, z: p.base.z + 0.55 }
-        : { x: p.base.x + 0.16, y: Y_CHAO + 0.30, z: p.base.z - 0.34 }
-      const nivel = i
-      // GIRO NO AR. Meia volta e o teto do que da pra ler nos 0,19 s de voo —
-      // uma volta inteira, com 8 insercoes simetricas no aro, vira serrilhado
-      // (o olho ve a mancha piscar 8 vezes e nao entende que girou).
-      const ry0 = lugar.ry - (1.9 + hash01(i * 7 + 3) * 1.8)
-      // TOMBO: a ficha nao cai deitada, cai de canto e assenta. O eixo do
-      // tombo e sorteado, senao todas as fichas caem do mesmo lado e a pilha
-      // inteira pisca junto.
-      const tombo = 0.28 + hash01(i * 13 + 5) * 0.34
-      const eixo = hash01(i * 17 + 11) * Math.PI * 2
-      f.x = origem.x; f.y = origem.y; f.z = origem.z; f.ry = ry0
-      let tocou = false
-      anima({
-        atraso,
-        dur: DUR_QUEDA,
-        marca: 'ficha',
-        passo(k2, cru) {
-          const q = Math.min(1, cru / TOQUE)
-          const e = freia(q)
-          f.x = origem.x + (pouso.x - origem.x) * e
-          f.z = origem.z + (pouso.z - origem.z) * e
-          f.ry = ry0 + (lugar.ry - ry0) * e
-          if (cru < TOQUE) {
-            // A DESCIDA E q*q (gravidade) e nao o mesmo 'freia' do horizontal.
-            // Com um ease so nos tres eixos a ficha chega devagar no fim e
-            // parece descer de paraquedas; com q*q ela chega ACELERANDO, e e
-            // isso que faz o toque no feltro ter peso. O seno por cima e o
-            // arco: ela sobe um dedo antes de cair, como quem joga a ficha.
-            f.y = origem.y + (pouso.y - origem.y) * (q * q) + Math.sin(Math.PI * q) * 0.030
-            f.rx = Math.cos(eixo) * tombo * (1 - e)
-            f.rz = Math.sin(eixo) * tombo * (1 - e)
-          } else {
-            if (!tocou) { tocou = true; impacto(p, f, i, nivel) }
-            // QUIQUE: um pulo e meio morrendo em (1-b)^2. Sem ele o pouso e
-            // reto e a ficha parece imantada no feltro.
-            const b = (cru - TOQUE) / (1 - TOQUE)
-            f.y = pouso.y + Math.abs(Math.sin(Math.PI * b * 1.6)) * QUIQUE * (1 - b) * (1 - b)
-            f.rx = 0; f.rz = 0
-          }
-          void k2
-        },
-        fim() {
-          if (!tocou) impacto(p, f, i, nivel)
-          f.x = pouso.x; f.y = pouso.y; f.z = pouso.z
-          f.rx = 0; f.rz = 0; f.ry = lugar.ry
-        },
-        cancelar() {
-          f.x = pouso.x; f.y = pouso.y; f.z = pouso.z
-          f.rx = 0; f.rz = 0; f.ry = lugar.ry; f.sq = 0
-        },
-      })
+      cairNaPilha(p, lista[c], p.itens.length, atraso, o.de)
       atraso += 0.075
     }
     return atraso
@@ -1307,10 +1364,157 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
 
   function limparFichas() {
     for (const p of pilhas.values()) {
+      if (p.caixote) continue
       for (const f of p.itens) soltarFicha(f)
       p.itens.length = 0
       p.valor = 0
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // O CAIXOTE: as MINHAS fichas em cima do pano
+  //
+  // O pedido do dono foi literal: "quero que fique em cima da mesa as fichas
+  // que eu tenho, e quando eu quiser apostar quero as fichas cada monte delas
+  // separadinho por valor". Entao a fileira de botoes redondos do rodape
+  // acabou: o dinheiro do jogador virou objeto do mundo, uma pilha por
+  // denominacao, na beirada do pano do lado dele.
+  //
+  // O QUE A ALTURA DA PILHA SIGNIFICA, porque isso e decisao de desenho e nao
+  // detalhe: cada pilha mostra QUANTAS FICHAS DAQUELE VALOR o saldo compra,
+  // ate o teto de `L.caixote.altura`. Um saldo de 300 vira dez de 25, seis de
+  // 50, tres de 100, uma de 250 e nenhuma de 500 — e a pilha vazia e o proprio
+  // "voce nao tem como apostar 500", sem botao apagado nenhum. A alternativa
+  // (decompor o saldo de verdade, gulosamente) daria uma pilha de 500 gorda e
+  // UMA ficha de 25 solta, e ai apostar 25 duas vezes seria impossivel numa
+  // mesa onde o jogador tem 20 mil.
+  //
+  // As pilhas do caixote vivem no MESMO mapa das outras (id 'cx:500'), e a
+  // unica diferenca e a marca `caixote`: ela e o que faz limparFichas() nao
+  // levar o dinheiro do jogador junto com o pote no fim da mao.
+  // -------------------------------------------------------------------------
+
+  /**
+   * x da casa `i` de `n`, centrada em zero.
+   *
+   * O SINAL E NEGATIVO porque a lente destas mesas olha pro +Z: o +X do espaco
+   * da mesa cai na ESQUERDA da tela (a mesma inversao que lugarNaFila ja
+   * documenta). Sem ele o caixote aparecia com o 500 a esquerda e o 25 a
+   * direita, ou seja, de tras pra frente pra quem le da esquerda pra direita.
+   */
+  function casaCaixote(i, n) {
+    const cx = L.caixote || { z: -1.0, passo: 0.16, altura: 10 }
+    return -cx.passo * (i - (n - 1) / 2)
+  }
+
+  /**
+   * Sincroniza o caixote com o saldo. `valores` e a lista de denominacoes da
+   * mesa, da menor pra maior; `saldo` e quanto o jogador tem em ficha.
+   *
+   * Crescer cai ficha por ficha (o gesto de a casa pagar); encolher e seco,
+   * porque quem tira ficha do caixote e o proprio jogador empurrando pra
+   * aposta — a animacao daquele movimento e a pilha da aposta subindo.
+   */
+  function caixote(valores, saldo, tetoAposta) {
+    const cx = L.caixote
+    if (!cx || !Array.isArray(valores)) return
+    const teto = Math.max(1, Math.floor(cx.altura) || 10)
+    // TETO DA JOGADA: a mesa de poker limita a aposta ao tamanho do pote, e uma
+    // pilha de 500 num pote de 50 e ficha que o jogador nao tem como empurrar.
+    // Ela some, e a pilha vazia vira o proprio aviso — o mesmo papel que o
+    // botao apagado fazia no rodape. Sem tetoAposta (o blackjack nao tem esse
+    // limite) nada e escondido.
+    const limite = Number.isFinite(tetoAposta) ? tetoAposta : Infinity
+    const n = valores.length
+    let atraso = 0
+    for (let i = 0; i < n; i++) {
+      const v = valores[i]
+      const p = pilha('cx:' + v)
+      p.caixote = true
+      p.valorFicha = v
+      p.base.x = casaCaixote(i, n)
+      p.base.z = cx.z
+      const d = DENOM.find((k) => k.v === v) || { v, cor: 0xe8e2d2 }
+      const cabe = v <= limite ? Math.floor(Math.max(0, saldo) / v) : 0
+      const quer = Math.max(0, Math.min(teto, cabe))
+      const tem = p.itens.length
+      if (quer === tem) continue
+      if (quer < tem) {
+        for (let k = quer; k < tem; k++) soltarFicha(p.itens[k])
+        p.itens.length = quer
+        continue
+      }
+      for (let k = tem; k < quer; k++) {
+        if (fichasVivas.length >= POOL_FICHAS) break
+        // 'caixote' e nao 'casa': a ficha do meu proprio dinheiro entra RASANTE,
+        // do meu lado, deslizando pro lugar. Vindo do alto do outro lado do
+        // pano ela lia como a casa me pagando toda vez que o saldo mudava.
+        cairNaPilha(p, d, k, atraso, 'caixote')
+        atraso += 0.045
+      }
+    }
+  }
+
+  /** Todas as pilhas do caixote somem (saida da mesa). */
+  function limparCaixote() {
+    for (const p of pilhas.values()) {
+      if (!p.caixote) continue
+      for (const f of p.itens) soltarFicha(f)
+      p.itens.length = 0
+    }
+  }
+
+  // --- mira: qual pilha esta debaixo do ponteiro ---------------------------
+  //
+  // ALVOS INVISIVEIS, e nao raycast no InstancedMesh das fichas. Sao duas
+  // razoes: a pilha de uma ficha so tem 7 mm de altura e vira um alvo de tres
+  // pixels na tela, e a pilha VAZIA (o valor que o jogador nao pode pagar) nao
+  // tem instancia nenhuma pra acertar — mas continua precisando responder ao
+  // clique com "voce nao tem 500". Um cilindro generoso por casa resolve os
+  // dois. `material.visible = false` NAO tira o objeto do raycast, so do
+  // desenho: custo zero de draw call.
+  const alvos = []
+  const _raio = new THREE.Raycaster()
+  const _pt = new THREE.Vector2()
+  const matAlvo = new THREE.MeshBasicMaterial({ visible: false })
+  const geoAlvo = new THREE.CylinderGeometry(0.062, 0.062, 0.16, 8)
+
+  function montarAlvos(valores) {
+    const cx = L.caixote
+    if (!cx) return
+    for (const a of alvos) grupo.remove(a)
+    alvos.length = 0
+    const n = valores.length
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(geoAlvo, matAlvo)
+      m.position.set(casaCaixote(i, n), Y_CHAO + 0.06, cx.z)
+      m.userData.alvo = { tipo: 'caixote', v: valores[i] }
+      grupo.add(m)
+      alvos.push(m)
+    }
+    // a pilha da aposta tambem e clicavel: e por ela que se DESFAZ uma ficha
+    const ap = L.pilhas.aposta || L.pilhas.minha
+    if (ap) {
+      const m = new THREE.Mesh(geoAlvo, matAlvo)
+      m.scale.set(1.7, 1.4, 1.7)
+      m.position.set(ap.x, Y_CHAO + 0.09, ap.z)
+      m.userData.alvo = { tipo: 'aposta' }
+      grupo.add(m)
+      alvos.push(m)
+    }
+  }
+
+  /**
+   * O que esta debaixo do ponteiro. `nx`/`ny` em -1..1 (coordenada de tela do
+   * three), `cam` a camera do quadro. Devolve { tipo:'caixote', v } ou
+   * { tipo:'aposta' }, ou null.
+   */
+  function apontar(nx, ny, cam) {
+    if (!cam || !alvos.length || !grupo.visible) return null
+    _pt.set(nx, ny)
+    _raio.setFromCamera(_pt, cam)
+    const hits = _raio.intersectObjects(alvos, false)
+    return hits.length ? hits[0].object.userData.alvo : null
   }
 
   // --- efeitos --------------------------------------------------------------
@@ -1405,6 +1609,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     brilho.visible = false
     anel.visible = false
     matAnel.opacity = 0
+    limparCaixote()
     tremor = 0
     grupo.visible = false
     if (ancora && ancora.enfeite) ancora.enfeite.visible = true
@@ -1433,6 +1638,10 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     geoSombra.dispose()
     anel.geometry.dispose()
     brilho.geometry.dispose()
+    for (const a of alvos) grupo.remove(a)
+    alvos.length = 0
+    geoAlvo.dispose()
+    matAlvo.dispose()
   }
 
   return {
@@ -1445,6 +1654,10 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     fichas,
     varrer,
     limparFichas,
+    caixote,
+    limparCaixote,
+    montarAlvos,
+    apontar,
     acender,
     tremer,
     destacar,

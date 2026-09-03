@@ -348,14 +348,44 @@ function desenharSimbolo(g, id) {
   }
 }
 
+// --- A TINTA DO PANO -------------------------------------------------------
+//
+// A regra impressa no feltro e TINTA, e tinta nao emite luz. O que vinha antes
+// (#f0e4b8, #cfe0f5) tinha ~0,75 de luminancia LINEAR; multiplicada pela luz
+// que chega na mesa isso saia da cena com radiancia ~1,5, quase o dobro do
+// threshold do UnrealBloomPass (0.85, em core/engine.js) — por isso as letras
+// apareciam brancas chapadas e com halo, lendo como letreiro de neon deitado
+// no pano em vez de serigrafia.
+//
+// Estas duas cores tem ~0,33 de luminancia linear: 0,42 do que era. Com a luz
+// do salao um degrau mais baixa (ver as duas PointLight la embaixo) a letra sai
+// por volta de 0,45 de radiancia — folgadamente ABAIXO do threshold, entao o
+// bloom nao encosta nela, e ainda 3 a 4 vezes mais clara que o pano em volta,
+// que e o contraste que faz texto impresso ser legivel.
+//
+// O threshold do bloom NAO e o lugar de consertar isto: ele e global e vale
+// tambem pros letreiros da cidade.
+const TINTA_CREME = '#a89a6d'    // mesa verde (blackjack)
+const TINTA_AZUL = '#8f9bb0'     // mesa azul (poker)
+// Um fio de emissivo so pra a letra nao sumir na parte do pano que ja caiu pro
+// escuro. 0.12 era o suficiente pra ela acender sozinha no canto sem luz.
+const TINTA_EMI = 0.03
+
 // ---------------------------------------------------------------------------
 // Materiais do modulo. Getters porque assim a textura so e gerada se a peca
 // que a usa realmente for construida (e stdMat/solid ja cacheiam por chave).
 // ---------------------------------------------------------------------------
 const M = {
+  // O carpete e o degrau do salao. Ele e a maior superficie do cassino e e ele
+  // que cerca as duas mesas: com `color` em branco puro o chao vermelho-e-ouro
+  // saia mais claro que o pano das mesas, e o olho ia pro carpete em vez de ir
+  // pra mesa. 0xdedada tira ~22% da luminancia LINEAR (o corte em sRGB parece
+  // menor do que e) sem trocar a cor — o suficiente pra a mesa ganhar do chao
+  // e pouco o bastante pra quem so atravessa o salao continuar enxergando o
+  // caminho, que era a outra metade do pedido.
   get carpete() {
     return stdMat('casino-carpete', {
-      map: carpeteTex(9), roughness: 0.96, metalness: 0.0, color: 0xffffff,
+      map: carpeteTex(9), roughness: 0.96, metalness: 0.0, color: 0xdedada,
     })
   },
   get passadeira() { return solid(0x8c1224, 0.95) },
@@ -370,8 +400,47 @@ const M = {
   get vinho() { return solid(0x5a1626, 0.85) },
   get veludo() { return solid(0x7c1226, 0.96) },
   get couro() { return solid(0x3a1b1f, 0.5, 0.05) },
-  get feltroVerde() { return solid(0x14663a, 0.98) },
-  get feltroAzul() { return solid(0x14315f, 0.98) },
+  // O POCO DE LUZ DAS MESAS MORA AQUI, NO MAP — nao numa luz.
+  //
+  // Nao da pra acender um foco em cima da mesa: a contagem de luzes VISIVEIS
+  // define o programa de shader de todo material da cena e uma luz nova
+  // recompilaria o cassino no meio da jogada (a regra esta no cabecalho de
+  // cassino/mesa-3d.js). E mesmo que desse, nao adiantaria: de uma luz a 3 m de
+  // altura, a borda de uma mesa de 3 m esta a 3,1 m e o centro a 3,0 — o
+  // inverso do quadrado devolve MENOS de 5% de diferenca. Foi por isso que o
+  // pano ficou com a mesma luz de ponta a ponta ate agora. Pra o pano ter
+  // centro quente e borda caindo pro escuro a queda tem que estar PINTADA nele.
+  //
+  // O map ja carrega as tres coisas de uma vez e por isso nao custa nem um
+  // draw call a mais: o degrade do poco, a fibra do pano (feltro nao e uma cor
+  // lisa; sem o ruido o tampo lia como plastico) e a vinheta da borda — que
+  // aqui e o MESMO degrade, e nao um plano preto com MultiplyBlending por cima,
+  // que seria mais um mesh na fila de transparencia entre as fichas e a mesa.
+  //
+  // O centro do degrade nao e o centro da textura nas duas mesas: a UV da tampa
+  // de um CylinderGeometry e u = (z/r)/2 + 0.5 e v = (x/r)/2 + 0.5, entao no
+  // blackjack — que e MEIO cilindro com a corda (o lado da atendente) em z=0 e o
+  // arco indo pro -Z — o meio do PANO JOGAVEL, que e onde as cartas caem, esta
+  // em z = -0.7 e cai em u = 0.31, nao em 0.5. Com o degrade em 0.5 o poco
+  // nascia debaixo da atendente e o lugar dos jogadores ficava na sombra.
+  //
+  // O raio do poco e menor no blackjack (0.25 contra 0.34) porque a camera da
+  // mesa desce a 1,7 m do centro e enche a tela com um metro e meio de pano: se
+  // a queda comeca so na borda da mesa ela nao aparece NO QUADRO e o feltro
+  // volta a ser uma chapa verde. Na mesa de poker a camera pega o oval inteiro
+  // e a queda pode ser mais larga.
+  get feltroVerde() {
+    return stdMat('casino-feltro-verde', {
+      map: feltroTex('verde', [13, 68, 42], 0.31, 0.5, 0.22),
+      roughness: 0.99, metalness: 0.0, name: 'feltro-verde',
+    })
+  },
+  get feltroAzul() {
+    return stdMat('casino-feltro-azul', {
+      map: feltroTex('azul', [21, 48, 88], 0.5, 0.5, 0.31),
+      roughness: 0.99, metalness: 0.0, name: 'feltro-azul',
+    })
+  },
   get madeira() { return stdMat('casino-madeira', { map: woodEscuro(), roughness: 0.55, metalness: 0.06 }) },
   get teto() { return solid(0x141118, 0.95) },
   get vidroEscuro() { return glass(0x36505f, 0.30) },
@@ -382,6 +451,87 @@ const M = {
       emissive: 0x140d16, emissiveIntensity: 0.35,
     })
   },
+}
+
+/**
+ * O pano da mesa: fibra + poco de luz + vinheta, tudo assado num canvas.
+ *
+ * @param {string} chave  nome do cache
+ * @param {number[]} rgb  a cor do pano NO MIOLO DO POCO (o resto so escurece)
+ * @param {number} cu,cv  centro do poco em UV
+ * @param {number} raio   raio do poco em UV (0.5 = a borda da tampa)
+ *
+ * Numeros e o porque de cada um:
+ *
+ * 512 px pra uma mesa de 3 m sao 6 px/cm: chega pra a fibra nao virar xadrez
+ * quando a camera da mesa desce a 1 m do pano, e o canvas so nasce se a mesa
+ * for construida (os materiais sao getters).
+ *
+ * O poco vai de 1.16x no miolo a 0.32x na beirada. A conta que importa e a de
+ * cima: o material multiplica o map pela luz, entao 0.32 escurece a borda em
+ * um terco — mais que isso e o pano some no preto e a mesa perde o formato;
+ * menos que isso e o degrade nao le como luz caindo, le como sujeira.
+ *
+ * O poco tambem VIRA DE COR do miolo pra borda, e nao so de brilho. As duas
+ * PointLight do salao sao ambar (0xffd2a0): onde a luz bate o pano puxa pro
+ * quente e onde ela nao chega sobra so o azul do ambiente. Um degrade que so
+ * escurece a mesma cor le como pano manchado; com o desvio de matiz ele le como
+ * luz caindo, que e o pedido.
+ *
+ * A fibra e ANISOTROPICA de proposito: riscos curtos deitados no eixo u, nao
+ * pontinhos redondos. Feltro tem sentido de pelo, e e isso que separa "pano"
+ * de "ruido de televisao velha" quando a luz bate raspando.
+ */
+const POCO_QUENTE = [1.14, 1.02, 0.80]   // desvio de matiz no miolo do poco
+const POCO_FRIO = [0.80, 0.94, 1.22]     // ... e na borda que caiu pro escuro
+function feltroTex(chave, rgb, cu, cv, raio) {
+  return tex('casino-feltro-' + chave, 512, (g, s) => {
+    const cor = (k) => {
+      const t = Math.max(0, Math.min(1, (k - 0.32) / 0.84))
+      const c = []
+      for (let i = 0; i < 3; i++) {
+        const b = POCO_FRIO[i] + (POCO_QUENTE[i] - POCO_FRIO[i]) * t
+        c.push(Math.round(Math.min(255, rgb[i] * k * b)))
+      }
+      return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'
+    }
+
+    // 1) o poco. O gradiente comeca num raio pequeno pra o miolo ter um plato
+    // chapado — sem ele o centro vira uma bola de luz e a mesa parece um ovo.
+    const gr = g.createRadialGradient(cu * s, cv * s, raio * s * 0.22, cu * s, cv * s, raio * s * 1.55)
+    gr.addColorStop(0.00, cor(1.16))
+    gr.addColorStop(0.34, cor(0.98))
+    gr.addColorStop(0.62, cor(0.68))
+    gr.addColorStop(0.84, cor(0.45))
+    gr.addColorStop(1.00, cor(0.32))
+    g.fillStyle = gr
+    g.fillRect(0, 0, s, s)
+
+    // 2) a fibra
+    for (let i = 0; i < 5200; i++) {
+      const x = Math.random() * s, y = Math.random() * s
+      const c = Math.random() > 0.5 ? 255 : 0
+      g.strokeStyle = 'rgba(' + c + ',' + c + ',' + c + ',' + (0.014 + Math.random() * 0.030) + ')'
+      g.lineWidth = 1
+      g.beginPath()
+      g.moveTo(x, y)
+      g.lineTo(x + 2 + Math.random() * 6, y + (Math.random() - 0.5) * 2)
+      g.stroke()
+    }
+
+    // 3) o desgaste: manchas largas e claras onde a mao do dealer varre o pano
+    // e a ficha e arrastada. Sem elas o poco fica perfeito demais, e mesa de
+    // cassino de verdade e pano usado.
+    for (let i = 0; i < 26; i++) {
+      const x = Math.random() * s, y = Math.random() * s
+      const rr = 14 + Math.random() * 52
+      const m = g.createRadialGradient(x, y, 0, x, y, rr)
+      m.addColorStop(0, 'rgba(255,255,255,' + (0.012 + Math.random() * 0.022) + ')')
+      m.addColorStop(1, 'rgba(255,255,255,0)')
+      g.fillStyle = m
+      g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill()
+    }
+  }, 1)
 }
 
 /** Madeira quase preta das bordas de mesa e do bar. */
@@ -462,6 +612,30 @@ function decalChao(w, d, mat, x, y, z, ry) {
   m.position.set(x, y, z)
   m.castShadow = false
   m.receiveShadow = false
+  return m
+}
+
+/**
+ * O decalque de TINTA NO PANO nao escreve profundidade. Chame nele todo
+ * decalque que fica deitado no feltro.
+ *
+ * O defeito que isto conserta (achado medindo shots/bj-07-apostando.png): a
+ * mesa 3D acende o feltro com um PLANO transparente por cima do pano (e a
+ * regra 2 de cassino/mesa-3d.js — acender o feltro e um plano aditivo, nunca
+ * uma luz). Material transparente do three ainda escreve no z-buffer por
+ * padrao, e a frase impressa esta 2 mm ACIMA daquele plano: onde o retangulo
+ * do decalque passava, o plano de luz era REJEITADO pelo teste de
+ * profundidade. O resultado na tela era uma faixa horizontal de borda dura
+ * atravessando a mesa inteira — do tamanho exato do decalque (0,20 m de fundo
+ * em z = -0.75 no blackjack, que e onde as duas arestas cairam quando projetei
+ * a foto de volta pro espaco da mesa).
+ *
+ * Sem escrever profundidade o decalque continua sendo TESTADO contra o feltro
+ * e contra as fichas (nao vaza por cima de nada opaco), e o plano de luz passa
+ * por cima da tinta como a luz de verdade faria.
+ */
+function tintaNoPano(m) {
+  m.material.depthWrite = false
   return m
 }
 
@@ -1009,7 +1183,7 @@ function tetoELustres(g, luzes) {
   const geoCristal = new THREE.OctahedronGeometry(0.055, 0)
   const geoGota = new THREE.OctahedronGeometry(0.045, 0)
 
-  const lustre = (x, z, escala) => {
+  const lustre = (x, z, escala, foco) => {
     const u = new THREE.Group()
     u.position.set(x, 4.28, z)
     u.scale.setScalar(escala)
@@ -1059,6 +1233,25 @@ function tetoELustres(g, luzes) {
       u.add(cr)
     }
     u.add(cyl(0.03, 0.10, 0.26, M.ouro, 10).translateY(-0.66))
+    // FOCO: o prato aceso na barriga do lustre, virado pro chao.
+    //
+    // Ele existe pra a mesa ter de onde a luz VIR. O poco de luz esta pintado
+    // no pano (feltroTex) e o pano nao explica sozinho por que ele esta ali;
+    // um disco quente logo acima, na vertical do centro da mesa, fecha a
+    // historia. Nao e luz: e emissivo, como as luminarias do forro da marquise.
+    //
+    // Usa o MESMO material das chamas de proposito. Material novo seria um
+    // balde novo no forno (bake.js funde por material) e um draw call a mais
+    // pros tres lustres; reaproveitando o 'vela' o prato entra no mesh que ja
+    // existe e nao custa nada. So os dois lustres das MESAS ganham o prato — o
+    // da entrada nao tem mesa embaixo pra iluminar.
+    if (foco) {
+      const prato = new THREE.Mesh(new THREE.CircleGeometry(0.34, 18), vela)
+      prato.rotation.x = Math.PI / 2       // virado pra baixo
+      prato.position.y = -0.60
+      prato.castShadow = false
+      u.add(prato)
+    }
     // Sem sombras() aqui: a varredura cega devolvia castShadow pros ~40
     // cristais e chamas de cada lustre, apagando os castShadow = false de tres
     // linhas acima. Cristal e material TRANSPARENTE — no shadow map ele vira
@@ -1067,9 +1260,9 @@ function tetoELustres(g, luzes) {
     // a sombra sozinhos; o unico mesh cru que precisava dela e o aro.
     g.add(u)
   }
-  lustre(BJ.x, BJ.z - 0.6, 1.0)
-  lustre(PK.x, PK.z, 0.9)
-  lustre(B.door.center, IN.z0 + 4.4, 0.85)
+  lustre(BJ.x, BJ.z - 0.7, 1.0, true)
+  lustre(PK.x, PK.z, 0.9, true)
+  lustre(B.door.center, IN.z0 + 4.4, 0.85, false)
 
   // DUAS PointLight pro salao inteiro, e nenhuma delas projeta sombra.
   //
@@ -1085,14 +1278,41 @@ function tetoELustres(g, luzes) {
   //
   // Intensidade alta (candela, com decay 2) porque o teto esta a 4 m e a mesa
   // a 1 m: o que chega no feltro e intensidade / distancia^2.
-  const pl = new THREE.PointLight(0xffd2a0, 165, 38, 2)
-  pl.position.set(IN.cx + 1.5, 4.0, IN.cz + 1.0)
+  //
+  // ---- UM DEGRAU MAIS ESCURO, e por que so um degrau ----------------------
+  //
+  // 165 -> 118 e 95 -> 74 (~ -28%). O pedido era "o resto do salao um degrau
+  // mais escuro em volta das mesas, pra a mesa ser o lugar mais claro do
+  // quadro", e a conta que decide o quanto e a do BLOOM: com 165 candelas o
+  // que chegava no feltro dava radiancia ~1,5 na tinta do decalque, quase o
+  // dobro do threshold de 0.85 — nao havia cor de tinta que salvasse aquilo
+  // sozinha sem virar cinza-chumbo. Com 118 sobra folga pras letras caberem
+  // embaixo do threshold ainda claras.
+  //
+  // Nao pode ser MUITO mais que isso: quem so atravessa o cassino a pe precisa
+  // enxergar o caminho, e nao ha luz indireta neste renderizador — o que a
+  // PointLight nao alcanca fica preto de verdade. Um terco a menos e o limite
+  // em que a parede do fundo e o balcao do caixa ainda leem.
+  //
+  // O ALCANCE encurtou junto (38 -> 30, 26 -> 22) e ele e que faz o trabalho
+  // de "em volta das mesas": com decay 2 o `distance` e a janela que empurra a
+  // contribuicao a zero na ponta, entao encurtar escurece a PERIFERIA sem tirar
+  // nada do miolo — e o miolo e onde estao as duas mesas. Com 38 m de alcance
+  // num salao de 19 m a janela nunca entrava em acao e a luz era chapada de
+  // parede a parede.
+  //
+  // A luz principal desceu 20 cm (4.0 -> 3.8) e andou 40 cm pro fundo pra ficar
+  // entre os dois lustres das mesas: o poco de luz do pano (assado no map do
+  // feltro, ver feltroTex) mente melhor quando a luz de verdade vem de cima e
+  // de perto do lugar onde o lustre esta pendurado.
+  const pl = new THREE.PointLight(0xffd2a0, 118, 30, 2)
+  pl.position.set(IN.cx + 1.5, 3.8, IN.cz + 1.4)
   pl.castShadow = false
   g.add(pl)
   luzes.push(pl)
 
   // a segunda mira o corredor das caca-niqueis e o caixa (lado -X / -Z)
-  const pl2 = new THREE.PointLight(0xffcf9a, 95, 26, 2)
+  const pl2 = new THREE.PointLight(0xffcf9a, 74, 22, 2)
   pl2.position.set(IN.x0 + 4.5, 3.7, IN.z0 + 5.0)
   pl2.castShadow = false
   g.add(pl2)
@@ -1345,7 +1565,13 @@ function buildBlackjack(g, colliders, mats) {
   u.add(box(r * 2, 0.15, 0.16, M.couro, 0, yT, -0.02))
 
   // arco de aposta + as 5 posicoes marcadas no feltro
-  const linha = solid(0xe8dcb4, 0.9)
+  //
+  // 0xe8dcb4 era quase branco: multiplicado pela luz do salao o arco passava do
+  // threshold do bloom (0.85 em core/engine.js) e a linha de tinta virava um
+  // tubo de neon deitado no pano — repare que na foto antiga ela brilha MAIS
+  // que a lampada do lustre. 0x9e9068 e a mesma cor de creme com metade da
+  // reflexao: continua o traco mais claro do pano e nao acende nada.
+  const linha = solid(0x9e9068, 0.92)
   const arco = new THREE.Mesh(new THREE.RingGeometry(1.36, 1.40, 46, 1, 0, Math.PI), linha)
   arco.rotation.x = -Math.PI / 2
   arco.position.y = yT + 0.006
@@ -1374,16 +1600,24 @@ function buildBlackjack(g, colliders, mats) {
   // seguro, mas aqui nao existe seguro pra comprar — regra impressa que o
   // caixa nao paga e a mesma promessa falsa que o cartaz da caca-niquel evita
   // lendo o multiplicador da tabela em vez de digitar um numero.
+  //
+  // A COR DELAS E TINTA, NAO LAMPADA (ver TINTA_* la em cima). O #f0e4b8 de
+  // antes tinha 0,87 de luminancia linear; multiplicado pela luz que chega no
+  // pano ele saia da cena com radiancia ~1,5 — quase o dobro do threshold do
+  // bloom — e o que a foto mostrava era letra branca chapada com halo, lendo
+  // como letreiro de neon deitado na mesa. Tinta impressa nao emite.
   const l1 = decalChao(1.9, 0.20, textPlaneMat('BLACKJACK PAGA 3 PARA 2', {
-    w: 1024, h: 108, color: '#f0e4b8', font: 'bold 74px "Trebuchet MS", sans-serif',
-    emissiveIntensity: 0.12,
+    w: 1024, h: 108, color: TINTA_CREME, font: 'bold 74px "Trebuchet MS", sans-serif',
+    emissiveIntensity: TINTA_EMI,
   }), 0, yT + 0.008, -0.75)
-  u.add(l1)
+  l1.material.name = 'feltro-regra-bj1'
+  u.add(tintaNoPano(l1))
   const l2 = decalChao(1.6, 0.15, textPlaneMat('A CASA PARA EM QUALQUER 17', {
-    w: 1024, h: 96, color: '#e6d5a4', font: 'bold 60px "Trebuchet MS", sans-serif',
-    emissiveIntensity: 0.1,
+    w: 1024, h: 96, color: '#8e8259', font: 'bold 60px "Trebuchet MS", sans-serif',
+    emissiveIntensity: TINTA_EMI,
   }), 0, yT + 0.008, -1.62)
-  u.add(l2)
+  l2.material.name = 'feltro-regra-bj2'
+  u.add(tintaNoPano(l2))
 
   // SHOE (suporte de cartas) na mao esquerda da atendente
   const shoe = new THREE.Group()
@@ -1475,18 +1709,21 @@ function buildPoker(g, colliders, mats) {
     u.add(p)
   }
 
-  // linha de aposta desenhada no feltro
-  const linha = new THREE.Mesh(new THREE.RingGeometry(0.985, 1.0, 44), solid(0xd9e4f2, 0.9))
+  // Linha de aposta desenhada no feltro. Mesmo caso do arco do blackjack:
+  // 0xd9e4f2 e branco de fato e o anel saia da cena acima do threshold do
+  // bloom — na foto antiga ele e um aro de neon em volta do pote.
+  const linha = new THREE.Mesh(new THREE.RingGeometry(0.985, 1.0, 44), solid(0x8e9cb2, 0.92))
   linha.rotation.x = -Math.PI / 2
   linha.scale.set(0.62 * PK.rx, 0.62 * PK.rz, 1)
   linha.position.y = yT + 0.006
   linha.castShadow = false
   u.add(linha)
   const marca = decalChao(1.6, 0.20, textPlaneMat('MAO A MAO - DUAS CARTAS', {
-    w: 1024, h: 128, color: '#cfe0f5', font: 'bold 66px "Trebuchet MS", sans-serif',
-    emissiveIntensity: 0.12,
+    w: 1024, h: 128, color: TINTA_AZUL, font: 'bold 66px "Trebuchet MS", sans-serif',
+    emissiveIntensity: TINTA_EMI,
   }), 0, yT + 0.008, -0.42)
-  u.add(marca)
+  marca.material.name = 'feltro-regra-pk'
+  u.add(tintaNoPano(marca))
 
   // Duas cartas viradas na frente de cada lugar: e "heads up de duas cartas".
   //

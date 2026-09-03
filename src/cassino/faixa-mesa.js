@@ -208,112 +208,12 @@ const CSS = `
 @keyframes ${P}pisca{ 0%{ transform:translateX(-5px); opacity:.35; } 100%{ transform:none; opacity:1; } }
 .${P}dica{ font-size:10.5px; color:#77808c; letter-spacing:.05em; }
 
-/* --- fichas clicaveis -------------------------------------------------------
- *
- * Eram circulos com 'border:3px dashed', que e a coisa mais parecida com ficha
- * que o CSS faz de graca — e nao e parecida. Uma ficha de cassino nao tem
- * tracejado: tem INSERCOES, quatro camadas concentricas e espessura.
- *
- * As camadas, de fora pra dentro, e como cada uma e feita:
- *   - o corpo de argila       : degrade radial + inset shadow em baixo (o
- *                               volume) e em cima (o verniz)
- *   - as 8 insercoes do aro   : repeating-conic-gradient de 22,5 em 22,5 graus,
- *                               RECORTADO por um mask radial pra viver so nos
- *                               20% de fora. Setor tem QUINA; dashed nao tem.
- *   - o chanfro               : uma listra clara de 1px em 80% do raio
- *   - a pastilha do meio      : ::after com anel escuro por fora (box-shadow
- *                               0 0 0 2px) e sombra por dentro (o rebaixo)
- *
- * As fracoes de raio (pastilha em ~50%, insercao a partir de 80%) sao as
- * MESMAS do PERFIL_FICHA do 3D de proposito: a ficha do rodape e a mesma peca
- * da que cai no feltro, e o olho compara as duas o tempo todo.
- *
- * O 'pop' do clique ANIMA o proprio botao, entao por 0,3 s ele ganha do
- * 'fichaHalo' da selecionada (regra de cascata: animacao ganha de declaracao
- * normal, e as duas mexem em coisas diferentes mas na mesma propriedade
- * 'animation'). E de proposito — nesses 0,3 s quem esta contando a historia e
- * a onda dourada, nao o halo.
- */
-.${P}fichas{ display:flex; flex-wrap:wrap; gap:11px; align-items:center; padding:3px 0 5px; }
-.${P}fichabt{
-  position:relative; appearance:none; -webkit-appearance:none; border:0; padding:0;
-  cursor:pointer; font:inherit; flex:0 0 auto;
-  width:50px; height:50px; border-radius:50%;
-  display:grid; place-items:center;
-  background:
-    radial-gradient(circle closest-side at 50% 24%, rgba(255,255,255,.32), rgba(255,255,255,0) 74%),
-    radial-gradient(circle closest-side, rgba(0,0,0,0) 0 77%, rgba(255,255,255,.13) 79% 84%, rgba(0,0,0,0) 86%),
-    var(--${P}c,#2f8f5b);
-  box-shadow:
-    0 7px 15px rgba(0,0,0,.55),
-    inset 0 -7px 12px rgba(0,0,0,.44),
-    inset 0 5px 9px rgba(255,255,255,.16),
-    inset 0 0 0 1px rgba(0,0,0,.32);
-  transition:transform .13s cubic-bezier(.2,.9,.3,1.5), filter .14s, opacity .14s;
-}
-/* as 8 insercoes, so nos 20% de fora do raio */
-.${P}fichabt::before{
-  content:''; position:absolute; inset:0; border-radius:50%; pointer-events:none;
-  background:repeating-conic-gradient(from -11.25deg,
-    var(--${P}sp,#efe9dc) 0 22.5deg, rgba(0,0,0,0) 22.5deg 45deg);
-  -webkit-mask:radial-gradient(circle closest-side, rgba(0,0,0,0) 0 79%, #000 80%);
-  mask:radial-gradient(circle closest-side, rgba(0,0,0,0) 0 79%, #000 80%);
-  box-shadow:inset 0 -7px 12px rgba(0,0,0,.34);
-}
-/* a pastilha rebaixada do meio, com o anel escuro em volta */
-.${P}fichabt::after{
-  content:''; position:absolute; left:50%; top:50%; width:50%; height:50%;
-  transform:translate(-50%,-50%); border-radius:50%; pointer-events:none;
-  background:
-    radial-gradient(circle closest-side at 50% 28%, rgba(255,255,255,.42), rgba(255,255,255,0) 80%),
-    linear-gradient(var(--${P}spa,rgba(239,233,220,.72)), var(--${P}spa,rgba(239,233,220,.72)));
-  box-shadow:
-    0 0 0 2px rgba(0,0,0,.36),
-    inset 0 2px 4px rgba(0,0,0,.34),
-    inset 0 -1px 0 rgba(255,255,255,.40);
-}
-/* o numero e GRAVADO na pastilha: luz embaixo, sombra em cima */
-.${P}fichabt .${P}num{
-  position:relative; z-index:2; font-size:12.5px; font-weight:800; letter-spacing:-.02em;
-  color:var(--${P}tx,#23252c);
-  text-shadow:0 1px 0 rgba(255,255,255,.5), 0 -1px 0 rgba(0,0,0,.20);
-}
-/* o anel que estoura no clique. Elemento proprio e nao box-shadow do botao
-   porque a selecionada JA usa a box-shadow dela pro halo, e as duas brigariam */
-.${P}fichabt .${P}onda{
-  position:absolute; inset:-3px; border-radius:50%; pointer-events:none; z-index:3;
-  border:3px solid rgba(255,226,158,.95); opacity:0; transform:scale(.84);
-  box-shadow:0 0 10px rgba(255,214,128,.5);
-}
-
-.${P}fichabt.${P}sel{ animation:${P}fichaHalo 1.3s ease-in-out infinite; }
-/* pega e inclina: ficha girada de leve mostra que as insercoes sao setores */
-.${P}fichabt:hover:not([disabled]){ transform:translateY(-5px) rotate(-7deg) scale(1.07); }
-.${P}fichabt:active:not([disabled]){ transform:translateY(-1px) scale(.95); }
-.${P}fichabt.${P}pop{ animation:${P}fichaPop .30s cubic-bezier(.2,.9,.3,1.5); }
-.${P}fichabt.${P}pop .${P}onda{ animation:${P}fichaOnda .46s cubic-bezier(.16,.8,.3,1) both; }
-.${P}fichabt[disabled]{
-  opacity:.26; cursor:default; transform:none; animation:none;
-  filter:grayscale(.55) brightness(.82);
-}
-@keyframes ${P}fichaHalo{
-  0%,100%{ box-shadow:0 0 0 2px rgba(233,196,106,.90), 0 7px 15px rgba(0,0,0,.55),
-    inset 0 -7px 12px rgba(0,0,0,.44), inset 0 5px 9px rgba(255,255,255,.16); }
-  50%{ box-shadow:0 0 0 3px rgba(255,217,138,.95), 0 0 17px 4px rgba(233,196,106,.45),
-    0 7px 15px rgba(0,0,0,.55), inset 0 -7px 12px rgba(0,0,0,.44), inset 0 5px 9px rgba(255,255,255,.16); }
-}
-/* termina exatamente no estado de hover: o ponteiro continua em cima do botao
-   depois do clique, e parar num transform diferente daria um salto */
-@keyframes ${P}fichaPop{
-  0%{ transform:translateY(-3px) scale(.90) rotate(4deg); }
-  45%{ transform:translateY(-11px) scale(1.13) rotate(-13deg); }
-  100%{ transform:translateY(-5px) scale(1.07) rotate(-7deg); }
-}
-@keyframes ${P}fichaOnda{
-  0%{ opacity:1; transform:scale(.80); border-width:4px; }
-  55%{ opacity:.46; }
-  100%{ opacity:0; transform:scale(1.9); border-width:1px; }
-}
+/* A FILEIRA DE FICHAS CLICAVEIS SAIU DAQUI e foi pro pano, em 3D. O pedido do
+   dono foi "quero que fique em cima da mesa as fichas que eu tenho, cada monte
+   separadinho por valor": o dinheiro dele virou objeto do mundo (ver caixote()
+   em cassino/mesa-3d.js) e um botao redondo no rodape passou a ser a MESMA
+   coisa desenhada duas vezes. O que sobrou aqui do desenho de ficha e o pino do
+   cabecalho, que continua sendo uma ficha em miniatura. */
 
 /* --- botoes --- */
 .${P}botoes{ display:flex; gap:9px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
@@ -356,18 +256,6 @@ const CSS = `
 @media (max-width:760px){
   .${P}faixa{ gap:10px; padding:10px 12px 12px; }
   .${P}valor{ font-size:21px; }
-  /* 42 px: as camadas sao todas em % do raio, entao encolhem juntas. So o
-     numero e a sombra e que sao em px e precisam ser puxados na mao. */
-  .${P}fichas{ gap:8px; }
-  .${P}fichabt{
-    width:42px; height:42px;
-    box-shadow:
-      0 5px 11px rgba(0,0,0,.55),
-      inset 0 -6px 10px rgba(0,0,0,.44),
-      inset 0 4px 7px rgba(255,255,255,.16),
-      inset 0 0 0 1px rgba(0,0,0,.32);
-  }
-  .${P}fichabt .${P}num{ font-size:11px; }
   .${P}btn{ padding:10px 14px; font-size:12px; }
 }
 `
@@ -425,10 +313,9 @@ export function criarFaixaMesa() {
   colValor.append(rotValor, valorTxt)
 
   const colMeio = el('div', 'col cresce')
-  const caixaFichas = el('div', 'fichas')
   const recado = el('div', 'recado', '')
   const dica = el('div', 'dica', 'Esc sai da mesa')
-  colMeio.append(caixaFichas, recado, dica)
+  colMeio.append(recado, dica)
 
   const colBotoes = el('div', 'col')
   const botoes = el('div', 'botoes')
@@ -450,8 +337,6 @@ export function criarFaixaMesa() {
   let timerCartaz = 0
   let timerFlash = 0
   const mapaBotoes = new Map()
-  let fichasBt = []
-  let fichasVal = []
 
   // -------------------------------------------------------------------------
   // API
@@ -497,55 +382,6 @@ export function criarFaixaMesa() {
   }
 
   function setDica(txt) { dica.textContent = txt || '' }
-
-  /** Fileira de fichas clicaveis. aoClicar(valor) decide o que o valor faz. */
-  function definirFichas(valores, aoClicar) {
-    caixaFichas.textContent = ''
-    fichasBt = []
-    fichasVal = valores.slice()
-    for (let i = 0; i < valores.length; i++) {
-      const v = valores[i]
-      const cor = COR_FICHA[v] || '#4a6f8f'
-      const ins = insercaoDe(cor)
-      // Tres filhos e nao so texto: o ::before e o ::after ja estao gastos com
-      // as insercoes e a pastilha, entao o numero precisa de um elemento pra
-      // ficar POR CIMA das duas camadas, e a onda do clique precisa de outro
-      // pra poder estourar pra fora do botao sem mexer no halo da selecionada.
-      const b = el('button', 'fichabt')
-      b.type = 'button'
-      b.style.setProperty('--' + P + 'c', cor)
-      b.style.setProperty('--' + P + 'sp', ins.sp)
-      b.style.setProperty('--' + P + 'spa', ins.spa)
-      b.style.setProperty('--' + P + 'tx', ins.tx)
-      b.append(el('i', 'onda'), el('span', 'num', String(v)))
-      b.addEventListener('click', () => { estourar(b); aoClicar(v) })
-      caixaFichas.appendChild(b)
-      fichasBt.push(b)
-    }
-  }
-
-  /** O "pop" do clique. Tira e recoloca a classe no mesmo quadro (o
-   *  offsetWidth no meio e o que forca o reflow) pra a animacao REINICIAR em
-   *  cliques seguidos — sem isso, apertar a mesma ficha cinco vezes seguidas
-   *  so anima a primeira. */
-  function estourar(b) {
-    marca(b, 'pop', false)
-    void b.offsetWidth
-    marca(b, 'pop', true)
-    setTimeout(() => marca(b, 'pop', false), 480)
-  }
-
-  /** limite = quanto ainda cabe; sel = valor destacado (ou -1). */
-  function atualizarFichas(limite, sel) {
-    for (let i = 0; i < fichasBt.length; i++) {
-      fichasBt[i].disabled = fichasVal[i] > limite
-      marca(fichasBt[i], 'sel', fichasVal[i] === sel)
-    }
-  }
-
-  function mostrarFichas(v) {
-    caixaFichas.style.display = v ? '' : 'none'
-  }
 
   /** defs = [{ id, txt, cls, ao }]. Devolve nada; use botao(id) pra mexer. */
   function definirBotoes(defs) {
@@ -621,9 +457,6 @@ export function criarFaixaMesa() {
     setValor,
     setRecado,
     setDica,
-    definirFichas,
-    atualizarFichas,
-    mostrarFichas,
     definirBotoes,
     botao,
     ajustar,

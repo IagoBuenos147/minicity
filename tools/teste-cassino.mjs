@@ -429,7 +429,12 @@ function baralhoFixo(lista) {
   // Tira os comentarios antes de procurar: o proprio aviso dentro do bloco diz
   // "nunca leia `minhas` aqui", e seria ridiculo o teste falhar por causa do
   // texto que existe pra impedir a falha.
-  const codigo = bloco.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n')
+  // O split e por /\r?\n/ e nao por '\n': este repositorio esta com
+  // core.autocrlf=true, entao o arquivo na copia de trabalho vem com CRLF. Com
+  // CRLF a linha termina em '\r', e em JavaScript o '.' NAO casa '\r' — o
+  // '//.*$' entao nao casava nada e o teste acusava o proprio aviso ("NUNCA
+  // leia `minhas` aqui") como se fosse codigo da IA.
+  const codigo = bloco.split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, '')).join('\n')
   check('bloco da IA existe e esta marcado', bloco.length > 200, bloco.length + ' chars')
   check('a IA nao le a mao do jogador (nenhum "minhas" no codigo do bloco)', bloco.length > 200 && codigo.indexOf('minhas') < 0)
 }

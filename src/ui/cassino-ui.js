@@ -81,9 +81,12 @@ const BJ_MAX = 2000
 // Fichas clicaveis de cada mesa. Sao valores de cassino de verdade (25/50/100/
 // 250/500): numero redondo o jogador soma de cabeca, e cada degrau e o dobro ou
 // mais do anterior, entao subir a aposta e uma decisao, nao um deslizar.
-const FICHAS_BJ = [25, 50, 100, 250, 500]
+// AS FICHAS DO CAIXOTE — as MESMAS nas duas mesas, e isso e o pedido ("um
+// sistema unico tb com as fichas na mesa"). Elas nao sao mais botao redondo no
+// rodape: sao cinco pilhas em cima do pano, uma por valor, e o jogador aposta
+// clicando nelas (ver caixote() e apontar() em cassino/mesa-3d.js).
+const FICHAS_MESA = [25, 50, 100, 250, 500]
 const APOSTAS_SLOT = [5, 10, 25, 50, 100]
-const AUMENTOS_POKER = [25, 50, 100, 250]
 
 // A ANTE DO POKER E DA MESA, NAO DO JOGADOR — e isso e uma mudanca de desenho,
 // nao um numero que encolheu.
@@ -786,6 +789,85 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     renderizando = false
   }
 
+  // -------------------------------------------------------------------------
+  // O PANO E CLICAVEL: o caixote de fichas em 3D
+  //
+  // A faixa cobre a tela inteira e engole todo evento de mouse (regra 2 do
+  // cabecalho de cassino/faixa-mesa.js: sem isso o main pede pointer lock em
+  // todo clique e o ponteiro some no meio da mao). Isso, que era uma trava,
+  // virou a porta de entrada: o clique que cai NA RAIZ — e nao num botao, nem
+  // na faixa, nem no cabecalho — e um clique no feltro, e e esse que vira
+  // raycast nas pilhas do caixote.
+  //
+  // Repare que a checagem e `ev.target === faixa.el` e nao um closest(): a
+  // vinheta, o clarao e o cartaz do meio ja tem pointer-events:none, entao tudo
+  // que cai no meio da tela chega na raiz em pessoa. Um closest() por classe
+  // amarraria este arquivo ao prefixo CSS do outro.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Tira a ficha DE CIMA de uma aposta de `v`.
+   *
+   * A pilha e montada da maior pra menor (decomposicao gulosa), entao a ficha
+   * do topo e sempre a MENOR da decomposicao — 300 e uma de 250 com uma de 50
+   * em cima, e puxar do topo tira 50, nao 250. Sem essa conta, clicar na pilha
+   * pra corrigir um clique errado tirava o valor errado e o jogador aprendia a
+   * nao clicar ali.
+   */
+  function tirarDeCima(v) {
+    const total = Math.max(0, inteiro(v))
+    if (total <= 0) return 0
+    let resto = total
+    let ultima = 0
+    for (let i = FICHAS_MESA.length - 1; i >= 0; i--) {
+      const d = FICHAS_MESA[i]
+      while (resto >= d) { resto -= d; ultima = d }
+    }
+    if (!ultima) return 0
+    return Math.max(0, total - ultima)
+  }
+
+  /** Coordenada de tela do three (-1..1) a partir do evento do mouse. */
+  function pontoDaTela(ev) {
+    const cv = game && game.renderer ? game.renderer.domElement : null
+    const r = cv ? cv.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+    return {
+      nx: ((ev.clientX - r.left) / (r.width || 1)) * 2 - 1,
+      ny: -((ev.clientY - r.top) / (r.height || 1)) * 2 + 1,
+    }
+  }
+
+  /** O que esta debaixo do ponteiro NO PANO, ou null. */
+  function alvoDoPano(ev) {
+    if (!mesaAtiva || !mesaAtiva.mesa || !faixa) return null
+    if (ev.target !== faixa.el) return null
+    const cam = game && game.camera
+    if (!cam) return null
+    const p = pontoDaTela(ev)
+    return mesaAtiva.mesa.apontar(p.nx, p.ny, cam)
+  }
+
+  function aoClicarPano(ev) {
+    const alvo = alvoDoPano(ev)
+    if (!alvo) return
+    chamar(mesaAtiva, 'aoTocar', alvo)
+  }
+
+  /** Ponteiro de mao em cima de pilha clicavel: sem isto ninguem descobre que
+   *  as fichas do pano respondem ao clique. */
+  function aoMoverPano(ev) {
+    if (!faixa) return
+    faixa.el.style.cursor = alvoDoPano(ev) ? 'pointer' : ''
+  }
+
+  function ligarPano(v) {
+    if (!faixa) return
+    const modo = v ? 'addEventListener' : 'removeEventListener'
+    faixa.el[modo]('click', aoClicarPano)
+    faixa.el[modo]('mousemove', aoMoverPano)
+    if (!v) faixa.el.style.cursor = ''
+  }
+
   /** Viaja pro enquadramento `nome` da mesa no ar, sem soltar a camera. */
   function irPara(nome, tempo) {
     if (!cena || !mesaAtiva || !mesaAtiva.mesa) return
@@ -817,6 +899,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       return
     }
     garantirFaixa()
+    ligarPano(true)
 
     mesaAtiva = quem
     quem.mesa = m
@@ -901,6 +984,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   function fecharMesa(imediato) {
     if (modo !== 'mesa') return
     const quem = mesaAtiva
+    ligarPano(false)
     chamar(quem, 'aoSair')
     if (faixa) faixa.mostrar(false)
     if (ricaco) ricaco.soltar()
@@ -1156,10 +1240,16 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
 
     const M = {
       nome: 'blackjack',
-      moeda: 'ouro',
+      // ESTA MESA PASSOU A APOSTAR FICHA, e nao ouro. Era a ultima coisa do
+      // cassino que cobrava em dinheiro vivo, e o pedido do dono foi um sistema
+      // SO ("quero que aposte fichas no black jack e que tenha um sistema unico
+      // tb com as fichas na mesa"). Tambem conserta a queixa antiga por tabela:
+      // quem trocava tudo no caixa pra jogar poker chegava aqui e encontrava a
+      // mesa travada sem entender por que.
+      moeda: 'ficha',
       kicker: 'MESA DA ATENDENTE',
       titulo: 'Blackjack',
-      quadroInicial: 'aposta',
+      quadroInicial: 'jogo',
       mesa: null,
       quadro: null,
     }
@@ -1193,12 +1283,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (v < BJ_MIN) { faixa.setRecado('A mesa nao aceita menos que ' + BJ_MIN + '.', 'ruim'); return }
       const j = garantirJogo(true)
       // 1) cobra  2) so entao reparte. Nunca ao contrario.
-      if (!chamar(carteira, 'gastarOuro', v)) {
-        faixa.setRecado('Ouro insuficiente. Passe no caixa ou aposte menos.', 'ruim')
+      if (!chamar(carteira, 'gastarFichas', v)) {
+        faixa.setRecado('Fichas insuficientes. Passe no caixa ou aposte menos.', 'ruim')
         return
       }
-      // Daqui pra baixo o ouro JA SAIU: 'pago' so cai depois da cobranca porque
-      // gastarOuro avisa a carteira, que redesenha a mesa — e um render com a
+      // Daqui pra baixo a ficha JA SAIU: 'pago' so cai depois da cobranca porque
+      // gastarFichas avisa a carteira, que redesenha a mesa — e um render com a
       // mao anterior ainda em 'fim' e 'pago' zerado leria o placar duas vezes.
       quitarMao()
       limparRelogios()
@@ -1217,12 +1307,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       }
       chamar(carteira, 'contarMao')
       chamar(j, 'comecar', v)
-      // A mesa recusou (aposta fora do limite, sei la): devolve o ouro na hora.
+      // A mesa recusou (aposta fora do limite, sei la): devolve a ficha na hora.
       const depois = chamar(j, 'estado')
       if (!depois || depois.fase === 'aposta') {
-        chamar(carteira, 'ganharOuro', v)
+        chamar(carteira, 'ganharFichas', v)
         pago = true
-        faixa.setRecado('A mesa nao aceitou essa aposta. Ouro devolvido.', 'ruim')
+        faixa.setRecado('A mesa nao aceitou essa aposta. Fichas devolvidas.', 'ruim')
       }
       // Quem move a lente daqui pra frente e o render, por quadroBase().
       renderMesa()
@@ -1236,13 +1326,13 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         const custo = Math.max(0, inteiro(chamar(j, 'custoExtra')))
         // Cobra ANTES: se a carteira recusar, o botao simplesmente nao acontece
         // e a mao segue exatamente como estava.
-        if (custo > 0 && !chamar(carteira, 'gastarOuro', custo)) {
-          faixa.setRecado('Ouro insuficiente pra ' + nome + '.', 'ruim')
+        if (custo > 0 && !chamar(carteira, 'gastarFichas', custo)) {
+          faixa.setRecado('Fichas insuficientes pra ' + nome + '.', 'ruim')
           return
         }
         faixa.setRecado(nome === 'dobrar'
-          ? 'Dobrou: -' + num(custo) + ' de ouro.'
-          : 'Dividiu: -' + num(custo) + ' de ouro.', '')
+          ? 'Dobrou: -' + num(custo) + ' em fichas.'
+          : 'Dividiu: -' + num(custo) + ' em fichas.', '')
       }
       chamar(j, nome)
       renderMesa()
@@ -1275,7 +1365,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       let melhor = ''
       for (let i = 0; i < rs.length; i++) {
         const r = rs[i]
-        const ganho = inteiro(chamar(carteira, 'ganharOuro', r.retorno))
+        const ganho = inteiro(chamar(carteira, 'ganharFichas', r.retorno))
         total += ganho
         apostado += inteiro(r.aposta)
         if (r.tipo === 'blackjack') melhor = 'blackjack'
@@ -1307,14 +1397,14 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         else if (total > apostado) m.acender(0x9fe6b4, 0.5, 0.9)
       }
       if (total > 0) {
-        faixa.setRecado('Voce recebeu ' + num(total) + ' de ouro.', 'bom')
+        faixa.setRecado('Voce recebeu ' + num(total) + ' em fichas.', 'bom')
         faixa.anunciar(rotuloResultado(melhor), melhor === 'blackjack' ? 'top' : '',
-          '+' + num(total) + ' de ouro')
+          '+' + num(total) + ' em fichas')
         if (melhor === 'blackjack') { somMesa.dourado(0.05); faixa.piscar('bom') }
         else somMesa.selo(0.05)
       } else {
         faixa.setRecado('A casa levou essa. A proxima e sua.', 'ruim')
-        faixa.anunciar(rotuloResultado(melhor || 'perdeu'), 'ruim', '-' + num(apostado) + ' de ouro')
+        faixa.anunciar(rotuloResultado(melhor || 'perdeu'), 'ruim', '-' + num(apostado) + ' em fichas')
         somMesa.selo(0.05)
       }
       renderMesa()
@@ -1356,8 +1446,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
      */
     function quadroBase() {
       const est = jogo ? chamar(jogo, 'estado') : null
-      if (!est || est.fase === 'aposta') return 'aposta'
-      return (est.maos && est.maos.length > 1) ? 'duas' : 'jogo'
+      // 'aposta' saiu da rotacao: o caixote de fichas tem que estar no quadro
+      // pra o jogador apostar, e ele so cabe na lente de 'jogo'. Recuar entre
+      // maos era, alem disso, o mesmo vaivem de lente que o dono ja reclamou no
+      // poker. Sobrou uma lente pra mao normal e uma pro split.
+      return (est && est.maos && est.maos.length > 1) ? 'duas' : 'jogo'
     }
 
     /** Quanto de ficha esta no circulo de aposta de cada mao, agora. */
@@ -1373,7 +1466,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (!m || !faixa) return
       const est = jogo ? chamar(jogo, 'estado') : null
       const fase = est ? est.fase : 'aposta'
-      const ouro = carteira ? carteira.ouro : 0
+      // 'bolso' e o que sobra NA CARTEIRA; a aposta que ainda esta em cima do
+      // pano nao saiu dela. Quem manda no caixote e a diferenca dos dois, senao
+      // o jogador ve a mesma ficha duas vezes: uma na pilha da aposta e outra
+      // ainda no caixote, como se ele pudesse gastar de novo.
+      const bolso = carteira ? carteira.fichas : 0
 
       // --- a casa -----------------------------------------------------------
       let escondida = true
@@ -1429,18 +1526,14 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         { de: 'jogador', x: partido ? 0.26 : 0.00 })
       m.fichas('aposta1', apostaNoFeltro(est, fase, 1), { de: 'jogador' })
 
-      // --- a virada da carta tapada: aproxima e recua -------------------------
-      // A ANTECIPACAO. A carta de baixo da casa e a ultima coisa que se revela
-      // numa mao de blackjack, e e o unico momento em que ninguem tem decisao
-      // nenhuma pra tomar — entao a lente pode mergulhar nela sem atrapalhar.
-      if (escondidaAntes && !escondida && est) {
-        irPara('revelar', 0.42)
-        clearTimeout(tVoltar)
-        tVoltar = setTimeout(() => {
-          tVoltar = 0
-          irPara(quadroBase(), 0.55)
-        }, 1500 + Math.round(esperaDealer * 1000))
-      }
+      // A VIRADA DA CARTA TAPADA NAO MEXE MAIS A CAMERA. Havia um mergulho
+      // ('revelar', fov 26) que caia na mao da casa e voltava; ele saiu junto
+      // com os dois mergulhos do poker, pela mesma queixa ("aproxima demais e
+      // depois afasta demais"). Quem faz a revelacao agora e a propria mao da
+      // casa: ela esta deitada enquanto ha carta tapada e ESCORA no instante em
+      // que a ultima ganha face (LAYOUT.blackjack.filas.dealer tem 'inclina' e
+      // nao tem 'inclinaVerso'), o que dobra o tamanho dela na tela sem a lente
+      // andar um centimetro.
       escondidaAntes = escondida
 
       // --- fim da mao: le UMA vez e agenda a apresentacao ---------------------
@@ -1468,36 +1561,38 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // a aposta UMA vez por sessao.
       const apostando = !est || fase === 'aposta' || fase === 'fim'
       // Aparar a aposta pelo saldo so vale enquanto ela AINDA PODE SER GASTA.
-      // No meio da mao o ouro ja saiu, entao 'ouro' e o que sobrou DEPOIS de
+      // No meio da mao a ficha ja saiu, entao 'bolso' e o que sobrou DEPOIS de
       // pagar — cortar a aposta ali zerava ela em toda mao apostada por inteiro,
       // e o jogador terminava com o premio no bolso e um JOGAR DE NOVO
       // desabilitado por um valor que ele nunca escolheu.
       const emJogo = fase === 'jogador' || fase === 'dealer'
-      if (!emJogo && aposta > ouro) aposta = Math.min(BJ_MAX, ouro)
+      if (!emJogo && aposta > bolso) aposta = Math.min(BJ_MAX, bolso)
       // Caminho de volta: passar no caixa e voltar tem que destravar a mesa.
-      if (fase === 'fim' && aposta < BJ_MIN && ouro >= BJ_MIN) aposta = BJ_MIN
+      if (fase === 'fim' && aposta < BJ_MIN && bolso >= BJ_MIN) aposta = BJ_MIN
 
       const fim = fase === 'fim'
-      faixa.setBolso(ouro, carteira ? carteira.fichas : 0, 'ouro')
+      faixa.setBolso(carteira ? carteira.ouro : 0, bolso, 'ficha')
       const minha = maos.length ? maos[Math.max(0, est.maoAtual)] || maos[0] : null
       if (apostando) {
         faixa.setValor(fim ? 'Proxima aposta' : 'Sua aposta', aposta,
-          aposta >= BJ_MAX ? 'teto da mesa' : 'em ouro')
+          aposta >= BJ_MAX ? 'teto da mesa' : 'em fichas')
       } else {
         faixa.setValor('Voce', minha ? inteiro(minha.valor) : 0,
           'casa ' + valorCasa + (minha && minha.macio ? '  ·  macio' : ''))
       }
-      faixa.mostrarFichas(apostando)
-      faixa.atualizarFichas(Math.min(ouro, BJ_MAX - aposta), -1)
-      // ESTA MESA APOSTA OURO, e a ficha e do poker e do caca-niquel. Quem
-      // trocou tudo no caixa chega aqui com a fileira inteira apagada e nada
-      // explicando por que — foi o segundo jeito de "nao consigo apostar as
-      // fichas" acontecer. O recado agora diz o caminho de volta.
-      if (apostando && ouro < BJ_MIN) {
-        faixa.setRecado(carteira && carteira.fichas >= BJ_MIN
-          ? 'Esta mesa aposta OURO. O caixa troca ficha por ouro.'
-          : 'Sem ouro pra apostar. Passe no caixa.', 'ruim')
-      } else if (!est) faixa.setRecado('Escolha a aposta e mande distribuir.', '')
+
+      // O CAIXOTE. Fora da fase de aposta ele some: ficha clicavel no meio de
+      // uma mao ja repartida so ensina a clicar a toa, e a pilha vazia deixa o
+      // pano limpo pras cartas, que sao o assunto naquele instante.
+      m.caixote(FICHAS_MESA, apostando ? Math.max(0, bolso - aposta) : 0)
+
+      if (apostando && bolso < BJ_MIN) {
+        faixa.setRecado(carteira && carteira.ouro >= BJ_MIN
+          ? 'Sem fichas na mesa. O caixa troca ouro por ficha.'
+          : 'Sem fichas pra apostar. Passe no caixa.', 'ruim')
+      } else if (apostando && aposta <= 0) {
+        faixa.setRecado('Clique nas suas fichas na mesa pra apostar.', '')
+      } else if (!est) faixa.setRecado('Mande distribuir.', '')
       else if (!fim && est.mensagem) faixa.setRecado(est.mensagem, '')
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
@@ -1507,13 +1602,24 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // aposta editavel no fim, um JOGAR DE NOVO separado nao repetiria mais
       // "a mesma aposta" e viraria um segundo botao dizendo a mesma coisa —
       // por isso ele saiu e este aqui so troca de rotulo.
+      const podeDar = aposta >= BJ_MIN && aposta <= bolso
       faixa.ajustar('dar', {
         ver: apostando,
-        ligado: aposta >= BJ_MIN && aposta <= ouro,
+        ligado: podeDar,
         txt: aposta >= BJ_MIN
           ? (fim ? 'JOGAR DE NOVO (' + num(aposta) + ')' : 'DISTRIBUIR (' + num(aposta) + ')')
           : 'DISTRIBUIR',
-        chama: aposta >= BJ_MIN && aposta <= ouro,
+        chama: podeDar,
+      })
+      faixa.ajustar('limpar', { ver: apostando, ligado: aposta > 0 })
+      // TUDO e o all-in da mesa: o teto e o MENOR entre o que sobra na carteira
+      // e o maximo que a mesa aceita. Sem a segunda metade, quem tem 20 mil
+      // apertava TUDO e a mesa recusava a aposta calada.
+      const tetoBJ = Math.min(bolso, BJ_MAX)
+      faixa.ajustar('tudo', {
+        ver: apostando,
+        ligado: tetoBJ >= BJ_MIN && aposta !== tetoBJ,
+        txt: 'TUDO (' + num(tetoBJ) + ')',
       })
       faixa.ajustar('pedir', { ver: !apostando, ligado: acoes.indexOf('pedir') >= 0 })
       faixa.ajustar('parar', { ver: !apostando, ligado: acoes.indexOf('parar') >= 0 })
@@ -1537,17 +1643,46 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
 
     M.render = render
 
-    M.aoEntrar = () => {
-      faixa.definirFichas(FICHAS_BJ, (v) => {
-        // clicar EMPILHA, como numa mesa de verdade: subir a aposta e um gesto
-        // repetido, nao um numero que se escolhe de uma vez.
-        aposta = Math.min(BJ_MAX, aposta + v)
-        const teto = carteira ? carteira.ouro : 0
-        if (aposta > teto) aposta = Math.max(0, teto)
+    /**
+     * CLIQUE NUMA PILHA DO PANO. E a unica forma de apostar nesta mesa agora.
+     *
+     * Clicar no caixote EMPILHA, como numa mesa de verdade: subir a aposta e um
+     * gesto repetido, nao um numero que se escolhe de uma vez. Clicar na PILHA
+     * DA APOSTA tira a ficha de cima — e o gesto inverso, e existe pra o
+     * jogador poder corrigir sem zerar tudo no LIMPAR.
+     */
+    M.aoTocar = (alvo) => {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      const fase = est ? est.fase : 'aposta'
+      if (est && fase !== 'aposta' && fase !== 'fim') return
+      const bolso = carteira ? carteira.fichas : 0
+      if (alvo.tipo === 'caixote') {
+        const v = Math.max(1, inteiro(alvo.v))
+        if (aposta + v > BJ_MAX) {
+          faixa.setRecado('O teto da mesa e ' + num(BJ_MAX) + '.', 'ruim')
+          renderMesa()
+          return
+        }
+        if (aposta + v > bolso) {
+          faixa.setRecado('Voce nao tem ficha de ' + num(v) + ' sobrando.', 'ruim')
+          renderMesa()
+          return
+        }
+        aposta += v
         renderMesa()
-      })
+        return
+      }
+      if (alvo.tipo === 'aposta') { aposta = tirarDeCima(aposta); renderMesa() }
+    }
+
+    M.aoEntrar = () => {
+      M.mesa.montarAlvos(FICHAS_MESA)
       faixa.definirBotoes([
         { id: 'limpar', txt: 'LIMPAR', cls: 'fantasma', ao: () => { aposta = 0; renderMesa() } },
+        { id: 'tudo', txt: 'TUDO', cls: 'fantasma', ao: () => {
+          aposta = Math.min(carteira ? carteira.fichas : 0, BJ_MAX)
+          renderMesa()
+        } },
         { id: 'dar', txt: 'DISTRIBUIR', cls: 'ouro grande', ao: comecar },
         { id: 'pedir', txt: 'PEDIR', cls: 'verde grande', ao: () => acao('pedir') },
         { id: 'parar', txt: 'PARAR', cls: '', ao: () => acao('parar') },
@@ -1574,10 +1709,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   // MESA 2 — POKER HEADS-UP DE 2 CARTAS (FICHAS)
   //
   // A diferenca em relacao ao blackjack nao e de regra, e de COMPOSICAO: aqui
-  // ha um adversario, e ele e metade do jogo. A lente do 'jogo' abre pra caber
-  // o ricaco inteiro do outro lado do feltro e paga por isso com carta pequena;
-  // quem devolve o tamanho sao os dois mergulhos ('minhas' depois de repartir,
-  // 'revelar' no showdown). Os numeros estao medidos em cassino/mesa-3d.js.
+  // ha um adversario, e ele e metade do jogo. A lente do 'jogo' tem que caber o
+  // ricaco inteiro do outro lado do feltro E o caixote de fichas do meu lado —
+  // sao 2,5 m de profundidade num quadro so, e quem paga essa conta e a carta
+  // ficar de pe em vez de deitada. Os numeros estao medidos em
+  // cassino/mesa-3d.js; nao ha mergulho nenhum, a lente nao se mexe.
   //
   // POR QUE O JOGADOR NAO SENTA NA CADEIRA. Chegou-se a usar player.sitOn na
   // cadeira vazia que world/casino.js ja deixa pronta ali. O problema e
@@ -1593,7 +1729,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     let entradaPaga = 0        // quanto ja saiu da carteira NESTA mao
     let pago = false           // resultado ja creditado?
     let pendente = null
-    let subida = AUMENTOS_POKER[0]
+    // O QUE ESTA NO PANO E AINDA NAO FOI APOSTADO. Substituiu o antigo 'subida'
+    // (um tamanho de aumento escolhido num botao): agora o valor da jogada e a
+    // pilha que o jogador monta clicando nas proprias fichas. Ele volta a zero
+    // em toda acao e em toda mao nova — ficha esquecida no pano de uma mao pra
+    // outra seria dinheiro apostado sem ninguem ter mandado.
+    let naMesa = 0
     let fichasDele = 2000      // a banca dele atravessa as maos
     let tPagar = 0
     let tMao = 0               // relogio da proxima mao (a mesa reparte sozinha)
@@ -1604,7 +1745,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       moeda: 'ficha',
       kicker: 'MESA DE POKER',
       titulo: NOME_NPC_POKER,
-      quadroInicial: 'aposta',
+      quadroInicial: 'jogo',
       mesa: null,
       quadro: null,
     }
@@ -1648,6 +1789,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       limparRelogios()
       if (baralhoPk && baralhoPk.precisaEmbaralhar) chamar(baralhoPk, 'embaralhar')
       pago = false
+      naMesa = 0
       ultimaFala = ''
       if (M.mesa) { M.mesa.limparCartas(0); M.mesa.limparFichas() }
       jogo = criarPoker({ baralho: baralhoPk, aposta: v, fichasNpc: fichasDele })
@@ -1719,17 +1861,48 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (!jogo) return
       const est = chamar(jogo, 'estado')
       if (!est || !Array.isArray(est.acoes) || est.acoes.indexOf(nome) < 0) return
-      const valor = Math.max(1, inteiro(subida))
+      const aposta = nome === 'apostar' || nome === 'aumentar'
+      const valor = Math.max(1, inteiro(naMesa))
+      if (aposta && naMesa <= 0) {
+        faixa.setRecado('Empurre fichas pra mesa primeiro.', 'ruim')
+        return
+      }
       const custo = custoDe(nome, valor)
       if (custo > 0 && !chamar(carteira, 'temFichas', custo)) {
         faixa.setRecado('Fichas insuficientes: essa jogada custa ' + num(custo) + '.', 'ruim')
         return
       }
-      if (nome === 'apostar' || nome === 'aumentar') chamar(jogo, nome, valor)
+      // O PANO ESVAZIA ANTES da jogada, e nao depois: acertarEntrada() cobra a
+      // carteira contra o que o modulo diz que ja esta no pote, e a pilha do
+      // feltro e desenhada como 'minhaEntrada + naMesa'. Zerar so no fim
+      // desenharia a aposta duas vezes no quadro do meio.
+      naMesa = 0
+      if (aposta) chamar(jogo, nome, valor)
       else chamar(jogo, nome)
       // O NPC responde dentro da propria chamada; aqui so acertamos o caixa.
       acertarEntrada()
       renderMesa()
+    }
+
+    /**
+     * O TETO DO ALL-IN nesta mesa. Nao e o saldo: o modulo limita toda aposta
+     * ao tamanho do pote e ao que o adversario tem (limitarAposta em
+     * cassino/poker.js), entao empurrar 20 mil numa mesa de pote 50 daria uma
+     * aposta de 50 e um monte de ficha voltando sozinha. Perguntar o custo real
+     * pro modulo e a unica forma de o botao TUDO nunca mentir o numero.
+     */
+    function tetoDaMesa() {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      if (!est) return 0
+      const saldo = carteira ? carteira.fichas : 0
+      if (saldo <= 0) return 0
+      const nome = (est.acoes || []).indexOf('aumentar') >= 0 ? 'aumentar' : 'apostar'
+      const bruto = Math.max(0, inteiro(chamar(jogo, 'custoExtra', nome, saldo)))
+      // custoExtra devolve o CUSTO (a diferenca a pagar + a subida). O que vai
+      // pro pano e a subida: descontar o que falta pagar evita o pano mostrar
+      // mais ficha do que a jogada vale.
+      const falta = nome === 'aumentar' ? Math.max(0, inteiro(est.paraPagar)) : 0
+      return Math.max(0, Math.min(saldo, bruto - falta))
     }
 
     function nomeMao(m) {
@@ -1820,8 +1993,14 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       for (let i = 0; i < minhas.length; i++) defsEu.push(def(minhas[i], false))
       m.cartas('eu', defsEu)
 
-      // --- as duas pilhas do pote --------------------------------------------
-      m.fichas('minha', est ? Math.max(0, inteiro(est.minhaEntrada)) : 0, { de: 'jogador' })
+      // --- as duas pilhas do pote, mais o que EU acabei de empurrar ----------
+      //
+      // 'naMesa' sao as fichas que o jogador tirou do caixote e ainda NAO
+      // apostou. Elas entram na MESMA pilha da minha entrada de proposito: numa
+      // mesa de verdade a ficha empurrada pra frente ja esta ali, e uma segunda
+      // pilha de "quase aposta" ao lado seria uma invencao de interface. O
+      // numero do botao (APOSTAR 150) e quem diz que ainda da pra voltar atras.
+      m.fichas('minha', (est ? Math.max(0, inteiro(est.minhaEntrada)) : 0) + naMesa, { de: 'jogador' })
       m.fichas('dele', est ? Math.max(0, inteiro(est.entradaDele)) : 0, { de: 'casa' })
 
       // O SHOWDOWN NAO MEXE A CAMERA. Quem mostra a mao dele e a propria mesa:
@@ -1864,42 +2043,66 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         if (!fim && est.mensagem) faixa.setRecado(est.mensagem, '')
       }
 
-      // A FILEIRA DE FICHAS TEM UM SENTIDO SO A MAO INTEIRA: o tamanho do
-      // aumento. Ela trocava de sentido no meio da mao (ante antes, aumento
-      // depois) e era exatamente isso que fazia o jogador clicar 100 achando
-      // que estava escolhendo entrada. Fora da vez ela some, porque escolher
-      // aumento quando nao ha o que aumentar so ensina a clicar a toa.
-      if (emMao && fase === 'jogador') {
-        faixa.definirFichas(AUMENTOS_POKER, (v) => { subida = v; renderMesa() })
-        faixa.atualizarFichas(meuSaldo, subida)
-        faixa.mostrarFichas(true)
-      } else {
-        faixa.mostrarFichas(false)
-      }
+      // O CAIXOTE so aparece na MINHA VEZ. Fora dela nao ha nada pra fazer com
+      // ficha, e pilha clicavel que nao responde ensina a nao clicar. O saldo
+      // que ele mostra ja desconta o que esta empurrado no pano — senao a mesma
+      // ficha apareceria duas vezes, uma na aposta e outra ainda no caixote.
+      const minhaVez = emMao && fase === 'jogador'
+      // O CAIXOTE MOSTRA TUDO QUE O JOGADOR TEM, e nao so o que cabe nesta
+      // jogada. Cheguei a esconder as pilhas acima do teto da mao (a mesa
+      // limita a aposta a quatro vezes o pote) e o resultado era um caixote de
+      // duas pilhas num jogador com vinte mil em ficha — o oposto do pedido,
+      // que e ver o proprio dinheiro na mesa. Clique acima do teto responde com
+      // o numero exato, e isso ensina a regra sem esconder o dinheiro.
+      m.caixote(FICHAS_MESA, minhaVez ? Math.max(0, meuSaldo - naMesa) : 0)
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
       const tem = (n) => acoes.indexOf(n) >= 0
       const custoPagar = tem('pagar') ? custoDe('pagar', 0) : 0
-      const custoApostar = tem('apostar') ? custoDe('apostar', subida) : subida
-      const custoAumentar = tem('aumentar') ? custoDe('aumentar', subida) : subida
+      // APOSTAR e AUMENTAR agora valem O QUE ESTA NO PANO. Nao ha mais um
+      // "tamanho da subida" escolhido num botao: o valor e a pilha que o
+      // jogador montou clicando no caixote, e o rotulo mostra o que a MESA vai
+      // cobrar de verdade (custoDe ja aplica o limite de pote do modulo, entao
+      // empurrar 400 numa mesa que so aceita 300 mostra 300 e nao mente).
+      const custoApostar = naMesa > 0 ? custoDe('apostar', naMesa) : 0
+      const custoAumentar = naMesa > 0 ? custoDe('aumentar', naMesa) : 0
+      const tetoTudo = minhaVez ? Math.max(0, tetoDaMesa()) : 0
 
-      faixa.ajustar('passar', { ver: tem('passar'), ligado: true })
+      faixa.ajustar('passar', { ver: tem('passar') && naMesa === 0, ligado: true })
       faixa.ajustar('apostar', {
         ver: tem('apostar'),
-        ligado: !!(carteira && carteira.temFichas(custoApostar)),
-        txt: 'APOSTAR ' + num(custoApostar),
+        ligado: naMesa > 0 && !!(carteira && carteira.temFichas(custoApostar)),
+        txt: naMesa > 0 ? 'APOSTAR ' + num(custoApostar) : 'APOSTAR',
       })
       faixa.ajustar('pagar', {
-        ver: tem('pagar'),
+        ver: tem('pagar') && naMesa === 0,
         ligado: !!(carteira && carteira.temFichas(custoPagar)),
         txt: custoPagar > 0 ? 'PAGAR ' + num(custoPagar) : 'PAGAR',
         chama: !!(carteira && carteira.temFichas(custoPagar)),
       })
       faixa.ajustar('aumentar', {
         ver: tem('aumentar'),
-        ligado: !!(carteira && carteira.temFichas(custoAumentar)),
-        txt: 'AUMENTAR ' + num(custoAumentar),
+        ligado: naMesa > 0 && !!(carteira && carteira.temFichas(custoAumentar)),
+        txt: naMesa > 0 ? 'AUMENTAR ' + num(custoAumentar) : 'AUMENTAR',
       })
+      // TUDO e o all-in: empurra o maximo que esta mesa aceita de uma vez. Ele
+      // nao aposta sozinho — enche o pano e deixa o dedo no gatilho, porque
+      // all-in que acontece num clique so e all-in dado sem querer.
+      faixa.ajustar('tudo', {
+        ver: minhaVez && (tem('apostar') || tem('aumentar')),
+        ligado: tetoTudo > naMesa,
+        txt: 'TUDO (' + num(tetoTudo) + ')',
+      })
+      faixa.ajustar('devolver', {
+        ver: minhaVez && naMesa > 0,
+        ligado: true,
+        txt: 'TIRAR (' + num(naMesa) + ')',
+      })
+      // DESISTIR nunca some, nem com ficha no pano. PASSAR some (passar com
+      // ficha empurrada e uma contradicao), mas correr nao e: as fichas do pano
+      // ainda nao foram cobradas, e acao() zera o pano antes de qualquer
+      // jogada. Um botao de correr que desaparece quando o jogador mexe nas
+      // fichas le como mesa travada.
       faixa.ajustar('desistir', { ver: tem('desistir'), ligado: true })
       // 'denovo' deixou de ser o botao que faz a mao acontecer — ela acontece
       // sozinha — e virou o de ADIANTAR. Ele so aparece na espera entre maos, e
@@ -1920,27 +2123,62 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       }
       faixa.setDica((meu ? 'Sua mao: ' + meu + '  ·  ' : '') +
         'Entrada ' + num(ante) + '  ·  PAR > SEQUENCIA > NAIPE > CARTA ALTA  ·  Esc sai da mesa')
+      if (minhaVez && naMesa === 0 && !est.mensagem) {
+        faixa.setRecado('Clique nas suas fichas na mesa pra apostar.', '')
+      }
 
-      // UMA LENTE, A MAO INTEIRA. 'aposta' e so a chegada — a mesa troca pra
-      // 'jogo' na primeira mao e nunca mais volta, porque com a mesa repartindo
-      // sozinha nao existe mais um "fora de mao" pra onde recuar.
-      irPara(est ? 'jogo' : 'aposta', T_TROCA)
+      // UMA LENTE SO, A SESSAO INTEIRA. Nao ha nem o recuo de 'aposta' entre
+      // maos: com a mesa repartindo sozinha a cada 2,6 segundos, um recuo por
+      // mao seria o zoom-in/zoom-out de volta, so que mais vezes. A viagem de
+      // chegada (T_ENTRAR, do olho do jogador ate aqui) ja e a apresentacao.
+      irPara('jogo', T_TROCA)
     }
 
     M.render = render
     M.atualizar = (dt) => { if (ricaco) ricaco.atualizar(dt) }
+
+    /**
+     * CLIQUE NUMA PILHA DO PANO — o unico jeito de montar uma aposta aqui.
+     *
+     * A trava do teto vem do MODULO e nao de um numero deste arquivo: o poker
+     * limita a aposta ao tamanho do pote, e deixar o jogador empilhar 2000 num
+     * pote de 50 pra depois a mesa aceitar 50 seria mentir com ficha na mao.
+     */
+    M.aoTocar = (alvo) => {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      if (!est || est.fase !== 'jogador') return
+      if (alvo.tipo === 'aposta') { naMesa = tirarDeCima(naMesa); renderMesa(); return }
+      if (alvo.tipo !== 'caixote') return
+      const v = Math.max(1, inteiro(alvo.v))
+      const saldo = carteira ? carteira.fichas : 0
+      if (naMesa + v > saldo) {
+        faixa.setRecado('Voce nao tem ficha de ' + num(v) + ' sobrando.', 'ruim')
+        renderMesa()
+        return
+      }
+      const teto = tetoDaMesa()
+      if (teto > 0 && naMesa + v > teto) {
+        faixa.setRecado('O maximo desta mao e ' + num(teto) + ' (limite de pote).', 'ruim')
+        renderMesa()
+        return
+      }
+      naMesa += v
+      renderMesa()
+    }
 
     M.aoEntrar = () => {
       // A pose de mesa entra AQUI, antes de a camera comecar a viajar: a troca
       // de pose e um corte seco, e a 3,5 m com a lente ja em movimento ela nao
       // se ve. Trocada mais tarde, no meio da mao, seria um salto.
       chamar(garantirRicaco(), 'entrar')
-      faixa.definirFichas(AUMENTOS_POKER, (v) => { subida = v; renderMesa() })
+      M.mesa.montarAlvos(FICHAS_MESA)
       faixa.definirBotoes([
+        { id: 'devolver', txt: 'TIRAR', cls: 'fantasma', ao: () => { naMesa = 0; renderMesa() } },
+        { id: 'tudo', txt: 'TUDO', cls: 'fantasma', ao: () => { naMesa = tetoDaMesa(); renderMesa() } },
         { id: 'passar', txt: 'PASSAR', cls: '', ao: () => acao('passar') },
         { id: 'apostar', txt: 'APOSTAR', cls: 'verde grande', ao: () => acao('apostar') },
         { id: 'pagar', txt: 'PAGAR', cls: 'verde grande', ao: () => acao('pagar') },
-        { id: 'aumentar', txt: 'AUMENTAR', cls: 'ouro', ao: () => acao('aumentar') },
+        { id: 'aumentar', txt: 'AUMENTAR', cls: 'ouro grande', ao: () => acao('aumentar') },
         { id: 'desistir', txt: 'DESISTIR', cls: 'bordo', ao: () => acao('desistir') },
         { id: 'denovo', txt: 'PROXIMA MAO', cls: 'fantasma', ao: novaMao },
         { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo', ao: () => fechar() },
@@ -1959,9 +2197,16 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
 
     M.principal = () => {
       const est = jogo ? chamar(jogo, 'estado') : null
-      if (!est) return faixa.botao('denovo')
-      if (est.fase === 'fim') return faixa.botao('denovo')
-      if (Array.isArray(est.acoes) && est.acoes.indexOf('pagar') >= 0) return faixa.botao('pagar')
+      if (!est || est.fase === 'fim') return faixa.botao('denovo')
+      // Com ficha no pano, o Enter confirma a APOSTA — que e a jogada que o
+      // jogador acabou de montar com a mao. Sem ficha no pano ele faz o de
+      // sempre: paga se ha o que pagar, passa se nao ha.
+      const acoes = Array.isArray(est.acoes) ? est.acoes : []
+      if (naMesa > 0) {
+        if (acoes.indexOf('aumentar') >= 0) return faixa.botao('aumentar')
+        if (acoes.indexOf('apostar') >= 0) return faixa.botao('apostar')
+      }
+      if (acoes.indexOf('pagar') >= 0) return faixa.botao('pagar')
       return faixa.botao('passar')
     }
 

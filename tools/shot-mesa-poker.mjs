@@ -57,7 +57,11 @@ fs.mkdirSync(dir, { recursive: true })
 
 try {
   const page = await browser.newPage()
-  page.on('console', (m) => { if (m.type() === 'error') console.log('  [browser]', m.text()) })
+  page.on('console', (m) => {
+    const t = m.type()
+    if (t === 'error' || t === 'warning' || t === 'warn') console.log('  [browser ' + t + ']', m.text())
+  })
+  page.on('pageerror', (e) => console.log('  [pageerror]', e.message))
   await page.setViewport({ width: 1280, height: 720 })
   await garantirServidor(URL_BASE)
   await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
@@ -159,7 +163,51 @@ try {
     return null
   }
   if (QUAL === 'poker') console.log('  carta escorada em rx =', await esperarEscora())
-  else await espera(4000)
+  else await espera(6000)
+
+  // CLICA NUMA PILHA DO CAIXOTE. O clique tem que cair na RAIZ da faixa (o
+  // resto da tela e botao), entao dispara o evento no elemento certo com as
+  // coordenadas da pilha ja projetadas.
+  const clicarFicha = async (valor) => page.evaluate((v) => {
+    const G = window.__game
+    let g = null
+    G.scene.traverse((o) => { if (/^mesa3d-/.test(o.name || '')) g = o })
+    if (!g) return 'sem mesa'
+    let alvo = null
+    g.traverse((o) => {
+      const a = o.userData && o.userData.alvo
+      if (a && a.tipo === 'caixote' && a.v === v) alvo = o
+    })
+    if (!alvo) return 'sem alvo ' + v
+    alvo.updateWorldMatrix(true, false)
+    const e = alvo.matrixWorld.elements
+    const p = new alvo.position.constructor(e[12], e[13], e[14])
+    p.project(G.camera)
+    const cv = G.renderer.domElement.getBoundingClientRect()
+    const x = cv.left + (p.x * 0.5 + 0.5) * cv.width
+    const y = cv.top + (-p.y * 0.5 + 0.5) * cv.height
+    const raiz = document.querySelector('.mcrp-mesa-raiz')
+    raiz.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }))
+    return 'clicou ' + v + ' em ' + Math.round(x) + ',' + Math.round(y)
+  }, valor)
+  // Espera a VEZ mesmo (o caixote so existe na fase 'jogador'), tentando ate
+  // uma mao dar. A mesa reparte sozinha, entao basta insistir.
+  let apostou = false
+  for (let t = 0; t < 30 && !apostou; t++) {
+    const pronto = await page.evaluate(() => {
+      const bs = [...document.querySelectorAll('.mcrp-mesa-btn')]
+      return bs.some((x) => x.offsetParent && /PASSAR|DESISTIR|DISTRIBUIR|JOGAR DE NOVO/.test(x.textContent.toUpperCase()))
+    })
+    if (!pronto) { await espera(700); continue }
+    for (const v of [25, 100, 100]) console.log('  ' + await clicarFicha(v))
+    apostou = true
+  }
+  await espera(3500)
+  await shot('07-apostando')
+  console.log('  faixa apostando:', JSON.stringify(await page.evaluate(() => {
+    const f = document.querySelector('.mcrp-mesa-faixa')
+    return f ? f.innerText.split(String.fromCharCode(10)).join(' | ') : null
+  })))
   await shot('03-assentado')
 
   // 3) mede onde as cartas caem na tela: projeta as quinas de cada carta viva
@@ -209,6 +257,23 @@ try {
       })
     })
     out.cartas.sort((a, b) => a.topo - b.topo)
+    // onde as pilhas do caixote caem na tela (base e topo de cada uma)
+    out.caixote = []
+    const V = G.scene.position.constructor
+    grupo.traverse((o) => {
+      const a = o.userData && o.userData.alvo
+      if (!a) return
+      o.updateWorldMatrix(true, false)
+      const e = o.matrixWorld.elements
+      const base = new V(e[12], e[13] - 0.06, e[14]).project(cam)
+      const topo = new V(e[12], e[13] + 0.002, e[14]).project(cam)
+      out.caixote.push({
+        alvo: a.tipo + (a.v ? ':' + a.v : ''),
+        base: +((1 - base.y) * 50).toFixed(1),
+        topo: +((1 - topo.y) * 50).toFixed(1),
+        cx: +(base.x * 100).toFixed(1),
+      })
+    })
     return out
   })
   console.log(JSON.stringify(medida, null, 2))

@@ -173,11 +173,25 @@ export function criarPoker(opts = {}) {
     return d > 0 ? d : 0
   }
 
-  /** Aposta valida: nunca menos que a ante, nunca mais que o pote (limite de
-   *  pote — evita o all-in que acaba com a noite em uma mao) e nunca mais do
-   *  que o ricaco pode cobrir, senao o pote fica com dinheiro morto. */
+  /**
+   * Aposta valida: nunca menos que a ante, nunca mais do que o ricaco pode
+   * cobrir (senao o pote fica com dinheiro morto) e nunca mais do que QUATRO
+   * VEZES o pote.
+   *
+   * ERA LIMITE DE POTE — teto = min(pote, npcFichas) — e a razao escrita era
+   * "evita o all-in que acaba com a noite em uma mao". O TETO_AUMENTOS de 3
+   * ja evitava isso sozinho, e o limite de pote cobrava um preco que so
+   * apareceu quando as fichas viraram objeto na mesa: com ante 25, o pote
+   * abre em 50 e a aposta maxima era 50, entao as pilhas de 100, 250 e 500 do
+   * caixote nunca podiam ser empurradas. Uma mesa que mostra cinco pilhas e so
+   * aceita duas nao e uma regra, e uma promessa quebrada.
+   *
+   * Quatro vezes o pote deixa a escalada acontecer (50 -> 200 -> 1000) sem
+   * virar "aposto tudo na primeira" — e o all-in continua existindo, agora
+   * limitado pelo que o adversario tem, que e o limite honesto de uma mesa.
+   */
   function limitarAposta(v) {
-    const teto = Math.max(ante, Math.min(pote, npcFichas))
+    const teto = Math.max(ante, Math.min(pote * 4, npcFichas))
     const bruto = Math.floor(v)
     if (!Number.isFinite(bruto)) return Math.min(ante, teto)
     return Math.max(Math.min(ante, teto), Math.min(teto, bruto))
