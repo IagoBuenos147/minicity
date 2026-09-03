@@ -47,10 +47,17 @@ import * as som from './som-mesa.js'
 
 // --- fichas ----------------------------------------------------------------
 
-// Valores e cores de mesa de verdade, os MESMOS que a faixa de botoes mostra.
+// Valores e cores de mesa de verdade, os MESMOS que a faixa de botoes mostra
+// (COR_FICHA em cassino/faixa-mesa.js — as duas tabelas sao a MESMA por
+// contrato; mexeu numa, mexe na outra).
 // Do maior pro menor porque a decomposicao e gulosa e depende dessa ordem.
+//
+// 'bri' e um brilho de base, so na de 500: a dourada fica um tico acima das
+// outras o tempo todo, o suficiente pra chamar o olho numa pilha misturada e
+// AINDA ASSIM ficar abaixo do threshold do bloom (ver FLASH_* la embaixo) —
+// ela nao acende sozinha, ela so parece de metal em vez de argila.
 const DENOM = [
-  { v: 500, cor: 0xc9a24a },
+  { v: 500, cor: 0xc9a24a, bri: 0.10 },
   { v: 250, cor: 0x8f2f45 },
   { v: 100, cor: 0x23262e },
   { v: 50, cor: 0x2f6f9f },
@@ -60,13 +67,91 @@ const DENOM = [
   { v: 1, cor: 0xe8e2d2 },
 ]
 
-const FICHA_R = 0.0295
-const FICHA_H = 0.0078          // mais gorda que os 3,3 mm reais: no tamanho
-                                // certo uma pilha de 10 some no feltro
+// PROPORCAO. Uma ficha de verdade tem 39 mm de diametro por 3,3 mm — razao
+// altura/diametro de 0,085. Aqui e 0,12: ainda mais gorda que a real, porque a
+// lente desta mesa e alta e uma pilha fina vira um borrao de listras. O que
+// mudou em relacao a versao anterior (0,132) e que a ficha ficou um pouco
+// MAIOR na tela em vez de mais fina — o aro agora tem desenho (8 insercoes) e
+// desenho precisa de pixel pra existir.
+const FICHA_R = 0.0315
+const FICHA_H = 0.0075
 const FICHA_MAX = 18            // teto de fichas por pilha; acima disso a
                                 // decomposicao para e o resto vira "e mais"
-const FICHA_COLUNA = 7          // fichas por coluna antes de abrir outra
+// 12 E NAO 7, e a conta e de largura, nao de altura.
+//
+// Uma pilha cresce ate FICHA_MAX*2 = 36 fichas (o teto vem do crescimento
+// incremental: dobrar uma aposta empilha por cima em vez de refazer). Com 7 por
+// coluna isso abre SEIS colunas, e cada coluna nova anda FICHA_R*2.25 = 7,1 cm:
+// 35 cm de pilha. No blackjack a aposta e o pagamento estao a 18,5 cm um do
+// outro (LAYOUT.blackjack.pilhas), entao a pilha grande atravessava a vizinha e
+// as duas viravam um monte so — que e justamente o que 'pago' ao lado de
+// 'aposta' existe pra evitar. Com 12, as mesmas 36 fichas cabem em 3 colunas
+// (14,2 cm) e a folga volta. Coluna de 12 tem 9 cm de altura, que e menos que a
+// pilha de 20 de uma mesa de verdade.
+const FICHA_COLUNA = 12         // fichas por coluna antes de abrir outra
 const POOL_FICHAS = 96
+
+// --- desenho da ficha ------------------------------------------------------
+// 32 segmentos e 8 insercoes no aro. POR QUE 8 E NAO 6: 32 divide por 8 exato,
+// entao cada quina de mancha CAI EM CIMA de um vertice e sai uma quina de
+// verdade em vez de degrade. Com 6 manchas cada uma ocuparia 30 graus e a
+// ficha lida de cima vira uma estrela de seis pontas — 8 manchas de 22,5 graus
+// com 22,5 de folga e a proporcao de ficha de cassino de verdade, e a que
+// continua legivel quando a ficha tem 30 px na tela.
+// 32 tambem e o teto: o orcamento e ~400 triangulos por ficha (ha ate 96
+// instancias no mesmo InstancedMesh) e o perfil abaixo gasta 384.
+const SEG_FICHA = 32
+const SPOT_PERIODO = 4          // segmentos por mancha + folga (32/8)
+const SPOT_LARGURA = 2          // quantos desses segmentos sao mancha
+
+// O PERFIL DA FICHA, do centro da tampa ate o centro do fundo. Cada linha e um
+// anel: [raio em fracao de FICHA_R, altura em fracao de FICHA_H/2, brilho, sp].
+//
+// 'brilho' vai na COR DE VERTICE e MULTIPLICA a cor da instancia — e o que
+// deixa a mesa inteira num draw call: a geometria carrega o DESENHO e a
+// instancia carrega o VALOR.
+// 'sp' e quanto aquele anel vira INSERCAO (creme de osso, ou escuro se a ficha
+// ja for clara): 0 = nada, 1 = insercao cheia, 2 = "depende do setor" (as 8
+// manchas do aro). Valor quebrado no meio serve pro miolo, que e um decalque
+// desbotado — a pastilha impressa que toda ficha de verdade tem no centro.
+//
+// Aneis REPETIDOS (mesmo raio e mesma altura, brilho diferente) nao geram
+// triangulo nenhum — sao so vertices — e sao o truque que da QUINA DURA entre
+// duas cores. Sem eles o anel interno vira um degrade e a ficha volta a ler
+// como rodela de plastico, que era exatamente a reclamacao.
+const PERFIL_FICHA = [
+  [0.00, 0.78, 1.34, 0.62],  // centro do miolo REBAIXADO: a pastilha impressa
+  [0.40, 0.78, 1.16, 0.62],  // borda da pastilha
+  [0.40, 0.78, 0.42, 0],     // (repetido) comeca o degrau
+  [0.53, 1.00, 0.52, 0],     // topo do degrau — e ELE o anel interno escuro:
+                             // inclinado, pega luz de raspao e le como recorte
+  [0.53, 1.00, 1.06, 0],     // (repetido) campo da tampa
+  [0.80, 1.00, 0.98, 0],
+  [0.80, 1.00, 0.96, 2],     // (repetido) comeca a faixa das insercoes
+  [0.91, 1.00, 0.88, 2],     // fim da parte plana da insercao
+  [1.00, 0.70, 0.68, 2],     // fim do CHANFRO / topo do aro
+  [1.00, -1.00, 0.38, 2],    // base do aro
+  [1.00, -1.00, 0.28, 0],    // (repetido) comeca o fundo
+  [0.00, -1.00, 0.24, 0],    // centro do fundo
+]
+
+// Quanto tempo o flash de pouso leva pra morrer. 0,15 s e o intervalo que o
+// olho le como ESTALO: mais curto vira cintilacao (parece bug de z-fighting),
+// mais longo a ficha vira lampada e o UnrealBloomPass — threshold 0.85 em
+// core/engine.js, so estoura o que e luz de verdade — borra a pilha inteira
+// num pastel branco.
+const FLASH_DUR = 0.15
+const FLASH_POUSO = 0.85        // pico de quem acabou de encostar
+const FLASH_VARRE = 0.95        // a pilha indo embora pisca um pouco mais
+
+// Queda: 0,30 s no total, dos quais os primeiros 62% sao voo e o resto e o
+// quique. Antes eram 0,20 s de pouso reto — a ficha aparecia no lugar em vez
+// de CHEGAR nele.
+const DUR_QUEDA = 0.30
+const TOQUE = 0.62
+// Amplitude do quique: meia ficha. Menos que isso nao le a 30 px de tela;
+// mais que isso a ficha "flutua" e a pilha deixa de parecer coluna solida.
+const QUIQUE = FICHA_H * 0.55
 
 const POOL_CARTAS = 16
 
@@ -151,10 +236,34 @@ const LAYOUT = {
     assento: 0.016,
     versoAzul: true,
     sapato: { x: 1.02, z: 0.30, alt: 0.18 },
-    descarte: { x: -1.02, z: 0.26, alt: 0.10 },
+    // 0.012 e nao 0.10 como no blackjack: la a carta descartada cai DENTRO da
+    // bandeja de descarte, que tem 10 cm de altura e existe no feltro. A mesa de
+    // poker nao tem bandeja nenhuma, entao os mesmos 10 cm deixavam a mao velha
+    // pairando um palmo acima do pano — visivel a cada mao nova, e obvio agora
+    // que a lente parou de recuar.
+    descarte: { x: -1.02, z: 0.26, alt: 0.012 },
+    // AS CARTAS DO JOGADOR FICAM DE PE, E ISSO E O QUE SALVA O QUADRO.
+    //
+    // Carta deitada encolhe na tela com o SENO da inclinacao da lente (a nota
+    // dos quadros do blackjack explica). Aqui a lente tem que ficar longe pra
+    // caber o ricaco, entao esse seno cobrava 5% da altura da tela por carta —
+    // ilegivel, e foi o defeito que o dono relatou ("aproxima demais e depois
+    // afasta demais": os dois mergulhos existiam SO pra compensar isto).
+    //
+    // A saida nao e mexer na lente, e mexer na CARTA: 'inclina' levanta a borda
+    // de tras (+Z) e vira a face pro jogador, como carta escorada no trilho da
+    // mesa. Com 50 graus a carta para de ser vista de raspao — o encurtamento
+    // cai de sen(35 graus)=0.57 pra cos(5 graus)=0.996 — e ela passa a ocupar
+    // 13% da altura da tela SEM a lente andar um centimetro. Um quadro so, a
+    // mao inteira, que e o pedido.
+    //
+    // 'inclinaVerso' e a mesma coisa pra carta tapada, e por isso e ZERO no
+    // ricaco: carta virada pra baixo levantada nao le como carta escondida, le
+    // como bug. Ele so levanta as dele no showdown — quando ganham face — e
+    // essa e a virada de mesa que antes exigia a camera atravessar o feltro.
     filas: {
-      eu: { x: 0.00, z: -0.62, passo: 0.116, leque: -0.055 },
-      ele: { x: 0.00, z: 0.62, passo: 0.116, leque: 0.055 },
+      eu: { x: 0.00, z: -0.80, passo: 0.122, leque: -0.040, inclina: 0.87, inclinaVerso: 0.87 },
+      ele: { x: 0.00, z: 0.62, passo: 0.116, leque: 0.055, inclina: 0.95 },
     },
     pilhas: {
       minha: { x: 0.00, z: -0.20 },
@@ -163,28 +272,36 @@ const LAYOUT = {
     casa: { x: 0.00, z: 0.90 },
     eu: { x: 0.00, z: -0.96 },
     brilho: { x: 0.00, z: 0.00, r: 0.85 },
-    // AQUI A CONTA E OUTRA, e por isso os numeros nao parecem com os da mesa de
-    // blackjack. No poker o adversario e METADE do jogo: um ricaco fora do
-    // quadro transforma a mao num problema de aritmetica. E ele esta a 1,52 m
-    // do centro do feltro, com as minhas cartas a 0,62 m do outro lado — sao
-    // 2,2 m de profundidade num quadro so, e nao existe lente que segure isso
-    // com carta grande. A medicao foi clara: exigindo a cabeca dele no quadro,
-    // a carta nao passa de 8% da altura da tela.
+    // UM QUADRO SO PRA MAO INTEIRA, medido contra a faixa de botoes.
     //
-    // Entao a mesa aceita a troca e a compensa com MERGULHO:
-    //   jogo    — 5% de carta, mas o ricaco INTEIRO do outro lado e as minhas
-    //             duas cartas acima da faixa de botoes. Lente por cima do
-    //             ombro (1,84 m), e nao na altura do olho de quem esta
-    //             sentado: sentado de verdade, as minhas cartas caem embaixo
-    //             demais e a faixa come metade delas.
-    //   minhas  — logo depois de repartir, a lente cai nas MINHAS duas cartas
-    //             (24% da tela). E o gesto de levantar a ponta pra espiar.
-    //   revelar — no showdown ela atravessa a mesa e vai nas DELE (20%).
+    // A versao anterior tinha quatro: um plano aberto de 5% de carta e dois
+    // MERGULHOS ('minhas' com fov 32, 'revelar' com fov 30) que caiam em cima
+    // das cartas e voltavam. O dono descreveu o resultado como "aproxima demais
+    // nas cartas e quando afasta, afasta muito" — que e exatamente o que quatro
+    // enquadramentos em vinte segundos de mao fazem. O pedido foi mesa parada,
+    // cartas embaixo e no meio, "igual poker stars".
+    //
+    // Entao a lente para de viajar e quem passou a resolver a leitura foi a
+    // INCLINACAO DA CARTA (ver 'filas' acima). Sobrou uma unica lente, e ela
+    // foi medida — nao escolhida no olho — projetando tres pontos:
+    //
+    //   carta minha  — centro a 71% da altura da tela, base a 77,5%: encostada
+    //                  na faixa de botoes (que comeca em ~82%) sem ser comida
+    //                  por ela, e 12% de altura de tela por carta.
+    //   carta dele   — 39% da tela, na metade de cima, onde o olho procura o
+    //                  adversario. Tapada ela e pequena de proposito; no
+    //                  showdown ela levanta e triplica sem a lente se mexer.
+    //   chapeu dele  — 3,5% abaixo da borda de cima. E a folga mais apertada do
+    //                  quadro e a que manda no fov: 52 graus e o menor campo em
+    //                  que o ricaco INTEIRO ainda cabe com a carta nesse
+    //                  tamanho. Fechar mais corta a aba do chapeu.
+    //
+    // 'aposta' e so a chegada — quase a mesma lente, um passo atras, pro corte
+    // de entrada na mesa ter pra onde assentar. A diferenca e pequena de
+    // proposito: e o unico movimento de camera que sobrou na mesa.
     quadros: {
-      aposta: { pos: [0.00, 1.86, -2.30], alvo: [0.00, 0.94, 0.14], fov: 50 },
-      jogo: { pos: [0.00, 1.84, -2.15], alvo: [0.00, 0.90, 0.10], fov: 50 },
-      minhas: { pos: [0.00, 1.30, -1.16], alvo: [0.00, 0.86, -0.62], fov: 32 },
-      revelar: { pos: [0.00, 1.34, -0.06], alvo: [0.00, 0.86, 0.60], fov: 30 },
+      aposta: { pos: [0.00, 1.70, -2.10], alvo: [0.00, 0.80, 0.05], fov: 56 },
+      jogo: { pos: [0.00, 1.56, -1.80], alvo: [0.00, 0.77, 0.00], fov: 52 },
     },
   },
 }
@@ -210,25 +327,44 @@ export function chaveDef(d) {
   return d.carta.n + ':' + d.carta.r
 }
 
-/** Decompoe um valor em fichas, da maior pra menor. */
+/** Decompoe um valor em fichas, da maior pra menor. Devolve as ENTRADAS da
+ *  DENOM (nao so a cor) porque a ficha precisa saber tambem o brilho de base. */
 function decompor(valor) {
   const out = []
   let v = Math.max(0, Math.floor(valor) || 0)
   for (let i = 0; i < DENOM.length && out.length < FICHA_MAX; i++) {
     const d = DENOM[i]
-    while (v >= d.v && out.length < FICHA_MAX) { out.push(d.cor); v -= d.v }
+    while (v >= d.v && out.length < FICHA_MAX) { out.push(d); v -= d.v }
   }
   return out
 }
 
-/** Onde a n-esima ficha de uma pilha pousa, em relacao a base da pilha. */
+/** Barulho determinista 0..1 a partir de um inteiro.
+ *  DETERMINISTA importa: a ficha de indice 3 tem que cair sempre no mesmo
+ *  angulo, senao a pilha se remexe sozinha toda vez que ela e redesenhada. */
+function hash01(i) {
+  const s = Math.sin(i * 12.9898 + 4.1414) * 43758.5453
+  return s - Math.floor(s)
+}
+
+/**
+ * Onde a n-esima ficha de uma pilha pousa, em relacao a base da pilha.
+ *
+ * O DESALINHO NAO E ENFEITE. Pilha com todas as fichas no mesmo eixo e no
+ * mesmo angulo vira um CILINDRO LISO na tela: some a costura entre uma ficha e
+ * a de baixo, e o olho para de contar quantas sao. 3% de raio de bagunca em
+ * x/z mais um angulo sorteado por ficha e o que faz as 8 insercoes do aro
+ * cairem em lugares diferentes a cada nivel — e e esse serrilhado em espiral
+ * que o olho le como PILHA.
+ */
 function posicaoNaPilha(i) {
   const col = Math.floor(i / FICHA_COLUNA)
   const nivel = i % FICHA_COLUNA
   return {
-    dx: col * (FICHA_R * 2.25),
+    dx: col * (FICHA_R * 2.25) + (hash01(i * 2 + 1) - 0.5) * FICHA_R * 0.06,
+    dz: (hash01(i * 2 + 9) - 0.5) * FICHA_R * 0.06,
     dy: FICHA_H * (nivel + 0.5),
-    ry: (i * 0.7) % (Math.PI * 2),
+    ry: hash01(i * 31 + 7) * Math.PI * 2,
   }
 }
 
@@ -269,43 +405,147 @@ function texBrilho() {
 }
 
 /**
- * A ficha, com a borda tracada assada na COR DE VERTICE.
+ * A FICHA, torneada a mao a partir de PERFIL_FICHA.
  *
- * O truque que faz a mesa inteira caber num draw call: `instanceColor` e a cor
- * de vertice se MULTIPLICAM no shader. Entao a geometria carrega o desenho (a
- * tampa clara, a lateral escura, os seis tracos brancos do aro) e a instancia
- * carrega so o valor da ficha. Sem isso seriam seis InstancedMesh (uma por
- * cor) ou uma textura de ficha — e nenhum dos dois desenha o traco do aro sem
- * inventar um uv proprio.
+ * Era um CylinderGeometry liso com traquinho no aro, e lia como rodela de
+ * plastico. Agora tem o que uma ficha de argila tem: miolo rebaixado, degrau
+ * escuro em volta dele fazendo o anel interno, chanfro na borda da tampa e 8
+ * insercoes claras que ENTRAM PELA TAMPA e descem o aro inteiro — nao um
+ * tracejado, insercoes com quina, como as de verdade.
+ *
+ * TRES DECISOES QUE SEGURAM O ORCAMENTO:
+ *
+ *   1. Um InstancedMesh so pras 96 fichas. `instanceColor` e a cor de vertice
+ *      se MULTIPLICAM no shader: a geometria carrega o DESENHO (multiplicador
+ *      de brilho por vertice) e a instancia carrega o VALOR. Sem isso seriam
+ *      oito meshes, um por denominacao.
+ *   2. NAO E INDEXADA de proposito. Cada quadradinho e emitido sozinho, com os
+ *      proprios vertices: e o unico jeito de a mancha do aro ter QUINA em vez
+ *      de degrade, porque vertice compartilhado interpola a cor por cima da
+ *      quina. O custo e 1152 vertices, pagos UMA vez pras 96 instancias.
+ *   3. As normais sao CALCULADAS do perfil, nao das faces. Assim o aro fica
+ *      redondo (normal radial) mesmo com 32 lados e cada faixa do perfil pega
+ *      luz no angulo dela — que e o que faz o chanfro existir.
+ *
+ * Sao 384 triangulos: 32 no leque do miolo, 32 no leque do fundo e 64 em cada
+ * uma das cinco faixas com area (degrau, campo, insercao plana, chanfro, aro).
+ *
+ * NAO E CACHEADA. O atributo 'aFlash' e POR INSTANCIA e mora na geometria; se
+ * as duas mesas (blackjack e poker) dividissem uma geometria so, o flash de
+ * uma piscaria as fichas da outra.
  */
-let _geoFicha = null
 function geoFicha() {
-  if (_geoFicha) return _geoFicha
-  const seg = 24
-  const g = new THREE.CylinderGeometry(FICHA_R, FICHA_R, FICHA_H, seg)
-  const pos = g.attributes.position
-  const nor = g.attributes.normal
-  const cor = new Float32Array(pos.count * 3)
-  for (let i = 0; i < pos.count; i++) {
-    const ny = nor.getY(i)
-    let c
-    if (Math.abs(ny) > 0.7) {
-      // tampa: um pouco mais clara no meio pra ler como argila polida
-      const r = Math.hypot(pos.getX(i), pos.getZ(i))
-      c = r < FICHA_R * 0.55 ? 1.22 : 1.0
-    } else {
-      // aro: escuro, com traco claro a cada 4 segmentos (o "dashed" classico)
-      const a = Math.atan2(pos.getZ(i), pos.getX(i))
-      const passo = Math.round(((a + Math.PI) / (Math.PI * 2)) * seg)
-      c = (passo % 4 === 0) ? 1.35 : 0.55
-    }
-    cor[i * 3] = c
-    cor[i * 3 + 1] = c
-    cor[i * 3 + 2] = c
+  const meia = FICHA_H / 2
+  const pos = []
+  const nor = []
+  const cor = []
+  const spo = []
+
+  function vert(c, s, r, y, nr, nv, sh, sp) {
+    pos.push(c * r, y, s * r)
+    nor.push(nr * c, nv, nr * s)
+    cor.push(sh, sh, sh)
+    spo.push(sp)
   }
-  g.setAttribute('color', new THREE.BufferAttribute(cor, 3))
-  _geoFicha = g
+
+  for (let p = 0; p < PERFIL_FICHA.length - 1; p++) {
+    const a = PERFIL_FICHA[p]
+    const b = PERFIL_FICHA[p + 1]
+    const r0 = a[0] * FICHA_R, y0 = a[1] * meia
+    const r1 = b[0] * FICHA_R, y1 = b[1] * meia
+    // anel repetido: so troca de cor, nao tem area. Nao gera triangulo.
+    if (r0 === r1 && y0 === y1) continue
+    // Normal do segmento do perfil girada 90 graus: (-dy, dr) normalizado. Da
+    // (0,1) na tampa, (1,0) no aro e o angulo certo no chanfro e no degrau,
+    // tudo com a mesma conta.
+    const dr = r1 - r0, dy = y1 - y0
+    const ln = Math.hypot(dr, dy) || 1
+    const nr = -dy / ln, nv = dr / ln
+    for (let s = 0; s < SEG_FICHA; s++) {
+      const t0 = (s / SEG_FICHA) * Math.PI * 2
+      const t1 = ((s + 1) / SEG_FICHA) * Math.PI * 2
+      const c0 = Math.cos(t0), s0 = Math.sin(t0)
+      const c1 = Math.cos(t1), s1 = Math.sin(t1)
+      const mancha = (s % SPOT_PERIODO) < SPOT_LARGURA ? 1 : 0
+      const spA = a[3] === 2 ? mancha : a[3]
+      const spB = b[3] === 2 ? mancha : b[3]
+      // Ordem (A0,A1,B1) + (A0,B1,B0), com o perfil andando do centro da tampa
+      // pra fora e depois pra baixo: da a face pro lado de FORA em todas as
+      // faixas, inclusive no aro vertical e no leque do fundo.
+      if (r0 > 0) {
+        vert(c0, s0, r0, y0, nr, nv, a[2], spA)
+        vert(c1, s1, r0, y0, nr, nv, a[2], spA)
+        vert(c1, s1, r1, y1, nr, nv, b[2], spB)
+      }
+      if (r1 > 0) {
+        vert(c0, s0, r0, y0, nr, nv, a[2], spA)
+        vert(c1, s1, r1, y1, nr, nv, b[2], spB)
+        vert(c0, s0, r1, y1, nr, nv, b[2], spB)
+      }
+    }
+  }
+
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3))
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cor), 3))
+  g.setAttribute('aSpot', new THREE.BufferAttribute(new Float32Array(spo), 1))
+  g.computeBoundingSphere()
   return g
+}
+
+/**
+ * O SHADER DA FICHA, injetado no MeshStandardMaterial. Duas coisas que a cor
+ * de vertice sozinha nao consegue fazer:
+ *
+ * 1. A INSERCAO NAO PODE SER MULTIPLICACAO. Cor de vertice multiplica a cor da
+ *    instancia, e multiplicar preto por 1,5 continua dando preto — a ficha de
+ *    100 (0x23262e) ficaria com manchas pretas em cima de preto. Aqui a mancha
+ *    SUBSTITUI a cor por um creme de osso, guardando so o brilho do vertice.
+ *    E o creme vira ESCURO quando a ficha ja e clara (a de 1 e 0xe8e2d2):
+ *    marfim com mancha marfim nao e ficha, e disco. O corte em 0.52 de
+ *    luminancia separa so a de 1 — a dourada (0.40) fica com mancha creme.
+ * 2. O FLASH DE BLOOM. O UnrealBloomPass do jogo tem threshold 0.85 (linear,
+ *    core/engine.js): so passa o que e luz. Empurrar a COR da instancia pra
+ *    cima nao chega la — a cor e albedo, ela ainda depende da luz que bate.
+ *    Entao a ficha ganha EMISSIVO por instancia (aFlash), que entra direto na
+ *    radiancia e passa do corte sem acender nenhuma PointLight. A parte
+ *    somada e quente e fixa: assim a ficha preta tambem estoura, senao so a
+ *    dourada piscaria e o pouso das outras seria invisivel.
+ *
+ *    O emissivo e MULTIPLICADO PELO BRILHO DO VERTICE, e essa multiplicacao e
+ *    a diferenca entre "ficha pega a luz do lustre" e "ficha de neon". O
+ *    high-pass do bloom nao le "quanto passou" — passou do corte, a cor
+ *    INTEIRA daquele pixel vai pro borrao. Logo o que decide o tamanho do
+ *    clarao e a AREA que passa, nao a intensidade. Com o vShade dentro, so a
+ *    pastilha do meio e a tampa passam; o aro (0,38) e o fundo ficam abaixo do
+ *    corte e a ficha continua tendo silhueta durante o flash. Sem ele, a ficha
+ *    inteira estoura e a pilha vira um tijolo branco (ja aconteceu, ver
+ *    shots/fic-07-macro-flash.png da primeira tentativa).
+ */
+function compilarFicha(sh) {
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', `#include <common>
+attribute float aSpot;
+attribute float aFlash;
+varying float vSpot;
+varying float vShade;
+varying float vFlash;`)
+    .replace('#include <color_vertex>', `#include <color_vertex>
+vSpot = aSpot;
+vShade = color.r;
+vFlash = aFlash;`)
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', `#include <common>
+varying float vSpot;
+varying float vShade;
+varying float vFlash;`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+float lumFicha = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
+vec3 insercao = mix( vec3( 0.80, 0.77, 0.69 ), vec3( 0.07, 0.08, 0.10 ), step( 0.52, lumFicha ) );
+diffuseColor.rgb = mix( diffuseColor.rgb, vShade * insercao, vSpot );`)
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+totalEmissiveRadiance += vFlash * vShade * ( diffuseColor.rgb * 0.6 + vec3( 0.95, 0.80, 0.52 ) );`)
 }
 
 // ---------------------------------------------------------------------------
@@ -364,10 +604,20 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   }
 
   // --- fichas: um InstancedMesh, cor por instancia --------------------------
+  // 0.38 de roughness e nao 0.48: argila polida de cassino tem um verniz. Com
+  // o brilho mais fechado o chanfro e o degrau da tampa aparecem como duas
+  // linhas de luz quando a ficha gira — que e o motivo de eles existirem.
   const matFicha = new THREE.MeshStandardMaterial({
-    color: 0xffffff, roughness: 0.48, metalness: 0.05, vertexColors: true,
+    color: 0xffffff, roughness: 0.38, metalness: 0.06, vertexColors: true,
   })
-  const fichasMesh = new THREE.InstancedMesh(geoFicha(), matFicha, POOL_FICHAS)
+  matFicha.onBeforeCompile = compilarFicha
+  const geoFichas = geoFicha()
+  // aFlash: um float POR INSTANCIA com o emissivo do momento. E o canal que
+  // faz a ficha estourar o bloom sem existir nenhuma luz nova na cena.
+  const flashAttr = new THREE.InstancedBufferAttribute(new Float32Array(POOL_FICHAS), 1)
+  flashAttr.setUsage(THREE.DynamicDrawUsage)
+  geoFichas.setAttribute('aFlash', flashAttr)
+  const fichasMesh = new THREE.InstancedMesh(geoFichas, matFicha, POOL_FICHAS)
   fichasMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   fichasMesh.count = 0
   fichasMesh.castShadow = false
@@ -376,24 +626,54 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   grupo.add(fichasMesh)
   const _dummy = new THREE.Object3D()
   const _cor = new THREE.Color()
-  // cada ficha viva: { x, y, z, ry, cor }
+  // cada ficha viva: ver novaFicha() logo abaixo
   const fichasVivas = []
+
+  /** Uma ficha na mesa. Todo campo nasce com valor: um undefined aqui vira
+   *  NaN na matriz da instancia e a ficha some sem erro nenhum no console. */
+  function novaFicha(x, y, z, ry, cor, bri) {
+    return {
+      x, y, z, cor,
+      ry, rx: 0, rz: 0,
+      bri: bri || 0,   // brilho de base da denominacao (so a de 500 tem)
+      flash: 0,        // pico emissivo que morre em FLASH_DUR
+      sq: 0,           // esmagada do impacto, 1 -> 0
+      tr: 0,           // tremor herdado de quem caiu em cima, 1 -> 0
+      fase: 0,         // fase do tremor, comum a coluna inteira
+      sc: 1,           // escala geral (varrer usa pra sumir)
+    }
+  }
 
   function repintarFichas() {
     const n = Math.min(fichasVivas.length, POOL_FICHAS)
     for (let i = 0; i < n; i++) {
       const f = fichasVivas[i]
-      _dummy.position.set(f.x, f.y, f.z)
-      _dummy.rotation.set(0, f.ry, 0)
-      _dummy.scale.setScalar(1)
+      // TREMOR: quando cai ficha nova em cima, a coluna inteira balanca. O
+      // deslocamento e so de DESENHO — f.x/f.y continuam sendo o lugar de
+      // verdade, senao o tremor ia grudando na posicao a cada quadro e a pilha
+      // andava sozinha pela mesa.
+      const bal = f.tr > 0 ? Math.sin(tempo * 46 + f.fase) * f.tr : 0
+      const q = f.sq
+      _dummy.position.set(
+        f.x + bal * FICHA_R * 0.05,
+        f.y + Math.abs(bal) * FICHA_H * 0.30,
+        f.z)
+      _dummy.rotation.set(f.rx, f.ry + bal * 0.06, f.rz)
+      // ESMAGA no toque: achata em y e engorda em xz, com volume mais ou menos
+      // constante. E o unico jeito de uma ficha rigida ter peso sem simular
+      // fisica nenhuma — e some em 0,18 s, antes de alguem notar que a ficha
+      // deformou.
+      _dummy.scale.set(f.sc * (1 + q * 0.20), f.sc * (1 - q * 0.42), f.sc * (1 + q * 0.20))
       _dummy.updateMatrix()
       fichasMesh.setMatrixAt(i, _dummy.matrix)
       _cor.setHex(f.cor)
       fichasMesh.setColorAt(i, _cor)
+      flashAttr.array[i] = f.flash + f.bri
     }
     fichasMesh.count = n
     fichasMesh.instanceMatrix.needsUpdate = true
     if (fichasMesh.instanceColor) fichasMesh.instanceColor.needsUpdate = true
+    flashAttr.needsUpdate = true
   }
 
   // --- pilhas de ficha por nome --------------------------------------------
@@ -456,18 +736,36 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     c.chave = '~'
   }
 
-  /** Poe a carta num ponto do feltro e acerta a sombra de acordo. */
-  function pousar(c, x, y, z, ry) {
+  /**
+   * Poe a carta num ponto do feltro e acerta a sombra de acordo.
+   *
+   * `rx` e a INCLINACAO: quanto a borda de tras da carta levanta, em radianos.
+   * O sinal e negativo no pivo porque girar +X joga a normal pro +Z (o lado da
+   * casa) e o que se quer e a face virada pro -Z, que e onde a lente esta.
+   */
+  function pousar(c, x, y, z, ry, rx) {
+    const inc = rx || 0
     c.pivo.position.set(x, y, z)
     c.pivo.rotation.y = ry
-    const alt = Math.max(0, y - Y_CARTA)
+    c.pivo.rotation.x = -inc
+    // Altura pro desenho da sombra. Carta inclinada esta ALTA pelo proprio
+    // levante da borda, e nao por estar voando: descontar isso e o que evita a
+    // carta escorada nascer com a sombra enorme de carta em pleno arco.
+    const alt = Math.max(0, y - Y_CARTA - Math.sin(inc) * CARTA_C * 0.5)
     // sombra: cresce e clareia com a altura. Ela tambem ESCORREGA um pouco em
     // +x e +z conforme a carta sobe, porque a luz do salao vem de cima e de
     // tras — sombra que so cresce no lugar le como halo, nao como sombra.
     const k = 1 + alt * 5.0
-    c.sombra.position.set(x + alt * 0.10, Y_SOMBRA, z + alt * 0.16)
+    // A carta de pe toca o feltro so pela borda da FRENTE, e a sombra tem que
+    // sair dali: ancorada no centro ela ficaria metade pra tras da carta, e o
+    // par lia como carta flutuando um palmo acima da mesa.
+    const recuo = Math.sin(inc) * CARTA_C * 0.5
+    c.sombra.position.set(x + alt * 0.10, Y_SOMBRA, z + alt * 0.16 - recuo)
     c.sombra.rotation.z = -ry
-    c.sombra.scale.set(CARTA_L * 1.9 * k, CARTA_C * 1.55 * k, 1)
+    c.sombra.scale.set(
+      CARTA_L * 1.9 * k,
+      CARTA_C * 1.55 * k * Math.max(0.34, Math.cos(inc)),
+      1)
     c.sombra.material.opacity = 0.52 / (1 + alt * 6.5)
   }
 
@@ -489,41 +787,75 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   function lugarNaFila(f, i, n) {
     const cfg = f.cfg
     const meio = (n - 1) / 2
+    // Quanto esta fila levanta a borda de tras AGORA. Depende de a fila estar
+    // aberta (mostrando face) ou tapada, porque sao dois gestos diferentes:
+    // carta na mesa virada pra baixo fica deitada, carta com face fica de pe.
+    const inc = (f.aberta ? cfg.inclina : cfg.inclinaVerso) || 0
+    // Levantar a carta em torno do CENTRO enfia a borda da frente no feltro.
+    // Subir metade do comprimento vezes o seno devolve a borda pro tampo — sem
+    // isto a carta de pe atravessa a mesa e some pela metade.
+    const sobe = Math.sin(inc) * CARTA_C * 0.5
     // O passo e NEGATIVO em x porque a tela desta camera tem o +X a esquerda:
     // carta nova entra pela DIREITA da tela e cobre a anterior pela metade,
     // deixando o indice do canto da anterior sempre a vista.
     return {
       x: f.deslocX - (i - meio) * cfg.passo,
       z: cfg.z + Math.abs(i - meio) * 0.006,
-      y: Y_CARTA + i * 0.0018 + CARTA_E / 2,
+      y: Y_CARTA + i * 0.0018 + CARTA_E / 2 + sobe,
       ry: (i - meio) * cfg.leque,
+      rx: inc,
     }
   }
 
-  function reacomodar(f, dur) {
+  /**
+   * Acerta a fila inteira nos lugares que ela tem AGORA.
+   *
+   * `atrasar` existe pro par escorar depois de virar (ver cartas()). E por
+   * causa dele que o ponto de partida `de` e lido no PRIMEIRO PASSO e nao aqui:
+   * com atraso, a carta que interessa ainda esta no ar quando esta funcao roda,
+   * e um `de` colhido agora faria ela voltar pro sapato antes de subir.
+   */
+  function reacomodar(f, dur, atrasar) {
     const n = f.itens.length
     for (let i = 0; i < n; i++) {
       const c = f.itens[i]
       const alvo = lugarNaFila(f, i, n)
       c.alvo = alvo
-      if (c.voando) continue
-      const de = { x: c.pivo.position.x, y: c.pivo.position.y, z: c.pivo.position.z, ry: c.pivo.rotation.y }
+      if (c.voando && !atrasar) continue
+      let de = null
       anima({
+        atraso: atrasar || 0,
         dur: dur || 0.22,
         marca: 'acomoda',
         passo(k) {
+          if (!de) {
+            de = {
+              x: c.pivo.position.x, y: c.pivo.position.y, z: c.pivo.position.z,
+              ry: c.pivo.rotation.y, rx: -c.pivo.rotation.x,
+            }
+          }
           pousar(c,
             de.x + (alvo.x - de.x) * k,
             de.y + (alvo.y - de.y) * k,
             de.z + (alvo.z - de.z) * k,
-            de.ry + (alvo.ry - de.ry) * k)
+            de.ry + (alvo.ry - de.ry) * k,
+            de.rx + (alvo.rx - de.rx) * k)
         },
       })
     }
   }
 
-  /** A carta sai do sapato num arco, girando, com o verso pra cima. */
-  function distribuir(c, alvo, atraso, aoPousar) {
+  /**
+   * A carta sai do sapato num arco, girando, com o verso pra cima.
+   *
+   * `deitada` = a carta vai VIRAR depois de pousar, entao ela chega DEITADA
+   * mesmo que a fila seja escorada. Virar uma carta ja de pe faz ela rolar em
+   * volta de um eixo inclinado e varrer a vizinha; deitada, o giro e o de
+   * sempre e quem levanta o par e o reacomodar, depois, num gesto so.
+   */
+  function distribuir(c, alvo, atraso, aoPousar, deitada) {
+    const incFim = deitada ? 0 : (alvo.rx || 0)
+    const yFim = deitada ? alvo.y - Math.sin(alvo.rx || 0) * CARTA_C * 0.5 : alvo.y
     const s = L.sapato
     const de = { x: s.x, y: feltro + s.alt, z: s.z }
     c.voando = true
@@ -544,16 +876,21 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
         // deslizar pelo feltro. 0.20 e o pico — carta rasante nao le como
         // "dada", parece empurrada.
         const alt = Math.sin(Math.PI * cru) * 0.20
+        // A inclinacao entra so no FIM do voo (e^2): a carta viaja deitada, como
+        // carta jogada de verdade, e so escora nos ultimos centimetros. Subir
+        // ela junto com o arco faria a carta chegar de pe voando, que le como
+        // carta em pe atravessando a mesa.
         pousar(c,
           de.x + (alvo.x - de.x) * e,
-          de.y + (alvo.y - de.y) * e + alt,
+          de.y + (yFim - de.y) * e + alt,
           de.z + (alvo.z - de.z) * e,
-          giroInicial + (alvo.ry - giroInicial) * e)
+          giroInicial + (alvo.ry - giroInicial) * e,
+          incFim * e * e)
         void k
       },
       fim() {
         c.voando = false
-        pousar(c, alvo.x, alvo.y, alvo.z, alvo.ry)
+        pousar(c, alvo.x, yFim, alvo.z, alvo.ry, incFim)
         som.carta(0, 1)
         if (aoPousar) aoPousar()
       },
@@ -652,12 +989,21 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     if (Number.isFinite(o.x)) f.deslocX = o.x
     else f.deslocX = f.cfg.x
 
+    // A FILA ESTA ABERTA quando TODA carta dela tem face. E ela quem decide se
+    // a fila fica deitada ou escorada (ver 'inclina' em lugarNaFila), e tem que
+    // ser decidido ANTES do diff: tanto o alvo de quem entra voando quanto o
+    // reacomodar do fim leem isto. Exigir TODAS e de proposito — uma mao com
+    // uma carta tapada ainda e uma mao tapada, e levantar so a que ja virou
+    // daria um degrau no meio do par.
+    f.aberta = lista.length > 0 && lista.every((d) => d && !d.verso && d.carta && d.carta.r)
+
     let i = 0
     while (i < lista.length && i < f.itens.length && f.itens[i].chave === chaveDef(lista[i])) i++
 
     // viradas: mesma posicao, era verso e agora tem face
     let atraso = Number.isFinite(o.atraso) ? o.atraso : 0
     let virou = false
+    let deitou = false          // entrou alguma carta que ainda tem que virar?
     while (i < lista.length && i < f.itens.length &&
            f.itens[i].chave === '##' && chaveDef(lista[i]) !== '##') {
       const c = f.itens[i]
@@ -688,8 +1034,10 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       const alvo = lugarNaFila(f, idx, Math.max(lista.length, f.itens.length))
       const def = lista[i]
       const ultima = i === lista.length - 1
+      const vaiVirar = !(def.verso || !def.carta || !def.carta.r)
+      if (vaiVirar) deitou = true
       distribuir(c, alvo, atraso, () => {
-        if (def.verso || !def.carta || !def.carta.r) {
+        if (!vaiVirar) {
           if (ultima && o.aoPousar) o.aoPousar()
           return
         }
@@ -697,12 +1045,21 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
         // 0.09 s entre pousar e virar: e a pausa que faz a carta "chegar" antes
         // de mostrar o que e. Sem ela as duas coisas viram um evento so.
         virarCarta(c, def.carta, 0.09, ultima ? (o.aoRevelar || o.aoPousar) : null)
-      })
+      }, vaiVirar)
       atraso += 0.24
     }
 
-    reacomodar(f, 0.24)
-    void virou
+    // QUEM LEVANTA O PAR E ESTE reacomodar, e o atraso dele e o gesto inteiro.
+    // Tanto no showdown (carta que vira no lugar) quanto na repartida (carta que
+    // chega deitada e vira depois de pousar), a ordem tem que ser: mostra a
+    // face, DEPOIS escora. Invertido — levantar a carta ainda tapada e so entao
+    // virar — le como a mesa se arrumando sozinha antes de alguem decidir
+    // mostrar. Quando nada virou, nao ha o que esperar e o acerto e imediato.
+    // 0.60 pra carta que ainda vai voar (0.40 de voo + 0.09 de pausa + 0.30 de
+    // giro, contados a partir do atraso da ULTIMA, que e `atraso - 0.24`), e
+    // 0.30 pra quem so vira no lugar.
+    const espera = deitou ? atraso + 0.60 : (virou ? atraso + 0.30 : 0)
+    reacomodar(f, 0.26, espera)
     return atraso
   }
 
@@ -710,7 +1067,10 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     const d = L.descarte
     for (let k = 0; k < itens.length; k++) {
       const c = itens[k]
-      const de = { x: c.pivo.position.x, y: c.pivo.position.y, z: c.pivo.position.z }
+      const de = {
+        x: c.pivo.position.x, y: c.pivo.position.y, z: c.pivo.position.z,
+        ry: c.pivo.rotation.y, rx: -c.pivo.rotation.x,
+      }
       anima({
         atraso: (atraso || 0) + k * 0.035,
         dur: 0.30,
@@ -720,7 +1080,13 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
             de.x + (d.x - de.x) * t,
             de.y + (feltro + d.alt - de.y) * t + Math.sin(Math.PI * t) * 0.06,
             de.z + (d.z - de.z) * t,
-            c.pivo.rotation.y + t * 1.2)
+            // O giro do descarte parte do ry GUARDADO, nao do ry atual: lendo a
+            // rotacao viva a cada passo o incremento se somava a si mesmo e a
+            // carta saia rodopiando meia dezena de voltas.
+            de.ry + t * 1.2,
+            // Carta escorada DEITA ao ser varrida — ela e recolhida, nao
+            // continua de pe atravessando o feltro ate o descarte.
+            de.rx * (1 - t))
         },
         fim() { devolverCarta(c) },
         cancelar() { devolverCarta(c) },
@@ -774,17 +1140,19 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       if (alvo === 0) return 0
     }
 
-    const cores = decompor(alvo - p.valor)
+    const lista = decompor(alvo - p.valor)
     p.valor = alvo
 
     let atraso = Number.isFinite(o.atraso) ? o.atraso : 0
-    for (let c = 0; c < cores.length; c++) {
+    for (let c = 0; c < lista.length; c++) {
       if (fichasVivas.length >= POOL_FICHAS || p.itens.length >= FICHA_MAX * 2) break
+      const d = lista[c]
       const i = p.itens.length
       const lugar = posicaoNaPilha(i)
-      const f = {
-        x: p.base.x + lugar.dx, y: Y_CHAO + lugar.dy, z: p.base.z, cor: cores[c], ry: lugar.ry,
+      const pouso = {
+        x: p.base.x + lugar.dx, y: Y_CHAO + lugar.dy, z: p.base.z + lugar.dz,
       }
+      const f = novaFicha(pouso.x, pouso.y, pouso.z, lugar.ry, d.cor, d.bri)
       fichasVivas.push(f)
       p.itens.push(f)
       // De onde a ficha cai: do lado do jogador (mao dele) ou do lado da casa
@@ -793,25 +1161,56 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       const origem = o.de === 'casa'
         ? { x: p.base.x - 0.25, y: Y_CHAO + 0.34, z: p.base.z + 0.55 }
         : { x: p.base.x + 0.16, y: Y_CHAO + 0.30, z: p.base.z - 0.34 }
-      const pouso = { x: f.x, y: f.y, z: f.z }
       const nivel = i
-      f.x = origem.x; f.y = origem.y; f.z = origem.z
+      // GIRO NO AR. Meia volta e o teto do que da pra ler nos 0,19 s de voo —
+      // uma volta inteira, com 8 insercoes simetricas no aro, vira serrilhado
+      // (o olho ve a mancha piscar 8 vezes e nao entende que girou).
+      const ry0 = lugar.ry - (1.9 + hash01(i * 7 + 3) * 1.8)
+      // TOMBO: a ficha nao cai deitada, cai de canto e assenta. O eixo do
+      // tombo e sorteado, senao todas as fichas caem do mesmo lado e a pilha
+      // inteira pisca junto.
+      const tombo = 0.28 + hash01(i * 13 + 5) * 0.34
+      const eixo = hash01(i * 17 + 11) * Math.PI * 2
+      f.x = origem.x; f.y = origem.y; f.z = origem.z; f.ry = ry0
+      let tocou = false
       anima({
         atraso,
-        dur: 0.20,
+        dur: DUR_QUEDA,
         marca: 'ficha',
         passo(k2, cru) {
-          const e = freia(cru)
+          const q = Math.min(1, cru / TOQUE)
+          const e = freia(q)
           f.x = origem.x + (pouso.x - origem.x) * e
           f.z = origem.z + (pouso.z - origem.z) * e
-          f.y = origem.y + (pouso.y - origem.y) * e
+          f.ry = ry0 + (lugar.ry - ry0) * e
+          if (cru < TOQUE) {
+            // A DESCIDA E q*q (gravidade) e nao o mesmo 'freia' do horizontal.
+            // Com um ease so nos tres eixos a ficha chega devagar no fim e
+            // parece descer de paraquedas; com q*q ela chega ACELERANDO, e e
+            // isso que faz o toque no feltro ter peso. O seno por cima e o
+            // arco: ela sobe um dedo antes de cair, como quem joga a ficha.
+            f.y = origem.y + (pouso.y - origem.y) * (q * q) + Math.sin(Math.PI * q) * 0.030
+            f.rx = Math.cos(eixo) * tombo * (1 - e)
+            f.rz = Math.sin(eixo) * tombo * (1 - e)
+          } else {
+            if (!tocou) { tocou = true; impacto(p, f, i, nivel) }
+            // QUIQUE: um pulo e meio morrendo em (1-b)^2. Sem ele o pouso e
+            // reto e a ficha parece imantada no feltro.
+            const b = (cru - TOQUE) / (1 - TOQUE)
+            f.y = pouso.y + Math.abs(Math.sin(Math.PI * b * 1.6)) * QUIQUE * (1 - b) * (1 - b)
+            f.rx = 0; f.rz = 0
+          }
           void k2
         },
         fim() {
+          if (!tocou) impacto(p, f, i, nivel)
           f.x = pouso.x; f.y = pouso.y; f.z = pouso.z
-          som.ficha(0, nivel)
+          f.rx = 0; f.rz = 0; f.ry = lugar.ry
         },
-        cancelar() { f.x = pouso.x; f.y = pouso.y; f.z = pouso.z },
+        cancelar() {
+          f.x = pouso.x; f.y = pouso.y; f.z = pouso.z
+          f.rx = 0; f.rz = 0; f.ry = lugar.ry; f.sq = 0
+        },
       })
       atraso += 0.075
     }
@@ -819,8 +1218,43 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   }
 
   /**
+   * O INSTANTE EM QUE A FICHA ENCOSTA. Tres coisas ao mesmo tempo, e e a
+   * simultaneidade que vende o peso: a ficha esmaga, ela pisca (o flash que
+   * passa do threshold do bloom por 0,15 s) e a COLUNA INTEIRA embaixo dela
+   * treme. O tremor cai com a distancia — a ficha logo abaixo sacode quase
+   * tudo, a do fundo quase nada — porque e assim que impacto viaja por uma
+   * pilha, e sem essa queda a pilha vira gelatina.
+   */
+  function impacto(p, f, i, nivel) {
+    f.sq = 1
+    f.flash = FLASH_POUSO
+    som.ficha(0, nivel)
+    // Pilha alta ganha um SEGUNDO estalo mais grave logo depois: e a coluna
+    // assentando. So a partir de 6 fichas, senao vira matraca.
+    if (nivel >= 6) som.ficha(0.055, nivel - 5)
+    // fase comum: a coluna toda comeca o seno em zero, no quadro do impacto
+    const fase = -tempo * 46
+    const colF = Math.floor(i / FICHA_COLUNA)
+    for (let k = 0; k < p.itens.length; k++) {
+      const g = p.itens[k]
+      if (g === f) continue
+      // coluna ao lado e outra pilha fisica: nao treme junto
+      if (Math.floor(k / FICHA_COLUNA) !== colF) continue
+      g.tr = Math.min(0.9, g.tr + 0.55 / (1 + (i - k) * 0.85))
+      g.fase = fase
+    }
+  }
+
+  /**
    * A pilha DESLIZA pro lado de quem levou. Nao some: o dinheiro vai pra algum
    * lugar, e ver pra onde ele foi e metade da dor (ou da alegria) da mao.
+   *
+   * O QUE MUDOU. Antes era uma reta com um seno por cima e um `f.ry += 0.06`
+   * por QUADRO — o giro dependia do framerate, entao a mesma varrida girava o
+   * dobro num monitor de 120 Hz. Agora a ficha: pisca (flash de saida), quica
+   * DUAS vezes no feltro, tomba de lado enquanto roda, sai da linha reta um
+   * pouco pra cada lado (ficha varrida por uma pa se espalha, nao vira trem)
+   * e some ENCOLHENDO no ultimo quarto em vez de piscar pra fora existencia.
    */
   function varrer(id, destino, atraso, aoFim) {
     const p = pilhas.get(id)
@@ -828,21 +1262,38 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     const alvo = destino === 'jogador' ? L.eu : L.casa
     const itens = p.itens.splice(0)
     p.valor = 0
-    const dur = 0.42
+    const dur = 0.46
     som.deslizar(atraso || 0, dur)
+    // Quatro estalos no comeco, do agudo pro grave: e a pa batendo na pilha
+    // antes de arrastar. Mais que quatro vira chocalho.
+    for (let k = 0; k < Math.min(4, itens.length); k++) som.ficha((atraso || 0) + k * 0.035, 7 - k * 2)
     for (let k = 0; k < itens.length; k++) {
       const f = itens[k]
       const de = { x: f.x, y: f.y, z: f.z }
+      const ry0 = f.ry
+      const giro = 2.4 + hash01(k * 5 + 1) * 3.4
+      const desvio = (hash01(k * 3 + 7) - 0.5) * 0.09
+      f.tr = 0
+      f.flash = FLASH_VARRE
       anima({
         atraso: (atraso || 0) + k * 0.018,
         dur,
         marca: 'varre',
-        passo(t) {
-          f.x = de.x + (alvo.x - de.x) * t
+        passo(t, cru) {
+          f.x = de.x + (alvo.x - de.x) * t + Math.sin(Math.PI * cru) * desvio
           f.z = de.z + (alvo.z - de.z) * t
-          // um saltinho: ficha varrida no feltro quica, nao desliza reta
-          f.y = de.y + (Y_CHAO + FICHA_H * 0.5 - de.y) * t + Math.sin(Math.PI * t) * 0.035
-          f.ry += 0.06
+          f.y = de.y + (Y_CHAO + FICHA_H * 0.5 - de.y) * t
+            + Math.abs(Math.sin(Math.PI * cru * 2)) * 0.030 * (1 - cru)
+          f.ry = ry0 + giro * t
+          f.rz = Math.sin(cru * 11) * 0.20 * (1 - cru)
+          // O ultimo quarto e a saida: encolhe e da um ultimo brilho. Ficha
+          // que some de escala parece guardada; ficha que some de uma vez
+          // parece bug de pool.
+          if (cru > 0.74) {
+            const s = 1 - (cru - 0.74) / 0.26
+            f.sc = Math.max(0, s)
+            f.flash = Math.max(f.flash, s * 0.85)
+          }
         },
         fim() {
           soltarFicha(f)
@@ -902,6 +1353,19 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     const d = Math.min(Math.max(dt || 0, 0), 0.1)
     tempo += d
 
+    // Os tres estados que MORREM SOZINHOS numa ficha. Ficam aqui, e nao dentro
+    // das tarefas, porque nao pertencem a nenhuma animacao: o flash de um
+    // pouso tem que continuar apagando mesmo que a tarefa que o acendeu ja
+    // tenha acabado, e o tremor de uma pilha atravessa varias quedas. Roda
+    // ANTES das tarefas pra que um valor aceso neste quadro chegue inteiro na
+    // tela.
+    for (let i = 0; i < fichasVivas.length; i++) {
+      const f = fichasVivas[i]
+      if (f.flash > 0) f.flash = Math.max(0, f.flash - d / FLASH_DUR)
+      if (f.sq > 0) f.sq = Math.max(0, f.sq - d * 5.6)
+      if (f.tr > 0) f.tr = Math.max(0, f.tr - d * 4.4)
+    }
+
     for (let i = tarefas.length - 1; i >= 0; i--) {
       const t = tarefas[i]
       t.t += d
@@ -921,6 +1385,12 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
 
   function entrar() {
     grupo.visible = true
+    // O feltro tem um par de cartas DESENHADO em cada lugar (world/casino.js:
+    // 'mesa em jogo, nao mesa de loja'). Ele existe pra quem passa andando, e
+    // atrapalha quem senta: as cartas vivas nao ficam mais deitadas em cima
+    // dele, e dois pares no mesmo lugar leem como defeito. Some enquanto a mao
+    // acontece e volta em sair() — a mesa vazia continua parecendo mesa em jogo.
+    if (ancora && ancora.enfeite) ancora.enfeite.visible = false
   }
 
   /** Sai da mesa AGORA, sem cerimonia: cancela tudo e apaga o grupo. Quem quer
@@ -937,6 +1407,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     matAnel.opacity = 0
     tremor = 0
     grupo.visible = false
+    if (ancora && ancora.enfeite) ancora.enfeite.visible = true
   }
 
   function dispose() {
@@ -951,6 +1422,10 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     }
     pool.length = 0
     fichasMesh.dispose()
+    // A da FICHA, ao contrario da carta, e SO desta mesa (ver geoFicha: o
+    // atributo aFlash e por instancia e nao pode ser dividido com a outra
+    // mesa), entao aqui ela pode e deve ir embora.
+    geoFichas.dispose()
     matFicha.dispose()
     matBrilho.dispose()
     matAnel.dispose()

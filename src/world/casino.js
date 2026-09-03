@@ -1441,6 +1441,7 @@ function buildBlackjack(g, colliders, mats) {
 // ===========================================================================
 // POKER — mesa oval de heads-up, so duas cadeiras
 // ===========================================================================
+/** @returns {THREE.Group} o par de cartas de enfeite do feltro (ver abaixo). */
 function buildPoker(g, colliders, mats) {
   const yT = 0.78                       // mesa de poker e mais baixa: joga-se sentado
   const u = new THREE.Group()
@@ -1487,14 +1488,26 @@ function buildPoker(g, colliders, mats) {
   }), 0, yT + 0.008, -0.42)
   u.add(marca)
 
-  // duas cartas viradas na frente de cada lugar: e "heads up de duas cartas"
+  // Duas cartas viradas na frente de cada lugar: e "heads up de duas cartas".
+  //
+  // ELAS VIVEM NUM GRUPO PROPRIO, e nao e organizacao: e o unico jeito de a
+  // mesa 3D poder APAGA-LAS enquanto alguem esta jogando. Antes as cartas vivas
+  // pousavam exatamente em cima deste par e o escondiam por serem maiores em
+  // toda borda; agora elas ficam de pe e mais pra frente (ver LAYOUT.poker em
+  // cassino/mesa-3d.js), e o que sobrava embaixo era um TERCEIRO par fantasma
+  // no feltro. 'noBake' porque bakeStatic funde mesh estatica e levaria junto a
+  // referencia que o grupo precisa ter pra sumir.
+  const enfeite = new THREE.Group()
+  enfeite.name = 'poker-cartas-enfeite'
+  enfeite.userData.noBake = true
   const dorso = solid(0x14315f, 0.55)
   const dorso2 = solid(0x8c1224, 0.55)
   for (const s of [-1, 1]) {
     const zc = s * 0.62
-    carta(u, -0.06, yT + 0.010, zc, 0.06, s > 0 ? dorso : dorso2)
-    carta(u, 0.06, yT + 0.010, zc, -0.05, s > 0 ? dorso : dorso2)
+    carta(enfeite, -0.06, yT + 0.010, zc, 0.06, s > 0 ? dorso : dorso2)
+    carta(enfeite, 0.06, yT + 0.010, zc, -0.05, s > 0 ? dorso : dorso2)
   }
+  u.add(enfeite)
   // botao do dealer
   const bt = new THREE.Mesh(geoFicha(), solid(0xf4f2ea, 0.4))
   bt.scale.set(1.5, 2.2, 1.5)
@@ -1556,6 +1569,7 @@ function buildPoker(g, colliders, mats) {
   for (const c2 of [PK_NPC, PK_VAZIA]) {
     colliders.push({ minX: c2.x - 0.28, maxX: c2.x + 0.28, minZ: c2.z - 0.28, maxZ: c2.z + 0.28, tag: 'cassino-cadeira' })
   }
+  return enfeite
 }
 
 // ===========================================================================
@@ -2162,7 +2176,7 @@ export function buildCasino(game) {
   tetoELustres(dentro, luzes)
   buildCaixa(dentro, colliders, matsFicha)
   buildBlackjack(dentro, colliders, matsFicha)
-  buildPoker(dentro, colliders, matsFicha)
+  const enfeitePoker = buildPoker(dentro, colliders, matsFicha)
   const maquinas = buildSlots(dentro, colliders, interactables, matsFase)
   // O bar VELHO (balcao encostado na parede do fundo, espelho, garrafas de
   // enfeite) nasce dentro de um grupo NOMEADO e num contador de colisores
@@ -2458,6 +2472,11 @@ export function buildCasino(game) {
         centro: new THREE.Vector3(PK.x, BASE, PK.z),
         rx: PK.rx, rz: PK.rz,
         tampo: BASE + 0.78,
+        // O par de cartas desenhado no feltro em cada lugar. Quem senta na mesa
+        // APAGA isto (cassino/mesa-3d.js, em entrar()) e acende de volta ao
+        // sair: as cartas vivas nao ficam mais em cima dele, e o feltro com dois
+        // pares le como mesa bugada.
+        enfeite: enfeitePoker,
         npc: new THREE.Vector3(PK_NPC.x, BASE, PK_NPC.z),
         jogador: new THREE.Vector3(PK_VAZIA.x, BASE, PK_VAZIA.z),
       },

@@ -37,6 +37,8 @@
     "perfil-fps": "node tools/perfil-fps.mjs",
     "shot-clima": "node tools/shot-clima.mjs",
     "shot-tela": "node tools/shot-tela.mjs",
+    "shot-fichas": "node tools/shot-fichas.mjs",
+    "shot-mesa": "node tools/shot-mesa-poker.mjs",
     "online": "npm run build && node servidor.js",
     "servidor": "node servidor.js",
     "teste-online": "node tools/teste-online.mjs",

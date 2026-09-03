@@ -31,11 +31,36 @@
 const ID_ESTILO = 'mcrp-mesa-style'
 const P = 'mcrp-mesa-'
 
-/** Cor da ficha por valor — a MESMA tabela do feltro 3D e do painel antigo.
+/** Cor da ficha por valor — a MESMA tabela do feltro 3D (DENOM em
+ *  cassino/mesa-3d.js) e do painel antigo. As duas sao a MESMA tabela por
+ *  contrato: mexeu numa, mexe na outra.
  *  Depois de duas maos o jogador reconhece "a bordo" sem ler o numero. */
 const COR_FICHA = {
   1: '#e8e2d2', 5: '#4a6f8f', 10: '#7a5ea8', 25: '#2f8f5b',
   50: '#2f6f9f', 100: '#23262e', 250: '#8f2f45', 500: '#c9a24a',
+}
+
+/** A cor das INSERCOES (as 8 manchas do aro e a pastilha do meio) e a do numero.
+ *
+ * Mesma regra do shader da ficha 3D: a insercao existe pra CONTRASTAR com a
+ * ficha, entao ficha escura leva insercao creme e ficha clara leva insercao
+ * escura — marfim com mancha marfim nao e ficha, e disco. O corte e 0.75 e nao
+ * o 0.52 do shader porque la a luminancia e LINEAR e aqui e sRGB direto do
+ * hex; 0.75 e o valor que separa so a de 1 (0.89) e deixa a dourada (0.64) com
+ * mancha creme, que e o mesmo resultado do 3D.
+ */
+function insercaoDe(hex) {
+  const n = parseInt(String(hex).slice(1), 16)
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b
+  // 'spa' e a mesma cor com alfa: a pastilha do meio nao e creme CHAPADO, e
+  // creme deixando a cor da ficha subir por baixo (o mesmo 'sp: 0.62' que o
+  // perfil 3D usa no miolo). Pastilha opaca ocupa metade do diametro e a ficha
+  // vira um circulo branco com anel colorido — some justamente a cor, que e o
+  // que o jogador usa pra reconhecer o valor de longe.
+  return lum > 0.75
+    ? { sp: '#14161b', spa: 'rgba(20,22,27,.70)', tx: '#efe9dc' }
+    : { sp: '#efe9dc', spa: 'rgba(239,233,220,.72)', tx: '#23252c' }
 }
 
 function cn(nomes) {
@@ -119,7 +144,15 @@ const CSS = `
 .${P}moeda b{ font-variant-numeric:tabular-nums; font-size:15px; font-weight:700; }
 .${P}pino{ width:14px; height:14px; border-radius:50%; flex:0 0 auto; box-shadow:inset 0 -2px 3px rgba(0,0,0,.45); }
 .${P}pino.${P}ouro{ background:radial-gradient(circle at 35% 30%,#ffe89a,#e0a713 62%,#a97a06); }
-.${P}pino.${P}ficha{ background:radial-gradient(circle at 35% 30%,#ff8f8f,#c62c3f 60%,#7d1523); border:2px dashed rgba(255,255,255,.75); }
+/* a mesma ficha do rodape, em 14 px: pastilha no meio, insercoes no aro. Em
+   14 px nao cabe mask nenhum — o radial de cima simplesmente TAPA o miolo do
+   conico, e a mancha so sobra na beirada. */
+.${P}pino.${P}ficha{
+  background:
+    radial-gradient(circle closest-side at 50% 32%, #ffc9c9 0 26%, #d33a4d 28% 62%, rgba(0,0,0,0) 64%),
+    repeating-conic-gradient(from -13deg, #f0eadd 0 13deg, #a51f31 13deg 45deg);
+  box-shadow:inset 0 -2px 3px rgba(0,0,0,.5), inset 0 0 0 1px rgba(0,0,0,.35);
+}
 
 /* --- cartaz do meio: so em momento de resultado --- */
 .${P}cartaz{
@@ -175,20 +208,112 @@ const CSS = `
 @keyframes ${P}pisca{ 0%{ transform:translateX(-5px); opacity:.35; } 100%{ transform:none; opacity:1; } }
 .${P}dica{ font-size:10.5px; color:#77808c; letter-spacing:.05em; }
 
-/* --- fichas clicaveis --- */
-.${P}fichas{ display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+/* --- fichas clicaveis -------------------------------------------------------
+ *
+ * Eram circulos com 'border:3px dashed', que e a coisa mais parecida com ficha
+ * que o CSS faz de graca — e nao e parecida. Uma ficha de cassino nao tem
+ * tracejado: tem INSERCOES, quatro camadas concentricas e espessura.
+ *
+ * As camadas, de fora pra dentro, e como cada uma e feita:
+ *   - o corpo de argila       : degrade radial + inset shadow em baixo (o
+ *                               volume) e em cima (o verniz)
+ *   - as 8 insercoes do aro   : repeating-conic-gradient de 22,5 em 22,5 graus,
+ *                               RECORTADO por um mask radial pra viver so nos
+ *                               20% de fora. Setor tem QUINA; dashed nao tem.
+ *   - o chanfro               : uma listra clara de 1px em 80% do raio
+ *   - a pastilha do meio      : ::after com anel escuro por fora (box-shadow
+ *                               0 0 0 2px) e sombra por dentro (o rebaixo)
+ *
+ * As fracoes de raio (pastilha em ~50%, insercao a partir de 80%) sao as
+ * MESMAS do PERFIL_FICHA do 3D de proposito: a ficha do rodape e a mesma peca
+ * da que cai no feltro, e o olho compara as duas o tempo todo.
+ *
+ * O 'pop' do clique ANIMA o proprio botao, entao por 0,3 s ele ganha do
+ * 'fichaHalo' da selecionada (regra de cascata: animacao ganha de declaracao
+ * normal, e as duas mexem em coisas diferentes mas na mesma propriedade
+ * 'animation'). E de proposito — nesses 0,3 s quem esta contando a historia e
+ * a onda dourada, nao o halo.
+ */
+.${P}fichas{ display:flex; flex-wrap:wrap; gap:11px; align-items:center; padding:3px 0 5px; }
 .${P}fichabt{
-  position:relative; appearance:none; cursor:pointer; font:inherit; font-size:12.5px; font-weight:700;
-  width:50px; height:50px; border-radius:50%; color:#fff; flex:0 0 auto;
-  background:var(--${P}c,#2f8f5b); border:3px dashed rgba(255,255,255,.72);
-  box-shadow:0 6px 15px rgba(0,0,0,.55), inset 0 -7px 13px rgba(0,0,0,.32);
-  text-shadow:0 1px 2px rgba(0,0,0,.6);
-  transition:transform .12s cubic-bezier(.2,.9,.3,1.4), box-shadow .14s, opacity .14s;
+  position:relative; appearance:none; -webkit-appearance:none; border:0; padding:0;
+  cursor:pointer; font:inherit; flex:0 0 auto;
+  width:50px; height:50px; border-radius:50%;
+  display:grid; place-items:center;
+  background:
+    radial-gradient(circle closest-side at 50% 24%, rgba(255,255,255,.32), rgba(255,255,255,0) 74%),
+    radial-gradient(circle closest-side, rgba(0,0,0,0) 0 77%, rgba(255,255,255,.13) 79% 84%, rgba(0,0,0,0) 86%),
+    var(--${P}c,#2f8f5b);
+  box-shadow:
+    0 7px 15px rgba(0,0,0,.55),
+    inset 0 -7px 12px rgba(0,0,0,.44),
+    inset 0 5px 9px rgba(255,255,255,.16),
+    inset 0 0 0 1px rgba(0,0,0,.32);
+  transition:transform .13s cubic-bezier(.2,.9,.3,1.5), filter .14s, opacity .14s;
 }
-.${P}fichabt:hover{ transform:translateY(-4px) scale(1.07); }
-.${P}fichabt:active{ transform:translateY(0) scale(.94); }
-.${P}fichabt.${P}sel{ box-shadow:0 0 0 3px rgba(233,196,106,.9), 0 8px 20px rgba(0,0,0,.55); }
-.${P}fichabt[disabled]{ opacity:.28; cursor:default; transform:none; }
+/* as 8 insercoes, so nos 20% de fora do raio */
+.${P}fichabt::before{
+  content:''; position:absolute; inset:0; border-radius:50%; pointer-events:none;
+  background:repeating-conic-gradient(from -11.25deg,
+    var(--${P}sp,#efe9dc) 0 22.5deg, rgba(0,0,0,0) 22.5deg 45deg);
+  -webkit-mask:radial-gradient(circle closest-side, rgba(0,0,0,0) 0 79%, #000 80%);
+  mask:radial-gradient(circle closest-side, rgba(0,0,0,0) 0 79%, #000 80%);
+  box-shadow:inset 0 -7px 12px rgba(0,0,0,.34);
+}
+/* a pastilha rebaixada do meio, com o anel escuro em volta */
+.${P}fichabt::after{
+  content:''; position:absolute; left:50%; top:50%; width:50%; height:50%;
+  transform:translate(-50%,-50%); border-radius:50%; pointer-events:none;
+  background:
+    radial-gradient(circle closest-side at 50% 28%, rgba(255,255,255,.42), rgba(255,255,255,0) 80%),
+    linear-gradient(var(--${P}spa,rgba(239,233,220,.72)), var(--${P}spa,rgba(239,233,220,.72)));
+  box-shadow:
+    0 0 0 2px rgba(0,0,0,.36),
+    inset 0 2px 4px rgba(0,0,0,.34),
+    inset 0 -1px 0 rgba(255,255,255,.40);
+}
+/* o numero e GRAVADO na pastilha: luz embaixo, sombra em cima */
+.${P}fichabt .${P}num{
+  position:relative; z-index:2; font-size:12.5px; font-weight:800; letter-spacing:-.02em;
+  color:var(--${P}tx,#23252c);
+  text-shadow:0 1px 0 rgba(255,255,255,.5), 0 -1px 0 rgba(0,0,0,.20);
+}
+/* o anel que estoura no clique. Elemento proprio e nao box-shadow do botao
+   porque a selecionada JA usa a box-shadow dela pro halo, e as duas brigariam */
+.${P}fichabt .${P}onda{
+  position:absolute; inset:-3px; border-radius:50%; pointer-events:none; z-index:3;
+  border:3px solid rgba(255,226,158,.95); opacity:0; transform:scale(.84);
+  box-shadow:0 0 10px rgba(255,214,128,.5);
+}
+
+.${P}fichabt.${P}sel{ animation:${P}fichaHalo 1.3s ease-in-out infinite; }
+/* pega e inclina: ficha girada de leve mostra que as insercoes sao setores */
+.${P}fichabt:hover:not([disabled]){ transform:translateY(-5px) rotate(-7deg) scale(1.07); }
+.${P}fichabt:active:not([disabled]){ transform:translateY(-1px) scale(.95); }
+.${P}fichabt.${P}pop{ animation:${P}fichaPop .30s cubic-bezier(.2,.9,.3,1.5); }
+.${P}fichabt.${P}pop .${P}onda{ animation:${P}fichaOnda .46s cubic-bezier(.16,.8,.3,1) both; }
+.${P}fichabt[disabled]{
+  opacity:.26; cursor:default; transform:none; animation:none;
+  filter:grayscale(.55) brightness(.82);
+}
+@keyframes ${P}fichaHalo{
+  0%,100%{ box-shadow:0 0 0 2px rgba(233,196,106,.90), 0 7px 15px rgba(0,0,0,.55),
+    inset 0 -7px 12px rgba(0,0,0,.44), inset 0 5px 9px rgba(255,255,255,.16); }
+  50%{ box-shadow:0 0 0 3px rgba(255,217,138,.95), 0 0 17px 4px rgba(233,196,106,.45),
+    0 7px 15px rgba(0,0,0,.55), inset 0 -7px 12px rgba(0,0,0,.44), inset 0 5px 9px rgba(255,255,255,.16); }
+}
+/* termina exatamente no estado de hover: o ponteiro continua em cima do botao
+   depois do clique, e parar num transform diferente daria um salto */
+@keyframes ${P}fichaPop{
+  0%{ transform:translateY(-3px) scale(.90) rotate(4deg); }
+  45%{ transform:translateY(-11px) scale(1.13) rotate(-13deg); }
+  100%{ transform:translateY(-5px) scale(1.07) rotate(-7deg); }
+}
+@keyframes ${P}fichaOnda{
+  0%{ opacity:1; transform:scale(.80); border-width:4px; }
+  55%{ opacity:.46; }
+  100%{ opacity:0; transform:scale(1.9); border-width:1px; }
+}
 
 /* --- botoes --- */
 .${P}botoes{ display:flex; gap:9px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
@@ -231,7 +356,18 @@ const CSS = `
 @media (max-width:760px){
   .${P}faixa{ gap:10px; padding:10px 12px 12px; }
   .${P}valor{ font-size:21px; }
-  .${P}fichabt{ width:42px; height:42px; font-size:11px; }
+  /* 42 px: as camadas sao todas em % do raio, entao encolhem juntas. So o
+     numero e a sombra e que sao em px e precisam ser puxados na mao. */
+  .${P}fichas{ gap:8px; }
+  .${P}fichabt{
+    width:42px; height:42px;
+    box-shadow:
+      0 5px 11px rgba(0,0,0,.55),
+      inset 0 -6px 10px rgba(0,0,0,.44),
+      inset 0 4px 7px rgba(255,255,255,.16),
+      inset 0 0 0 1px rgba(0,0,0,.32);
+  }
+  .${P}fichabt .${P}num{ font-size:11px; }
   .${P}btn{ padding:10px 14px; font-size:12px; }
 }
 `
@@ -369,13 +505,34 @@ export function criarFaixaMesa() {
     fichasVal = valores.slice()
     for (let i = 0; i < valores.length; i++) {
       const v = valores[i]
-      const b = el('button', 'fichabt', String(v))
+      const cor = COR_FICHA[v] || '#4a6f8f'
+      const ins = insercaoDe(cor)
+      // Tres filhos e nao so texto: o ::before e o ::after ja estao gastos com
+      // as insercoes e a pastilha, entao o numero precisa de um elemento pra
+      // ficar POR CIMA das duas camadas, e a onda do clique precisa de outro
+      // pra poder estourar pra fora do botao sem mexer no halo da selecionada.
+      const b = el('button', 'fichabt')
       b.type = 'button'
-      b.style.setProperty('--' + P + 'c', COR_FICHA[v] || '#4a6f8f')
-      b.addEventListener('click', () => aoClicar(v))
+      b.style.setProperty('--' + P + 'c', cor)
+      b.style.setProperty('--' + P + 'sp', ins.sp)
+      b.style.setProperty('--' + P + 'spa', ins.spa)
+      b.style.setProperty('--' + P + 'tx', ins.tx)
+      b.append(el('i', 'onda'), el('span', 'num', String(v)))
+      b.addEventListener('click', () => { estourar(b); aoClicar(v) })
       caixaFichas.appendChild(b)
       fichasBt.push(b)
     }
+  }
+
+  /** O "pop" do clique. Tira e recoloca a classe no mesmo quadro (o
+   *  offsetWidth no meio e o que forca o reflow) pra a animacao REINICIAR em
+   *  cliques seguidos — sem isso, apertar a mesma ficha cinco vezes seguidas
+   *  so anima a primeira. */
+  function estourar(b) {
+    marca(b, 'pop', false)
+    void b.offsetWidth
+    marca(b, 'pop', true)
+    setTimeout(() => marca(b, 'pop', false), 480)
   }
 
   /** limite = quanto ainda cabe; sel = valor destacado (ou -1). */
