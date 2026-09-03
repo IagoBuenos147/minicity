@@ -101,7 +101,13 @@ game = {
 | `src/cassino/blackjack.js` | `criarBlackjack(opts)` | regras do blackjack (maquina de estados PURA: nao toca em dinheiro) |
 | `src/cassino/poker.js` | `criarPoker(opts)`, `forcaDaMao(a,b)` | heads-up de 2 cartas contra a IA do ricaco (tambem pura) |
 | `src/cassino/slots.js` | `criarSlots({rng})` | 3 roletes, tabela de pagamentos, RTP calculado (92%) |
-| `src/ui/cassino-ui.js` | `criarCassinoUI(opts)` | os 4 paineis (caixa, blackjack, poker, caca-niquel). E quem DEBITA e CREDITA a carteira |
+| `src/cassino/cartas-3d.js` | `criarBaralho3D()` | a carta como SOLIDO: atlas de canvas com as 52 faces + verso num material so, geometria de canto arredondado com espessura, e os buffers pesados compartilhados entre todas as cartas |
+| `src/cassino/mesa-3d.js` | `criarMesa3D(opts)` | o palco das duas mesas: distribuir em arco, virar pela borda, empilhar ficha, varrer o pote, acender o feltro, tremer. Sabe o TEMPO, nao sabe a regra |
+| `src/cassino/faixa-mesa.js` | `criarFaixaMesa()` | a faixa fina de rodape que substituiu o painel modal das mesas: saldo, aposta, botoes e o cartaz de resultado. Nada cobre o feltro |
+| `src/cassino/som-mesa.js` | `carta`, `virar`, `ficha`, `deslizar`, `dourado`, `baque`, `selo` | o som da mesa, sintetizado. Empresta o AudioContext de `audio/som.js` |
+| `src/cassino/reacao-npc.js` | `acharNPC`, `criarReacao` | o ricaco reagindo a mao, por dois canais: a POSE (`npc.setPose` — ele senta com as maos no aro da mesa) e o DESVIO (`root.rotation.y`/`root.position`, filtrado por quadro). Escrever direto nas juntas nao vale: `npc.update()` as reescreve depois de nos |
+| `src/systems/camera-cena.js` | `criarCameraCena(opts)` | a camera que entra na mesa e volta. Guarda o enquadramento do jogador, viaja pro seu, e devolve — ver a ordem-dentro-do-quadro no cabecalho |
+| `src/ui/cassino-ui.js` | `criarCassinoUI(opts)` | os dois BALCOES em painel modal (caixa, caca-niquel) e as duas MESAS em 3D (blackjack, poker). E quem DEBITA e CREDITA a carteira |
 | `src/armas/revolver.js` | `criarRevolver(opts)` | revólver de 6 balas, mira, recarga tambor a tambor, `aoAcerto` |
 | `src/inventario/inventario.js` | `criarInventario(opts)` | as 9 vagas da mochila, que **são a barra de itens** (teclas 1–9, centrada no rodapé). `adicionar` é **atômico**: simula antes e só escreve se couber inteiro |
 | `src/mobilia/bebidas.js` | `BEBIDAS`, `CATEGORIAS_BEBIDAS`, `bebidaDe`, `lataCerveja`, `garrafaVodka`, `garrafaWhiskey` | as bebidas: peças de MÃO, em pé com a base em y=0. Cada uma traz `mao: { pegaY, pegaR }`, que é o contrato com `player/mao.js` |
@@ -448,12 +454,47 @@ Duas moedas, e a diferenca entre elas e a regra do lugar:
 O caixa troca 1 por 1 nos dois sentidos. A carteira mora em `localStorage` e
 **nao passa pela rede**: o protocolo (outro dono) nao tem pacote de dinheiro.
 
-A separacao que importa: `src/cassino/*.js` sao **regras puras** — sem DOM, sem
-three.js, sem `localStorage`, sem saber que dinheiro existe. Eles recebem uma
-aposta e devolvem um `retorno`. Quem debita e credita e `src/ui/cassino-ui.js`.
-E isso que permite `node tools/teste-cassino.mjs` provar as 84 regras do jogo
-(contagem de As, 3:2 do blackjack, ordem das maos de poker, RTP do caca-niquel)
-sem abrir navegador nenhum.
+A separacao que importa: `blackjack.js`, `poker.js`, `slots.js` e `baralho.js`
+sao **regras puras** — sem DOM, sem three.js, sem `localStorage`, sem saber que
+dinheiro existe. Eles recebem uma aposta e devolvem um `retorno`. Quem debita e
+credita e `src/ui/cassino-ui.js`. E isso que permite `node tools/teste-cassino.mjs`
+provar as 84 regras do jogo (contagem de As, 3:2 do blackjack, ordem das maos de
+poker, RTP do caca-niquel) sem abrir navegador nenhum. Os arquivos vizinhos
+`cartas-3d.js`, `mesa-3d.js`, `faixa-mesa.js`, `som-mesa.js` e `reacao-npc.js`
+sao a CARA da mesa e nao entram nessa conta: eles importam three e o DOM, e por
+isso o teste nunca os toca.
+
+### As duas mesas nao sao mais um painel
+
+O pedido foi literal: *"nao quero que ao iniciar o blackjack surja um HUD, quero
+que aproxime na mesa, como se fosse um simulador"*. Entao o cassino tem dois
+modos de UI, e eles sao diferentes ate o osso:
+
+| | balcao (caixa, caca-niquel) | mesa (blackjack, poker) |
+|---|---|---|
+| forma | janela modal, cobre a tela | camera viaja ate o feltro |
+| cartas | — | objetos 3D com espessura e sombra |
+| controles | dentro da janela | faixa fina no rodape |
+| o jogador | travado, mouse solto | travado, mouse solto, **3a pessoa a forca** |
+
+**A 3a pessoa a forca** nao e capricho: em 1a pessoa o que o jogador segura
+(garrafa, copo, revolver) e FILHO DA CAMERA, e viajaria junto com a lente pra
+ficar pendurado no meio do feltro. Em 3a, os tres modulos de mao escondem a peca
+sozinhos (todos leem `player.mode`) e o boneco fica atras da lente.
+
+**A saida tem ordem fixa, e ela e a parte que quebra em silencio.** O
+`cortar()` de `camera-cena.js` ja devolve o controle ao jogador. Se
+`cassinoUI.aberto` virasse false junto, o `main.js` voltaria a ouvir o E, as
+teclas 1-9 e o clique de tiro ENQUANTO a camera ainda esta voltando — o jogador
+saca o revolver na mesa. Por isso: esconde a faixa -> `camera.sair({ aoSair })`
+-> e so no `aoSair` o modo cai pra null.
+
+**O tamanho da carta na tela e uma conta, nao um chute.** A carta esta deitada,
+entao o que se ve dela encolhe com o SENO da inclinacao da lente: uma camera "de
+quem esta em pe na corda" (25 graus) deixa a carta em 8% da altura da tela por
+mais que o campo feche. Os enquadramentos de `mesa-3d.js` foram medidos
+projetando as bordas de uma carta — 20% no blackjack, e no poker 5% no plano que
+mostra o ricaco mais dois mergulhos de 24% e 20% nos momentos que importam.
 
 ## A mochila, a loja e a mobília
 

@@ -1423,6 +1423,15 @@ function uiAberta() {
     // dispararem por baixo dela — as opcoes usam os MESMOS numeros.
     || (conversa && conversa.aberta)
     || (saveUI && saveUI.aberto)
+    // A BANCADA DO BAR entra por aqui pela mesma razao da conversa. Ela nao e
+    // uma janela: e um modo de camera dentro do mundo (world/casino-bar.js). Mas
+    // enquanto ele esta no ar o teclado do jogo TEM que calar, e faltava so
+    // isto: o modo ja desviava o clique (os gestos escutam em captura e param a
+    // propagacao), e ainda assim apertar 1 a 9 equipava um item da mochila na
+    // mao — justamente o que o modo acabou de limpar da lente pra a garrafa nao
+    // aparecer gigante na frente da bancada — e o E disparava a interacao mais
+    // perto. Meio modo aberto e pior que nenhum.
+    || (casino && casino.barman && casino.barman.ocupado)
     || (menu && menu.aberto) || (criacao && criacao.aberto)
 }
 

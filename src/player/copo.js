@@ -365,6 +365,47 @@ export function criarCopo({ scene, camera, player, character, aparencia, hud } =
     },
 
     /**
+     * SERVIDO PRONTO. Poe na mao um copo que JA VEM CHEIO, com a cor, o
+     * colarinho e o nome que outra pessoa decidiu.
+     *
+     * POR QUE ISTO NAO E `segurar()` MAIS `encher()`. `encher` e a boca da
+     * torneira: ele exige o copo ESTICADO, corre por segundo e recusa quando ja
+     * esta cheio. Isso e certo pra chope — o gesto de encher e o jogo. Mas o
+     * bar do cassino (src/bar/) tem o gesto DELE, com dose, chacoalho e
+     * guarnicao, e quando o drink chega aqui ele ja esta pronto: obrigar o
+     * copo a "encher de novo" na mao do jogador seria refazer, mal, um trabalho
+     * que ja foi feito — e ainda por cima com o colarinho errado, porque a
+     * espuma de um drink batido nao e a de um chope tirado.
+     *
+     * O CICLO DEPOIS DISTO E O DE SEMPRE: clique bebe um gole, ate zerar, e ai
+     * o clique volta a esticar a mao. Nada abaixo desta funcao sabe de onde o
+     * copo veio.
+     *
+     * @param d.id      id do copo (mobilia/copos.js)
+     * @param d.ficha   a ficha dele, opcional (copoDe(id) resolve)
+     * @param d.nivel   0 a 1
+     * @param d.cor     a cor da mistura, ja calculada
+     * @param d.espuma  0 a 1 de colarinho
+     * @param d.nome    o nome do drink, pro HUD e pro toast de quem serviu
+     */
+    servir(d) {
+      const dados = d || {}
+      const id = dados.id
+      if (!id) return false
+      if (!api.segurar(id, dados.ficha)) return false
+      nivel = clamp01(Number.isFinite(dados.nivel) ? dados.nivel : 1)
+      corBebida = typeof dados.cor === 'number' ? dados.cor : corBebida
+      espumaK = clamp01(Number.isFinite(dados.espuma) ? dados.espuma : 0)
+      nomeBebida = typeof dados.nome === 'string' ? dados.nome : ''
+      estendido = false
+      bebendo = 0
+      mira = null
+      encheu = true                 // ja chegou cheio: o toast de "copo cheio"
+      pintarNivel()                 // seria uma mentira sobre o que aconteceu
+      return true
+    },
+
+    /**
      * ONDE O COPO DEVE FICAR NA TELA enquanto esta esticado. Ver o cabecalho:
      * e isto que faz o jorro cair DENTRO do copo. `null` solta a mira.
      */

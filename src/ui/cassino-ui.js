@@ -1,10 +1,15 @@
-import { NAIPES, cartaTexto, nomeValor, criarBaralho } from '../cassino/baralho.js'
+import { criarBaralho } from '../cassino/baralho.js'
 import { criarBlackjack } from '../cassino/blackjack.js'
 import { criarPoker, forcaDaMao } from '../cassino/poker.js'
 import { SIMBOLOS, PAGAMENTOS, criarSlots } from '../cassino/slots.js'
+import { criarCameraCena } from '../systems/camera-cena.js'
+import { criarMesa3D } from '../cassino/mesa-3d.js'
+import { criarFaixaMesa } from '../cassino/faixa-mesa.js'
+import { acharNPC, criarReacao } from '../cassino/reacao-npc.js'
+import * as somMesa from '../cassino/som-mesa.js'
 
 // ---------------------------------------------------------------------------
-// src/ui/cassino-ui.js — a CARA do cassino, em DOM puro.
+// src/ui/cassino-ui.js — a CARA do cassino.
 //
 // Os modulos de src/cassino/ sao maquinas de estado PURAS: eles sabem as regras
 // e nao sabem que dinheiro existe. Este arquivo e o contrario — nao sabe regra
@@ -24,16 +29,44 @@ import { SIMBOLOS, PAGAMENTOS, criarSlots } from '../cassino/slots.js'
 // caca-niquel apostam FICHA, que so se consegue no caixa. E por isso que o caixa
 // existe como ponto separado no mapa.
 //
-// PAINEL MODAL: enquanto qualquer tela esta aberta o jogador fica travado
-// (setLocked(true)) e o mouse solto. O painel engole TODO evento de mouse pra
-// nenhum clique de botao virar tiro/interacao no mundo, e engole o teclado pra
-// digitar "5" no campo do caixa nao trocar o item da barra (as teclas 1 a 9
-// escolhem a vaga da mochila; a hotbar de 2 slots que este comentario citava
-// virou essa barra).
+// ---------------------------------------------------------------------------
+// DOIS MODOS, E ELES SAO DIFERENTES ATE O OSSO
+// ---------------------------------------------------------------------------
 //
-// CSS: um <style> so, injetado uma vez, com TODA classe prefixada por
-// 'mcrp-cas-' (helper cn() abaixo faz isso sozinho) pra nao brigar com o HUD,
-// o customizador nem o balao de dialogo.
+// MODO 'painel' — o caixa e o caca-niquel. Sao BALCOES: o jogador chega, mexe
+// num numero e sai. Uma janela modal e a forma certa pra isso, e continua sendo
+// a mesma de sempre.
+//
+// MODO 'mesa' — o blackjack e o poker. Aqui o pedido do dono foi literal e em
+// maiusculas: "N QUERO QUE AO INICIAR O BLACKJACK SURJA UM HUD, QUERO QUE
+// APROXIME NA MESA, COMO SE FOSSE UM SIMULADOR MESMO". Entao nao ha janela: a
+// CAMERA VIAJA ate o feltro (systems/camera-cena.js), as cartas sao objetos 3D
+// de verdade em cima da mesa (cassino/mesa-3d.js + cassino/cartas-3d.js) e o
+// que sobra pra tela e uma faixa fina no rodape (cassino/faixa-mesa.js).
+//
+// A DIVISAO DE TRABALHO NO MODO MESA, que e o que impede este arquivo de virar
+// um monstro:
+//   - cassino/blackjack.js e poker.js  -> a REGRA (nada de 3D, nada de dinheiro)
+//   - cassino/mesa-3d.js               -> o TEMPO e o MOVIMENTO (nada de regra)
+//   - cassino/faixa-mesa.js            -> os BOTOES (nada de regra)
+//   - aqui                             -> quem liga um no outro E O DINHEIRO
+//
+// A ARMADILHA DO DESTRAVAMENTO, que custou um paragrafo pra nao custar um bug:
+// `camera-cena.cortar()` (que roda sozinho no fim de `sair()`) ja chama
+// player.setLocked(false). Se `aberto` virasse false junto, o main.js voltaria a
+// ouvir E, as teclas 1-9 e o clique de tiro ENQUANTO a camera ainda esta
+// voltando — o jogador sacaria o revolver na mesa. Por isso a saida tem ordem
+// fixa: esconde a faixa -> camera.sair({ aoSair }) -> so no aoSair o modo cai
+// pra null. `aberto` fica true a viagem inteira.
+//
+// A ORDEM DENTRO DO QUADRO: `atualizarCamera(dt, game)` e chamado por
+// world/casino.js DEPOIS de player.update(), porque quem escreve na camera por
+// ultimo ganha o quadro. Ver o cabecalho de systems/camera-cena.js.
+//
+// CSS: dois <style>, injetados uma vez cada. O do painel mora aqui com TODA
+// classe prefixada por 'mcrp-cas-' (helper cn() abaixo faz isso sozinho); o da
+// faixa mora em faixa-mesa.js com prefixo proprio. Nenhum dos dois briga com o
+// HUD, o customizador ou o balao de dialogo.
 // ---------------------------------------------------------------------------
 
 const ID_ESTILO = 'mcrp-cassino-style'
@@ -68,6 +101,22 @@ const CEL = 96
 const SOCORRO_GIRO = 3800
 
 const NOME_NPC_POKER = 'DOM SEBASTIAO'
+
+// O nome com que world/casino.js batiza o corpo do ricaco na cena. E por ele
+// que reacao-npc.js acha o boneco — buildCasino nao devolve os NPCs.
+const CORPO_RICACO = 'Dom Sebastiao'
+
+// Tempos da camera. Entrar demora quase o dobro de sair de proposito: entrar e
+// apresentacao (o jogador quer ver a mesa chegando), sair e saida (ninguem
+// quer esperar pra ir embora).
+const T_ENTRAR = 0.90
+const T_SAIR = 0.55
+const T_TROCA = 0.50        // viagem de um enquadramento pro outro, ja dentro
+
+// Quanto a mesa espera, depois da ultima carta pousar, pra pagar e anunciar o
+// resultado. E a ANTECIPACAO: sem ela o placar aparece junto com a carta e o
+// jogador nunca chega a ler o que saiu.
+const T_REVELACAO = 900
 
 // Frases do caixa. Nada mecanico depende delas; elas so fazem o balcao parecer
 // atendido por alguem em vez de ser um formulario.
@@ -293,88 +342,7 @@ const CSS = `
 }
 .${P}campo:focus{ outline:none; border-color:rgba(233,196,106,.7); }
 
-/* --- mesa de feltro --- */
-.${P}mesa{
-  position:relative; padding:16px 18px; border-radius:16px; margin-bottom:12px;
-  background:
-    repeating-linear-gradient(45deg, rgba(255,255,255,.017) 0 3px, rgba(0,0,0,.017) 3px 6px),
-    radial-gradient(130% 130% at 50% -10%, #1b6b4e 0%, #0e4232 62%, #0a3225 100%);
-  border:1px solid rgba(233,196,106,.2);
-  box-shadow:inset 0 0 70px rgba(0,0,0,.5), 0 8px 26px rgba(0,0,0,.35);
-}
-.${P}mesa::after{
-  content:''; position:absolute; inset:9px; border-radius:11px;
-  border:1px dashed rgba(233,196,106,.16); pointer-events:none;
-}
-.${P}lado{ position:relative; margin-bottom:12px; }
-.${P}lado:last-child{ margin-bottom:0; }
-.${P}cab{ display:flex; align-items:baseline; gap:10px; margin-bottom:7px; flex-wrap:wrap; }
-.${P}cab .${P}rot{ margin:0; color:#cfe3d6; }
-.${P}pontos{
-  font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; color:#ffe1a4;
-  padding:1px 9px; border-radius:8px; background:rgba(0,0,0,.32);
-}
-.${P}tag{ font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:#9fd8b8; font-weight:700; }
-.${P}tag.${P}ruim{ color:#f09a9a; }
-.${P}tag.${P}bom{ color:#ffd98a; }
-.${P}mao{ padding:9px 10px; border-radius:12px; border:1px solid transparent; margin-bottom:8px; }
-.${P}mao.${P}ativa{ border-color:rgba(233,196,106,.55); background:rgba(233,196,106,.07); }
-.${P}fila{ display:flex; gap:7px; min-height:84px; align-items:flex-start; }
-
-/* --- carta --- */
-.${P}carta{
-  position:relative; width:60px; height:84px; flex:0 0 auto; border-radius:8px;
-  background:linear-gradient(180deg,#fffdf6,#ece4d2); color:#1b1f27;
-  box-shadow:0 6px 15px rgba(0,0,0,.45), inset 0 0 0 1px rgba(0,0,0,.14);
-  transform-origin:50% 60%;
-}
-.${P}carta.${P}vermelha{ color:#c0243a; }
-.${P}carta .${P}cantoa, .${P}carta .${P}cantob{
-  position:absolute; display:flex; flex-direction:column; align-items:center; line-height:1;
-  font-size:13px; font-weight:700;
-}
-.${P}carta .${P}cantoa{ left:5px; top:5px; }
-.${P}carta .${P}cantob{ right:5px; bottom:5px; transform:rotate(180deg); }
-.${P}carta .${P}cantoa i, .${P}carta .${P}cantob i{ font-style:normal; font-size:11px; margin-top:1px; }
-.${P}carta .${P}meio{
-  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-  font-size:31px; opacity:.92;
-}
-.${P}carta.${P}verso{
-  background:
-    repeating-linear-gradient(45deg, rgba(255,255,255,.09) 0 5px, rgba(0,0,0,0) 5px 10px),
-    linear-gradient(180deg,#8a2338,#5e1526);
-  box-shadow:0 6px 15px rgba(0,0,0,.45), inset 0 0 0 3px #efe4cd, inset 0 0 0 4px #8a2338;
-}
-.${P}carta.${P}verso .${P}selo{
-  position:absolute; left:50%; top:50%; width:20px; height:20px; margin:-10px 0 0 -10px;
-  background:rgba(239,228,205,.55); transform:rotate(45deg); border-radius:3px;
-}
-.${P}carta.${P}nova{ animation:${P}dar .32s cubic-bezier(.2,.9,.3,1.15) both; }
-@keyframes ${P}dar{
-  from{ opacity:0; transform:translate(46px,-54px) rotate(15deg) scale(.88); }
-  to{ opacity:1; transform:none; }
-}
-.${P}carta.${P}vira{ animation:${P}vira .34s cubic-bezier(.3,.8,.4,1) both; }
-@keyframes ${P}vira{
-  from{ transform:perspective(420px) rotateY(-94deg) scale(1.05); }
-  to{ transform:perspective(420px) rotateY(0) scale(1); }
-}
-
-/* --- placar de resultado --- */
-.${P}placar{ display:flex; flex-direction:column; gap:6px; margin:2px 0 10px; }
-.${P}res{
-  display:flex; align-items:center; justify-content:space-between; gap:14px;
-  padding:9px 14px; border-radius:11px; font-size:14px; font-weight:700;
-  background:rgba(255,255,255,.05); border-left:3px solid rgba(255,255,255,.2);
-  animation:${P}entra .26s ease both;
-}
-.${P}res.${P}bom{ border-left-color:#7ee0a6; background:rgba(126,224,166,.11); color:#c6f5d8; }
-.${P}res.${P}ruim{ border-left-color:#d9566d; background:rgba(217,86,109,.1); color:#f4bcc4; }
-.${P}res.${P}top{ border-left-color:#ffd98a; background:linear-gradient(90deg,rgba(255,217,138,.22),rgba(255,217,138,.05)); color:#ffeec4; }
-.${P}res b{ font-variant-numeric:tabular-nums; font-size:16px; }
-
-/* --- poker --- */
+/* --- balcao do NPC (caixa) --- */
 .${P}npc{ display:flex; align-items:center; gap:13px; margin-bottom:11px; }
 .${P}retrato{
   width:62px; height:62px; flex:0 0 auto; border-radius:50%; display:block;
@@ -391,21 +359,6 @@ const CSS = `
   content:''; position:absolute; left:-6px; top:24px; width:13px; height:13px;
   background:#fdf6e6; transform:rotate(45deg); border-radius:2px;
 }
-.${P}placas{ display:flex; gap:9px; flex-wrap:wrap; margin:10px 0 4px; }
-.${P}placa{
-  flex:1 1 92px; padding:8px 11px; border-radius:11px; text-align:center;
-  background:rgba(0,0,0,.3); border:1px solid rgba(255,255,255,.09);
-}
-.${P}placa span{ display:block; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:#93a0ae; }
-.${P}placa b{ font-size:19px; font-variant-numeric:tabular-nums; color:#ffe1a4; }
-.${P}mao1{ font-size:12.5px; font-weight:700; color:#cfe3d6; margin-top:6px; min-height:16px; }
-.${P}ranking{
-  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-  padding:9px 12px; border-radius:11px; font-size:11.5px; color:#a9b2c0;
-  background:rgba(0,0,0,.24); border:1px solid rgba(255,255,255,.07);
-}
-.${P}ranking em{ font-style:normal; color:#ffd98a; font-weight:700; }
-.${P}ranking s{ text-decoration:none; color:#6f7787; }
 
 /* --- caca-niquel --- */
 .${P}maquina{
@@ -460,172 +413,39 @@ const CSS = `
 `
 
 // ---------------------------------------------------------------------------
-// Retrato do ricaco, desenhado em canvas (o projeto nao usa asset externo).
-// Silhueta chapada de proposito: dois tons e uma faixa dourada leem melhor em
-// 62 px do que um rosto detalhado, que nesse tamanho vira borrao.
-// ---------------------------------------------------------------------------
-function retratoRicaco(px) {
-  const c = document.createElement('canvas')
-  c.width = px
-  c.height = px
-  const g = c.getContext('2d')
-  if (!g) return c
-  const u = px / 100   // tudo desenhado numa grade de 100x100 e escalado
-
-  // fundo: veludo bordo com vinheta, pra silhueta escura nao sumir
-  const fundo = g.createRadialGradient(50 * u, 38 * u, 6 * u, 50 * u, 55 * u, 62 * u)
-  fundo.addColorStop(0, '#8e3450')
-  fundo.addColorStop(1, '#2a1020')
-  g.fillStyle = fundo
-  g.fillRect(0, 0, px, px)
-
-  g.fillStyle = '#14181f'
-  // ombros do terno: um arco largo que sai da base
-  g.beginPath()
-  g.moveTo(6 * u, 100 * u)
-  g.quadraticCurveTo(20 * u, 70 * u, 50 * u, 70 * u)
-  g.quadraticCurveTo(80 * u, 70 * u, 94 * u, 100 * u)
-  g.closePath()
-  g.fill()
-  // pescoco
-  g.fillRect(43 * u, 56 * u, 14 * u, 16 * u)
-  // cabeca
-  g.beginPath()
-  g.ellipse(50 * u, 45 * u, 16 * u, 19 * u, 0, 0, Math.PI * 2)
-  g.fill()
-
-  // gravata clara: o unico ponto vivo no meio do terno
-  g.fillStyle = '#e9c46a'
-  g.beginPath()
-  g.moveTo(50 * u, 71 * u)
-  g.lineTo(45 * u, 78 * u)
-  g.lineTo(50 * u, 100 * u)
-  g.lineTo(55 * u, 78 * u)
-  g.closePath()
-  g.fill()
-
-  // chapeu: aba larga + copa. E o que faz o NPC ser "o de chapeu" a 62 px.
-  g.fillStyle = '#0d1016'
-  g.beginPath()
-  g.ellipse(50 * u, 30 * u, 32 * u, 7 * u, 0, 0, Math.PI * 2)
-  g.fill()
-  g.beginPath()
-  g.moveTo(33 * u, 30 * u)
-  g.quadraticCurveTo(34 * u, 9 * u, 50 * u, 9 * u)
-  g.quadraticCurveTo(66 * u, 9 * u, 67 * u, 30 * u)
-  g.closePath()
-  g.fill()
-  // fita dourada da copa
-  g.fillStyle = '#e9c46a'
-  g.fillRect(33.5 * u, 24 * u, 33 * u, 5 * u)
-
-  // bigode e o brilho do charuto: dois riscos que dao idade e vicio
-  g.fillStyle = '#e6dcc8'
-  g.fillRect(42 * u, 50 * u, 16 * u, 3 * u)
-  g.fillStyle = '#5b3a22'
-  g.fillRect(58 * u, 56 * u, 16 * u, 4 * u)
-  g.fillStyle = '#ff7a3c'
-  g.fillRect(74 * u, 56 * u, 4 * u, 4 * u)
-
-  return c
-}
-
-// ---------------------------------------------------------------------------
-// Cartas em DOM
+// UMA POSICAO DE FILA DE CARTA.
 //
-// A regra da animacao: carta que ja estava na mesa NAO pode reanimar. Por isso
-// cada fileira guarda a lista do que desenhou (_defs) e o desenho novo e um
-// diff contra ela: prefixo igual fica parado, verso que ganhou face GIRA no
-// lugar, o resto entra voando. Sem esse diff, cada 'pedir' fazia a mao inteira
-// piscar de novo — que e exatamente a cara de um bug.
+// E o unico pedaco do desenho de carta que sobrou neste arquivo. Ate a mesa
+// virar 3D havia aqui um baralho inteiro em DOM — carta como <div>, naipe como
+// texto, virada como animacao de CSS, mais um diff de fileira pra carta que ja
+// estava na mesa nao reanimar. Tudo isso mudou de casa: o desenho foi pra
+// cassino/cartas-3d.js (atlas de canvas) e o diff pra cassino/mesa-3d.js, que e
+// quem sabe o que mudou entre dois snapshots. O que ficou e a FORMA de dizer
+// "nesta posicao ha esta carta, ou ha uma virada pra baixo", que e o que as
+// duas mesas passam pro palco.
 // ---------------------------------------------------------------------------
 
-/** Uma posicao da fileira. carta null + verso true = carta que o jogador nao ve. */
+/** carta null + verso true = carta que existe mas o jogador nao pode ver. */
 function def(carta, verso) {
   return { carta: verso ? null : (carta || null), verso: !!verso }
 }
 
-function chaveDef(d) {
-  if (!d) return '~'
-  if (d.verso || !d.carta) return '##'
-  try { return cartaTexto(d.carta) } catch (err) { void err; return d.carta.r + '/' + d.carta.n }
-}
-
-function preencherCarta(e, carta) {
-  e.textContent = ''
-  const naipe = (Array.isArray(NAIPES) && NAIPES[carta.n]) || null
-  const simbolo = naipe ? naipe.simbolo : '?'
-  marca(e, 'verso', false)
-  marca(e, 'vermelha', !!(naipe && naipe.vermelho))
-  const v = nomeValor(carta.r)
-  const a = el('span', 'cantoa')
-  a.append(el('b', null, v), el('i', null, simbolo))
-  const b = el('span', 'cantob')
-  b.append(el('b', null, v), el('i', null, simbolo))
-  e.append(a, el('span', 'meio', simbolo), b)
-}
-
-function virarPraBaixo(e) {
-  e.textContent = ''
-  marca(e, 'vermelha', false)
-  marca(e, 'verso', true)
-  e.append(el('span', 'selo'))
-}
-
-function criarCartaEl(d, animar, atraso) {
-  const e = el('div', 'carta')
-  if (d.verso || !d.carta) virarPraBaixo(e)
-  else preencherCarta(e, d.carta)
-  if (animar) {
-    marca(e, 'nova', true)
-    if (atraso) e.style.animationDelay = atraso + 'ms'
+/**
+ * Valor das cartas VISIVEIS de uma mao.
+ *
+ * Com a carta do dealer tapada nao da pra confiar no estado.valor: ele pode ja
+ * estar somando a carta que o jogador nao viu. A conta do As e a mesma de
+ * cassino/blackjack.js de proposito — e a regra do jogo, nao uma variante.
+ */
+function valorVisivel(cartas, quantas) {
+  let total = 0
+  let ases = 0
+  for (let i = 0; i < quantas && i < cartas.length; i++) {
+    const r = cartas[i] ? cartas[i].r : 0
+    if (r === 1) { ases++; total += 11 } else total += Math.min(10, r)
   }
-  return e
-}
-
-/** Reinicia uma animacao CSS que ja rodou no mesmo elemento. */
-function reanimar(e, nome, atraso) {
-  marca(e, nome, false)
-  void e.offsetWidth
-  e.style.animationDelay = (atraso || 0) + 'ms'
-  marca(e, nome, true)
-}
-
-function pintarCartas(cont, defs) {
-  const velhos = cont._defs || []
-  let i = 0
-  while (i < defs.length && i < velhos.length && chaveDef(defs[i]) === chaveDef(velhos[i])) i++
-
-  // viradas: mesma posicao, era verso e agora tem face. Uma de cada vez, com um
-  // atraso curto entre elas, senao o showdown do poker vira um pisca so.
-  let atraso = 0
-  while (i < defs.length && i < velhos.length && velhos[i].verso && !defs[i].verso && defs[i].carta) {
-    const alvo = cont.children[i]
-    if (!alvo) break
-    preencherCarta(alvo, defs[i].carta)
-    reanimar(alvo, 'vira', atraso)
-    atraso += 140
-    i++
-  }
-
-  // sobrou elemento velho que nao casa (split, mao nova, carta que sumiu):
-  // refaz a fileira inteira. E raro e a reanimacao geral ate ajuda a leitura.
-  if (i < velhos.length) {
-    cont.textContent = ''
-    let d = 0
-    for (let k = 0; k < defs.length; k++) {
-      cont.appendChild(criarCartaEl(defs[k], true, d))
-      d += 90
-    }
-    cont._defs = defs
-    return
-  }
-
-  for (; i < defs.length; i++) {
-    cont.appendChild(criarCartaEl(defs[i], true, atraso))
-    atraso += 90
-  }
-  cont._defs = defs
+  while (total > 21 && ases > 0) { total -= 10; ases-- }
+  return total
 }
 
 // ---------------------------------------------------------------------------
@@ -726,7 +546,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   document.body.appendChild(raiz)
 
   // --- estado geral --------------------------------------------------------
-  let aberto = false
+  //
+  // 'modo' e a UNICA verdade sobre "tem UI de cassino no ar". `aberto` sai
+  // dele. Duas flags (uma pro painel, outra pra mesa) e o desenho que sempre
+  // termina com as duas discordando — e discordar aqui significa o jogador
+  // atirando no meio de uma mao de blackjack.
+  let modo = null               // null | 'painel' | 'mesa'
   let telaAtual = null          // { nome, sec, render, principal }
   let renderizando = false      // trava de reentrada (carteira -> render -> carteira)
   let festaTimer = 0
@@ -736,6 +561,18 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   // baralhos (contar carta fica inutil, que e o ponto) e o poker usa 1.
   let baralhoBJ = null
   let baralhoPk = null
+
+  // --- o modo mesa ---------------------------------------------------------
+  // Tudo nasce SOB DEMANDA: quem so passa no caixa nunca paga o atlas das 52
+  // cartas nem a geometria das duas mesas.
+  let cena = null               // systems/camera-cena.js
+  let faixa = null              // cassino/faixa-mesa.js
+  let mesaAtiva = null          // a mesa no ar agora
+  const mesas3d = new Map()     // 'blackjack' | 'poker' -> cassino/mesa-3d.js
+  let ricaco = null             // cassino/reacao-npc.js
+  let tremorT = 0               // relogio proprio do tremor de camera
+  let modoAntes = null          // 1a ou 3a pessoa, pra devolver na saida
+  let escondeuTutorial = false  // o cartao de missao foi apagado por nos?
 
   // --- feedback ------------------------------------------------------------
   function avisar(texto, tom) {
@@ -758,7 +595,58 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     festaTimer = setTimeout(() => marca(painel, 'festa', false), ms || 1600)
   }
 
-  // --- abrir / fechar ------------------------------------------------------
+  // --- entrada: teclado e ponteiro, comuns aos dois modos -------------------
+  //
+  // Um par de funcoes so, e nao um pedaco disso em cada modo: era assim que a
+  // versao anterior fazia (com um modo so) e e o que garante que abrir a mesa e
+  // abrir o painel travem o jogador EXATAMENTE do mesmo jeito.
+  function capturarEntrada() {
+    // A ordem importa: travar ANTES de soltar o mouse, senao um frame de
+    // movimento entra entre as duas chamadas e o jogador anda meio passo.
+    chamar(game && game.player, 'setLocked', true)
+    try { document.exitPointerLock() } catch (err) { void err }
+    document.addEventListener('pointerlockchange', aoTrancarMouse)
+    window.addEventListener('keydown', aoTeclar, true)
+  }
+
+  function soltarEntrada() {
+    window.removeEventListener('keydown', aoTeclar, true)
+    document.removeEventListener('pointerlockchange', aoTrancarMouse)
+    // O main re-trava o mouse no proximo clique; aqui so devolvemos o controle.
+    chamar(game && game.player, 'setLocked', false)
+  }
+
+  // Se qualquer outro sistema re-trancar o ponteiro com a UI aberta (o main faz
+  // isso no clique), solta de novo: UI aberta e mouse preso = jogador vendo
+  // botao que nao consegue clicar.
+  function aoTrancarMouse() {
+    if (modo && document.pointerLockElement) {
+      try { document.exitPointerLock() } catch (err) { void err }
+    }
+  }
+
+  function aoTeclar(e) {
+    if (!modo) return
+    const emCampo = e.target && e.target.tagName === 'INPUT'
+    if (e.key === 'Escape') {
+      fechar()
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (!emCampo && (e.key === 'Enter' || e.key === 'NumpadEnter')) {
+      const b = modo === 'mesa'
+        ? (mesaAtiva && mesaAtiva.principal && mesaAtiva.principal())
+        : (telaAtual && telaAtual.principal && telaAtual.principal())
+      if (b && !b.disabled) { b.click(); e.preventDefault() }
+    }
+    // TUDO o mais para aqui: com a UI aberta o jogo nao pode ouvir tecla
+    // nenhuma (digitar 250 no caixa trocaria de arma tres vezes; um "3" na
+    // mesa de blackjack sacaria o revolver no meio da mao).
+    e.stopPropagation()
+  }
+
+  // --- abrir / fechar o PAINEL ---------------------------------------------
   function renderTela() {
     if (!telaAtual || renderizando) return
     renderizando = true
@@ -767,6 +655,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   }
 
   function abrirTela(nome) {
+    // Balcao e mesa nao convivem: chegar no caixa com a mesa aberta e sair da
+    // mesa. Sem isto a camera ficaria na mesa por tras da janela do caixa.
+    if (modo === 'mesa') fecharMesa(true)
     const t = telas.get(nome) || construir(nome)
     if (!t) return
     if (telaAtual && telaAtual !== t) marca(telaAtual.sec, 'ativa', false)
@@ -778,56 +669,258 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     pintarBolso()
     renderTela()
 
-    if (aberto) return
-    aberto = true
-    // A ordem importa: travar ANTES de soltar o mouse, senao um frame de
-    // movimento entra entre as duas chamadas e o jogador anda meio passo.
-    chamar(game && game.player, 'setLocked', true)
-    try { document.exitPointerLock() } catch (err) { void err }
-    document.addEventListener('pointerlockchange', aoTrancarMouse)
-    window.addEventListener('keydown', aoTeclar, true)
+    if (modo === 'painel') return
+    modo = 'painel'
+    capturarEntrada()
     raiz.setAttribute('aria-hidden', 'false')
     requestAnimationFrame(() => marca(raiz, 'on', true))
-    setTimeout(() => { if (aberto) painel.focus() }, 30)
+    setTimeout(() => { if (modo === 'painel') painel.focus() }, 30)
   }
 
-  function fechar() {
-    if (!aberto) return
-    aberto = false
-    window.removeEventListener('keydown', aoTeclar, true)
-    document.removeEventListener('pointerlockchange', aoTrancarMouse)
+  function fecharPainel() {
+    if (modo !== 'painel') return
+    modo = null
     marca(raiz, 'on', false)
     marca(painel, 'festa', false)
     raiz.setAttribute('aria-hidden', 'true')
-    // O main re-trava o mouse no proximo clique; aqui so devolvemos o controle.
-    chamar(game && game.player, 'setLocked', false)
+    soltarEntrada()
   }
 
-  // Se qualquer outro sistema re-trancar o ponteiro com o painel aberto (o main
-  // faz isso no clique), solta de novo: painel aberto e mouse preso = jogador
-  // vendo botao que nao consegue clicar.
-  function aoTrancarMouse() {
-    if (aberto && document.pointerLockElement) {
-      try { document.exitPointerLock() } catch (err) { void err }
+  /** Esc / botao X / clique no veu: fecha o que estiver no ar. */
+  function fechar() {
+    if (modo === 'mesa') fecharMesa(false)
+    else fecharPainel()
+  }
+
+  // -------------------------------------------------------------------------
+  // MODO MESA — a infraestrutura que blackjack e poker dividem
+  // -------------------------------------------------------------------------
+
+  function garantirCena() {
+    if (cena) return cena
+    if (!game || !game.camera) return null
+    cena = criarCameraCena({ camera: game.camera, player: game.player, hud: game.hud })
+    return cena
+  }
+
+  function garantirFaixa() {
+    if (!faixa) faixa = criarFaixaMesa()
+    return faixa
+  }
+
+  /**
+   * O palco 3D de uma mesa. Construido na PRIMEIRA vez que alguem senta nela:
+   * o atlas das 52 cartas custa uns milissegundos de canvas e 20 MB de textura,
+   * e cobrar isso de quem so passa no caca-niquel seria cobrar de todo mundo
+   * pelo que poucos usam. A viagem da camera (0,9 s) cobre o custo.
+   */
+  function garantirMesa3D(nome) {
+    let m = mesas3d.get(nome)
+    if (m) return m
+    const anc = mundo && mundo.mesas ? mundo.mesas[nome] : null
+    if (!anc || !game || !game.scene) return null
+    try {
+      m = criarMesa3D({ scene: game.scene, ancora: anc, tipo: nome })
+    } catch (err) {
+      console.warn('[cassino-ui] nao consegui montar a mesa 3D ' + nome + ':', err)
+      return null
     }
+    mesas3d.set(nome, m)
+    return m
   }
 
-  function aoTeclar(e) {
-    if (!aberto) return
-    const emCampo = e.target && e.target.tagName === 'INPUT'
-    if (e.key === 'Escape') {
-      fechar()
-      e.preventDefault()
-      e.stopPropagation()
+  /**
+   * O ricaco, pelo caminho bom quando ele existe.
+   *
+   * `buildCasino` devolve `npcs`, e o NPC INTEIRO e o que interessa: e nele que
+   * mora o setPose, e setPose e a unica forma de mudar a postura dele sem
+   * brigar com o update do proprio NPC (ver reacao-npc.js). O caminho por nome
+   * e SO o de volta — pra um mundo montado sem o cassino inteiro, pra foto e
+   * pro teste. Nome de objeto e contrato fraco; a referencia direta nao.
+   */
+  function garantirRicaco() {
+    if (ricaco) return ricaco
+    const anc = mundo && mundo.mesas ? mundo.mesas.poker : null
+    let alvo = (mundo && mundo.npcs) ? mundo.npcs.ricaco : null
+    if (!alvo) alvo = acharNPC(mundo && mundo.group, CORPO_RICACO, anc ? anc.npc : null)
+    ricaco = criarReacao(alvo)
+    return ricaco
+  }
+
+  function pintarBolsoMesa() {
+    if (!faixa || !mesaAtiva) return
+    faixa.setBolso(
+      carteira ? carteira.ouro : 0,
+      carteira ? carteira.fichas : 0,
+      mesaAtiva.moeda)
+  }
+
+  /** Mesma trava de reentrada do painel: creditar dispara aoMudar da carteira,
+   *  que chamaria o render de volta no meio do proprio render. */
+  function renderMesa() {
+    if (!mesaAtiva || renderizando) return
+    renderizando = true
+    try { mesaAtiva.render() } catch (err) { console.warn('[cassino-ui] mesa:', err) }
+    renderizando = false
+  }
+
+  /** Viaja pro enquadramento `nome` da mesa no ar, sem soltar a camera. */
+  function irPara(nome, tempo) {
+    if (!cena || !mesaAtiva || !mesaAtiva.mesa) return
+    if (mesaAtiva.quadro === nome) return
+    mesaAtiva.quadro = nome
+    const q = mesaAtiva.mesa.quadro(nome)
+    cena.entrar({
+      pos: q.pos, alvo: q.alvo, fov: q.fov,
+      tempo: Number.isFinite(tempo) ? tempo : T_TROCA,
+      // Paralaxe fraca de proposito: a mesa e um lugar de LER carta, e lente
+      // que persegue o ponteiro cansa em uma mao. O suficiente pra nao parecer
+      // foto colada, e so.
+      paralaxe: 0.55,
+    })
+  }
+
+  function abrirMesa(quem) {
+    if (modo === 'painel') fecharPainel()
+    if (modo === 'mesa' && mesaAtiva === quem) return
+    if (modo === 'mesa') fecharMesa(true)
+
+    const c = garantirCena()
+    const m = garantirMesa3D(quem.nome)
+    // Sem camera ou sem ancora de mesa (mundo carregado sem cassino, teste,
+    // ferramenta de foto) a mesa nao abre — e melhor nao abrir nada do que
+    // travar o jogador numa cena que nao existe.
+    if (!c || !m) {
+      chamar(game && game.hud, 'toast', 'A mesa esta fechada agora.')
       return
     }
-    if (!emCampo && (e.key === 'Enter' || e.key === 'NumpadEnter')) {
-      const b = telaAtual && telaAtual.principal && telaAtual.principal()
-      if (b && !b.disabled) { b.click(); e.preventDefault() }
+    garantirFaixa()
+
+    mesaAtiva = quem
+    quem.mesa = m
+    quem.quadro = null
+    modo = 'mesa'
+    capturarEntrada()
+
+    // O HUD INTEIRO SOME enquanto a mesa esta no ar, e nao e so estetica: a
+    // barra de itens fica exatamente onde a faixa da mesa fica, e o prompt
+    // "Jogar Blackjack" continuaria escrito no meio da tela (o main so
+    // reescreve o prompt quando nenhuma UI esta aberta). setJogando(false)
+    // apaga status, carteira, barra, ajuda, mira e prompt de uma vez — e
+    // mantem os toasts, que sao o unico canal de aviso do jogo.
+    modoAntes = (game && game.player) ? game.player.mode : null
+    chamar(game && game.hud, 'setJogando', false)
+    // TERCEIRA PESSOA A FORCA, pelo mesmo motivo pratico: em primeira pessoa o
+    // que o jogador segura (garrafa, copo, revolver) e FILHO DA CAMERA — ele
+    // viajaria junto com a lente e ficaria pendurado no meio do feltro. Em
+    // terceira, mao.js, copo.js e revolver.js escondem sozinhos a peca de mao
+    // (todos leem player.mode), e o boneco fica atras da lente, fora do quadro.
+    if (modoAntes && modoAntes !== 'third') chamar(game.player, 'setMode', 'third')
+
+    // E O BONECO SOME, que e a correcao de um defeito visto no jogo rodando: na
+    // mesa de poker o jogador aparecia como um borrao marrom tapando METADE do
+    // quadro. A causa e que a lente da mesa e posicionada a partir da MESA e
+    // nao a partir do jogador — entao onde o corpo dele cai depende de onde ele
+    // estava em pe quando apertou E, e no poker ele estava a 10 cm da lente.
+    //
+    // Terceira pessoa continua sendo o modo certo (ver acima: em 1a pessoa o
+    // que ele segura e filho da camera e viajaria junto). O que nao da e contar
+    // com o corpo ficar atras da lente por sorte. Esconder o boneco resolve os
+    // dois casos de uma vez, e a mesa nunca mostra o jogador de todo jeito.
+    //
+    // Nao ha quem reescreva isto por quadro: setVisibleBody so e chamado por
+    // player.setMode e por game.setAppearance — nenhum dos dois roda no laco.
+    if (game && game.character && game.character.setVisibleBody) {
+      game.character.setVisibleBody(false)
     }
-    // TUDO o mais para aqui: com painel aberto o jogo nao pode ouvir tecla
-    // nenhuma (digitar 250 no caixa trocaria de arma tres vezes).
-    e.stopPropagation()
+    // O CARTAO DE MISSAO tambem sai. Ele nao mora no HUD (e de ui/tutorial.js),
+    // entao o setJogando(false) de cima nao o alcanca — e ele nasce exatamente
+    // no canto superior esquerdo, por cima do cabecalho da faixa da mesa. Duas
+    // caixas de texto empilhadas no mesmo canto era o que a foto mostrava.
+    //
+    // Devolver na saida e um `mostrar(true)` sem condicao, e isso e seguro de
+    // proposito: ui/tutorial.js nao expoe se estava visivel, mas o `mostrar`
+    // dele ja soma as duas razoes de ficar escondido ('fim' e 'vazio') na
+    // propria conta — entao pedir true sem objetivo nenhum na fila continua
+    // deixando o cartao apagado.
+    escondeuTutorial = !!(game && game.tutorial)
+    chamar(game && game.tutorial, 'mostrar', false)
+
+    m.entrar()
+    chamar(quem, 'aoEntrar')
+    faixa.setCabecalho(quem.kicker, quem.titulo)
+    faixa.mostrar(true)
+    pintarBolsoMesa()
+
+    // A VIAGEM VEM ANTES DO PRIMEIRO RENDER, e nao depois. O render de cada
+    // mesa termina pedindo o enquadramento que combina com a fase; se ele
+    // rodasse primeiro, esse pedido entraria com o tempo de TROCA (meio
+    // segundo) e a viagem de ENTRADA logo em seguida o atropelaria — duas
+    // partidas no mesmo quadro, e a primeira aparece como um solavanco.
+    const nome = quem.quadroInicial || 'aposta'
+    const q = m.quadro(nome)
+    quem.quadro = nome
+    c.entrar({ pos: q.pos, alvo: q.alvo, fov: q.fov, tempo: T_ENTRAR, paralaxe: 0.55 })
+    renderMesa()
+  }
+
+  /**
+   * A SAIDA, e a ordem dela e a parte delicada do arquivo.
+   *
+   * `imediato` e pro caso em que outra tela vai assumir a camera agora (o
+   * jogador apertou E no caixa com a mesa aberta): ai nao ha viagem de volta,
+   * so um corte.
+   *
+   * No caso normal: esconde a faixa -> pede a viagem de volta -> e SO no fim
+   * dela o modo cai pra null e a entrada e devolvida. Enquanto a camera volta,
+   * `aberto` continua true, e e isso que impede o main.js de ouvir E, as teclas
+   * 1-9 e o clique de tiro no meio do movimento.
+   */
+  function fecharMesa(imediato) {
+    if (modo !== 'mesa') return
+    const quem = mesaAtiva
+    chamar(quem, 'aoSair')
+    if (faixa) faixa.mostrar(false)
+    if (ricaco) ricaco.soltar()
+    chamar(game && game.hud, 'setJogando', true)
+    // O modo de camera volta AGORA, e nao no fim da viagem: camera-cena
+    // interpola ate onde o controller poe a lente NESTE quadro, entao trocar de
+    // modo no fim faria a camera chegar num lugar e pular pra outro no ultimo
+    // quadro. Voltando antes, a volta ja mira o enquadramento final.
+    if (modoAntes && game && game.player && game.player.mode !== modoAntes) {
+      chamar(game.player, 'setMode', modoAntes)
+    }
+    // O BONECO VOLTA AQUI, NA MAO, e nao de carona no setMode acima. setMode
+    // desiste na primeira linha quando o modo pedido e o que ja esta valendo
+    // (`if (m === mode) return`), e o caso comum e justamente esse — quem entrou
+    // na mesa em 3a pessoa sai pra 3a pessoa. Confiar nele deixaria o jogador
+    // invisivel pro resto da partida, e num jogo em 3a pessoa isso e fatal.
+    if (game && game.character && game.character.setVisibleBody) {
+      const m3 = game.player ? game.player.mode : 'third'
+      game.character.setVisibleBody(m3 !== 'first')
+    }
+    if (escondeuTutorial) chamar(game && game.tutorial, 'mostrar', true)
+    escondeuTutorial = false
+    modoAntes = null
+
+    const encerrar = () => {
+      if (quem && quem.mesa) quem.mesa.sair()
+      if (mesaAtiva === quem) {
+        mesaAtiva = null
+        modo = null
+      }
+      soltarEntrada()
+    }
+
+    if (imediato || !cena) {
+      if (cena) cena.cortar()
+      encerrar()
+      return
+    }
+    // Varre a mesa ANTES de a camera sair: o jogador ve o dealer recolhendo as
+    // cartas enquanto a lente recua, que e como se levanta de uma mesa.
+    if (quem && quem.mesa) quem.mesa.limparCartas(0)
+    cena.sair({ tempo: T_SAIR, aoSair: encerrar })
   }
 
   // O painel come todo evento de mouse: sem isto, clicar em PEDIR tambem
@@ -842,7 +935,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   // diferenca visivel. A trava renderizando evita o ciclo credito -> render ->
   // credito, que existiria porque e o render do blackjack que paga a mao.
   const desligarCarteira = carteira && typeof carteira.aoMudar === 'function'
-    ? carteira.aoMudar(() => { pintarBolso(); if (aberto) renderTela() })
+    ? carteira.aoMudar(() => {
+      pintarBolso()
+      pintarBolsoMesa()
+      if (modo === 'painel') renderTela()
+      else if (modo === 'mesa') renderMesa()
+    })
     : () => {}
 
   // -------------------------------------------------------------------------
@@ -872,13 +970,6 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         }
       },
     }
-  }
-
-  function placa(rotulo) {
-    const p = el('div', 'placa')
-    const b = el('b', null, '0')
-    p.append(el('span', null, rotulo), b)
-    return { el: p, valor: b }
   }
 
   // -------------------------------------------------------------------------
@@ -1015,65 +1106,41 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // TELA 2 — BLACKJACK (OURO)
+  // MESA 1 — BLACKJACK (OURO), no feltro de verdade
+  //
+  // A regra continua inteira em cassino/blackjack.js e o dinheiro continua
+  // inteiro aqui. O que mudou e o CORPO da coisa: em vez de desenhar a mao numa
+  // fileira de divs, esta funcao traduz o snapshot da maquina de estados em
+  // "estas cartas estao nesta fila" e deixa cassino/mesa-3d.js descobrir o que
+  // mudou e anima-lo.
+  //
+  // O SUSPENSE TEM DONO, e e o mesmo padrao que o caca-niquel deste arquivo ja
+  // usava: quando a mao acaba, o resultado JA EXISTE, mas o pagamento fica
+  // PENDENTE ate a ultima carta do dealer pousar. Quem sai da mesa no meio
+  // dessa espera perde o suspense, nunca o premio — `aoSair` quita na hora.
+  // Sem esse cuidado, apertar Esc um segundo cedo demais engoliria a aposta.
   // -------------------------------------------------------------------------
-  function construirBlackjack() {
-    const sec = el('section', 'tela')
-
+  function construirMesaBlackjack() {
     let jogo = null
     let aposta = BJ_MIN        // ultima aposta: 'jogar de novo' repete ela
-    let pago = false           // a mao atual ja foi creditada?
+    let pago = false           // o resultado desta mao ja foi lido do modulo?
+    let pendente = null        // { rs } resultado lido e ainda nao apresentado
+    let varrido = false        // a aposta desta mao ja saiu do feltro?
+    let tPagar = 0
+    let tVoltar = 0
+    let escondidaAntes = true
+    let esperaDealer = 0       // segundos ate a ultima carta da casa pousar
+    const jaAvisado = new Set()
 
-    const mesa = el('div', 'mesa')
-
-    const ladoCasa = el('div', 'lado')
-    const cabCasa = el('div', 'cab')
-    const pontosCasa = el('span', 'pontos', '-')
-    const tagCasa = el('span', 'tag', '')
-    cabCasa.append(el('span', 'rot', 'A casa'), pontosCasa, tagCasa)
-    const filaCasa = el('div', 'fila')
-    ladoCasa.append(cabCasa, filaCasa)
-
-    const ladoEu = el('div', 'lado')
-    const zonaMaos = el('div', null)
-    ladoEu.append(zonaMaos)
-
-    mesa.append(ladoCasa, ladoEu)
-
-    const placar = el('div', 'placar')
-    const msgMesa = el('div', 'nota', '')
-
-    // --- barra de aposta ---
-    const barraAposta = el('div', 'caixa2')
-    barraAposta.append(el('div', 'rot', 'Sua aposta'))
-    const mostraAposta = el('div', 'grande', String(BJ_MIN))
-    barraAposta.append(mostraAposta, el('div', 'nota', 'em OURO — a atendente aceita dinheiro vivo. Mesa: minimo ' + BJ_MIN + ', maximo ' + num(BJ_MAX) + '.'))
-    const fichas = fileiraFichas(FICHAS_BJ, (v) => {
-      // clicar EMPILHA, como numa mesa de verdade: subir a aposta e um gesto
-      // repetido, nao um numero que se escolhe de uma vez.
-      aposta = Math.min(BJ_MAX, aposta + v)
-      const teto = carteira ? carteira.ouro : 0
-      if (aposta > teto) aposta = Math.max(0, teto)
-      renderTela()
-    })
-    const btLimpar = botao('mini', 'LIMPAR', () => { aposta = 0; renderTela() })
-    const btDar = botao('ouro', 'DISTRIBUIR', () => comecar())
-    const linhaAposta = el('div', 'linha')
-    linhaAposta.append(btLimpar, btDar)
-    barraAposta.append(fichas.el, linhaAposta)
-
-    // --- barra de acoes ---
-    const barraAcoes = el('div', 'linha')
-    const btPedir = botao('verde', 'PEDIR', () => acao('pedir'))
-    const btParar = botao('', 'PARAR', () => acao('parar'))
-    const btDobrar = botao('', 'DOBRAR', () => acao('dobrar'))
-    const btDividir = botao('', 'DIVIDIR', () => acao('dividir'))
-    const btDeNovo = botao('ouro', 'JOGAR DE NOVO', () => novaMao())
-    barraAcoes.append(btPedir, btParar, btDobrar, btDividir, btDeNovo)
-
-    const sapato = el('div', 'dica', '')
-
-    sec.append(mesa, placar, msgMesa, barraAposta, barraAcoes, sapato)
+    const M = {
+      nome: 'blackjack',
+      moeda: 'ouro',
+      kicker: 'MESA DA ATENDENTE',
+      titulo: 'Blackjack',
+      quadroInicial: 'aposta',
+      mesa: null,
+      quadro: null,
+    }
 
     /**
      * A mesa volta pra fase de aposta ANTES de cada mao nova. Ficar preso num
@@ -1094,24 +1161,37 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       return jogo
     }
 
+    function limparRelogios() {
+      clearTimeout(tPagar); tPagar = 0
+      clearTimeout(tVoltar); tVoltar = 0
+    }
+
     function comecar() {
       const v = Math.max(0, Math.min(BJ_MAX, inteiro(aposta)))
-      if (v < BJ_MIN) { avisar('A mesa nao aceita menos que ' + BJ_MIN + '.', 'ruim'); return }
+      if (v < BJ_MIN) { faixa.setRecado('A mesa nao aceita menos que ' + BJ_MIN + '.', 'ruim'); return }
       const j = garantirJogo(true)
       // 1) cobra  2) so entao reparte. Nunca ao contrario.
-      if (!chamar(carteira, 'gastarOuro', v)) { avisar('Ouro insuficiente. Passe no caixa ou aposte menos.', 'ruim'); return }
+      if (!chamar(carteira, 'gastarOuro', v)) {
+        faixa.setRecado('Ouro insuficiente. Passe no caixa ou aposte menos.', 'ruim')
+        return
+      }
       // Daqui pra baixo o ouro JA SAIU: 'pago' so cai depois da cobranca porque
-      // gastarOuro avisa a carteira, que redesenha a tela — e um render com a
-      // mao anterior ainda em 'fim' e 'pago' zerado pagaria o placar duas vezes.
+      // gastarOuro avisa a carteira, que redesenha a mesa — e um render com a
+      // mao anterior ainda em 'fim' e 'pago' zerado leria o placar duas vezes.
+      quitarMao()
+      limparRelogios()
       aposta = v
       pago = false
-      placar.textContent = ''
-      // sapato passou do corte: embaralha ANTES de repartir, nunca no meio da mao
+      varrido = false
+      escondidaAntes = true
+      jaAvisado.clear()
+      if (M.mesa) M.mesa.limparCartas(0)
+      // sapato passou do corte: embaralha ANTES de repartir, nunca no meio
       if (baralhoBJ && baralhoBJ.precisaEmbaralhar) {
         chamar(baralhoBJ, 'embaralhar')
-        avisar('Baralho novo na mesa.', '')
+        faixa.setRecado('Baralho novo na mesa.', '')
       } else {
-        avisar('')
+        faixa.setRecado('')
       }
       chamar(carteira, 'contarMao')
       chamar(j, 'comecar', v)
@@ -1120,18 +1200,18 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (!depois || depois.fase === 'aposta') {
         chamar(carteira, 'ganharOuro', v)
         pago = true
-        avisar('A mesa nao aceitou essa aposta. Ouro devolvido.', 'ruim')
+        faixa.setRecado('A mesa nao aceitou essa aposta. Ouro devolvido.', 'ruim')
       }
-      renderTela()
+      // Quem move a lente daqui pra frente e o render, por quadroBase().
+      renderMesa()
     }
 
     function novaMao() {
       const teto = carteira ? carteira.ouro : 0
       if (aposta > teto) aposta = Math.min(BJ_MAX, teto)
       if (aposta >= BJ_MIN) { comecar(); return }
-      placar.textContent = ''
-      avisar('Sem ouro pra outra mao. O caixa troca fichas de volta.', 'ruim')
-      renderTela()
+      faixa.setRecado('Sem ouro pra outra mao. O caixa troca fichas de volta.', 'ruim')
+      renderMesa()
     }
 
     function acao(nome) {
@@ -1143,314 +1223,403 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         // Cobra ANTES: se a carteira recusar, o botao simplesmente nao acontece
         // e a mao segue exatamente como estava.
         if (custo > 0 && !chamar(carteira, 'gastarOuro', custo)) {
-          avisar('Ouro insuficiente pra ' + nome + '.', 'ruim')
+          faixa.setRecado('Ouro insuficiente pra ' + nome + '.', 'ruim')
           return
         }
-        avisar(nome === 'dobrar' ? 'Dobrou: -' + num(custo) + ' de ouro.' : 'Dividiu: -' + num(custo) + ' de ouro.', '')
+        faixa.setRecado(nome === 'dobrar'
+          ? 'Dobrou: -' + num(custo) + ' de ouro.'
+          : 'Dividiu: -' + num(custo) + ' de ouro.', '')
       }
       chamar(j, nome)
-      renderTela()
-    }
-
-    /** Valor das cartas VISIVEIS. Com a do dealer tapada nao da pra confiar no
-     *  estado.valor: ele pode ja estar somando a carta que o jogador nao viu. */
-    function valorVisivel(cartas, quantas) {
-      let total = 0
-      let ases = 0
-      for (let i = 0; i < quantas && i < cartas.length; i++) {
-        const r = cartas[i] ? cartas[i].r : 0
-        if (r === 1) { ases++; total += 11 } else total += Math.min(10, r)
-      }
-      while (total > 21 && ases > 0) { total -= 10; ases-- }
-      return total
+      renderMesa()
     }
 
     function rotuloResultado(t) {
-      if (t === 'blackjack') return 'Blackjack!'
-      if (t === 'ganhou') return 'Voce ganhou'
-      if (t === 'perdeu') return 'A casa levou'
-      if (t === 'empate') return 'Empate — aposta de volta'
-      if (t === 'estourou') return 'Estourou'
+      if (t === 'blackjack') return 'BLACKJACK'
+      if (t === 'ganhou') return 'VOCE GANHOU'
+      if (t === 'perdeu') return 'A CASA LEVOU'
+      if (t === 'empate') return 'EMPATE'
+      if (t === 'estourou') return 'ESTOUROU'
       return String(t || '')
     }
 
+    /**
+     * Le o resultado da mao, PAGA e mostra o dinheiro andando no feltro.
+     *
+     * Idempotente de proposito (sai fora se 'pendente' for null): ela e chamada
+     * pelo relogio da revelacao, por comecar() e por aoSair(), e pagar duas
+     * vezes seria o pior defeito que este arquivo pode ter.
+     */
+    function quitarMao() {
+      if (!pendente) return
+      const rs = pendente.rs
+      pendente = null
+      clearTimeout(tPagar); tPagar = 0
+      const m = M.mesa
+      let total = 0
+      let apostado = 0
+      let melhor = ''
+      for (let i = 0; i < rs.length; i++) {
+        const r = rs[i]
+        const ganho = inteiro(chamar(carteira, 'ganharOuro', r.retorno))
+        total += ganho
+        apostado += inteiro(r.aposta)
+        if (r.tipo === 'blackjack') melhor = 'blackjack'
+        else if (r.tipo === 'ganhou' && melhor !== 'blackjack') melhor = 'ganhou'
+        else if (!melhor) melhor = r.tipo
+        if (!m) continue
+        const slot = i === 0 ? 'aposta' : 'aposta1'
+        const slotPago = i === 0 ? 'pago' : 'pago1'
+        // O pagamento nasce ao lado da aposta que ele paga: com a mesa dividida
+        // a primeira aposta esta deslocada, e o pagamento dela acompanha.
+        const xPago = i === 0 ? (rs.length > 1 ? 0.445 : 0.185) : -0.445
+        if (ganho > 0) {
+          // A CASA PAGA AO LADO da sua aposta e so entao tudo desliza pra voce.
+          // E o gesto de mesa de verdade, e e o unico jeito de o jogador VER
+          // que levou o dobro em vez de so ver um numero mudar no rodape.
+          const lucro = Math.max(0, ganho - inteiro(r.aposta))
+          let at = 0
+          if (lucro > 0) at = m.fichas(slotPago, lucro, { de: 'casa', x: xPago })
+          m.varrer(slot, 'jogador', at + 0.32)
+          m.varrer(slotPago, 'jogador', at + 0.32)
+        } else {
+          m.varrer(slot, 'casa', 0.12 + i * 0.10)
+        }
+      }
+      varrido = true
+
+      if (m) {
+        if (melhor === 'blackjack') { m.acender(0xffe0a0, 1.0, 1.5); m.tremer(0.35) }
+        else if (total > apostado) m.acender(0x9fe6b4, 0.5, 0.9)
+      }
+      if (total > 0) {
+        faixa.setRecado('Voce recebeu ' + num(total) + ' de ouro.', 'bom')
+        faixa.anunciar(rotuloResultado(melhor), melhor === 'blackjack' ? 'top' : '',
+          '+' + num(total) + ' de ouro')
+        if (melhor === 'blackjack') { somMesa.dourado(0.05); faixa.piscar('bom') }
+        else somMesa.selo(0.05)
+      } else {
+        faixa.setRecado('A casa levou essa. A proxima e sua.', 'ruim')
+        faixa.anunciar(rotuloResultado(melhor || 'perdeu'), 'ruim', '-' + num(apostado) + ' de ouro')
+        somMesa.selo(0.05)
+      }
+      renderMesa()
+    }
+
+    /**
+     * Efeito de mao, disparado no INSTANTE em que a carta que causou o efeito
+     * pousa (mesa-3d chama isto de volta). Estourar so tem peso se o baque e o
+     * tremor caem junto com a carta que estourou.
+     */
+    function avaliarMao(i) {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      const m = M.mesa
+      if (!est || !m) return
+      const mm = (est.maos || [])[i]
+      if (!mm) return
+      const marcaBj = 'bj' + i
+      const marcaEs = 'es' + i
+      if (mm.blackjack && !jaAvisado.has(marcaBj)) {
+        jaAvisado.add(marcaBj)
+        m.acender(0xffe0a0, 1.0, 1.4)
+        m.tremer(0.42)
+        somMesa.dourado(0)
+        faixa.piscar('bom')
+        faixa.anunciar('BLACKJACK', 'top', 'paga 3 para 2')
+      } else if (mm.estourou && !jaAvisado.has(marcaEs)) {
+        jaAvisado.add(marcaEs)
+        m.tremer(0.85)
+        somMesa.baque(0)
+        faixa.piscar('ruim')
+        faixa.anunciar('ESTOUROU', 'ruim', String(inteiro(mm.valor)))
+      }
+    }
+
+    /**
+     * O enquadramento que combina com a fase. Nao e chamado so no comeco: o
+     * render termina pedindo ele, e como irPara() nao faz nada quando ja se
+     * esta la, a lente se conserta sozinha depois de qualquer mergulho.
+     */
+    function quadroBase() {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      if (!est || est.fase === 'aposta') return 'aposta'
+      return (est.maos && est.maos.length > 1) ? 'duas' : 'jogo'
+    }
+
+    /** Quanto de ficha esta no circulo de aposta de cada mao, agora. */
+    function apostaNoFeltro(est, fase, i) {
+      if (varrido) return 0
+      if (!est || fase === 'aposta') return i === 0 ? Math.max(0, inteiro(aposta)) : 0
+      const mm = (est.maos || [])[i]
+      return mm ? Math.max(0, inteiro(mm.aposta)) : 0
+    }
+
     function render() {
-      const j = jogo
-      const est = j ? chamar(j, 'estado') : null
+      const m = M.mesa
+      if (!m || !faixa) return
+      const est = jogo ? chamar(jogo, 'estado') : null
       const fase = est ? est.fase : 'aposta'
       const ouro = carteira ? carteira.ouro : 0
 
-      // --- casa ---
+      // --- a casa -----------------------------------------------------------
+      let escondida = true
+      let valorCasa = '-'
       if (est) {
         const d = est.dealer || { cartas: [] }
         const cartas = Array.isArray(d.cartas) ? d.cartas : []
+        escondida = !!d.escondida
         const defs = []
-        if (d.escondida) {
+        if (escondida) {
           // O modulo pode guardar a 2a carta no array (marcada como segredo) ou
           // segurar ela fora dele. Os dois casos desenham a MESMA coisa aqui.
           const visiveis = Math.max(1, Math.min(cartas.length, 1))
           for (let i = 0; i < visiveis; i++) defs.push(def(cartas[i], false))
           defs.push(def(null, true))
-          pontosCasa.textContent = String(valorVisivel(cartas, visiveis)) + ' + ?'
+          valorCasa = String(valorVisivel(cartas, visiveis)) + ' + ?'
         } else {
           for (let i = 0; i < cartas.length; i++) defs.push(def(cartas[i], false))
-          pontosCasa.textContent = cartas.length ? String(inteiro(d.valor)) : '-'
+          valorCasa = cartas.length ? String(inteiro(d.valor)) : '-'
         }
-        pintarCartas(filaCasa, defs)
-        const estourouCasa = !d.escondida && inteiro(d.valor) > 21
-        tagCasa.textContent = estourouCasa ? 'ESTOUROU' : ''
-        marca(tagCasa, 'ruim', estourouCasa)
+        esperaDealer = m.cartas('dealer', defs)
       } else {
-        pintarCartas(filaCasa, [])
-        pontosCasa.textContent = '-'
-        tagCasa.textContent = ''
+        m.cartas('dealer', [])
+        esperaDealer = 0
       }
 
-      // --- minhas maos ---
+      // --- minhas maos -------------------------------------------------------
       const maos = (est && Array.isArray(est.maos)) ? est.maos : []
-      if (zonaMaos.childElementCount !== Math.max(1, maos.length)) {
-        zonaMaos.textContent = ''
-        const quantas = Math.max(1, maos.length)
-        for (let i = 0; i < quantas; i++) {
-          const linha = el('div', 'mao')
-          const cab = el('div', 'cab')
-          const rot = el('span', 'rot', maos.length > 1 ? 'Voce — mao ' + (i + 1) : 'Voce')
-          const pts = el('span', 'pontos', '-')
-          const tag = el('span', 'tag', '')
-          const ap = el('span', 'nota', '')
-          cab.append(rot, pts, tag, ap)
-          const fila = el('div', 'fila')
-          linha.append(cab, fila)
-          linha._pts = pts
-          linha._tag = tag
-          linha._ap = ap
-          linha._fila = fila
-          zonaMaos.appendChild(linha)
-        }
-      }
-      for (let i = 0; i < zonaMaos.childElementCount; i++) {
-        const linha = zonaMaos.children[i]
-        const m = maos[i]
-        if (!m) {
-          pintarCartas(linha._fila, [])
-          linha._pts.textContent = '-'
-          linha._tag.textContent = ''
-          linha._ap.textContent = ''
-          marca(linha, 'ativa', false)
-          continue
-        }
-        const cartas = Array.isArray(m.cartas) ? m.cartas : []
+      const partido = maos.length > 1
+      for (let i = 0; i < 2; i++) {
+        const slot = i === 0 ? 'mao0' : 'mao1'
+        const mm = maos[i]
+        if (!mm) { m.cartas(slot, []); continue }
+        const cartas = Array.isArray(mm.cartas) ? mm.cartas : []
         const defs = []
         for (let k = 0; k < cartas.length; k++) defs.push(def(cartas[k], false))
-        pintarCartas(linha._fila, defs)
-        linha._pts.textContent = String(inteiro(m.valor))
-        let tag = ''
-        if (m.blackjack) tag = 'BLACKJACK'
-        else if (m.estourou) tag = 'ESTOUROU'
-        else if (m.macio) tag = 'MACIO'
-        linha._tag.textContent = tag
-        marca(linha._tag, 'ruim', !!m.estourou)
-        marca(linha._tag, 'bom', !!m.blackjack)
-        linha._ap.textContent = 'aposta ' + num(m.aposta) + (m.dobrada ? ' (dobrada)' : '')
-        marca(linha, 'ativa', fase === 'jogador' && est.maoAtual === i)
+        // Dividiu: a primeira mao sai do meio pra abrir espaco pra segunda. O
+        // leque encolhe junto (o layout ja da um passo menor pra mao1), senao
+        // as duas maos se tocam com tres cartas cada.
+        m.cartas(slot, defs, {
+          x: i === 0 ? (partido ? 0.20 : 0) : undefined,
+          aoRevelar: () => avaliarMao(i),
+        })
       }
+      m.destacar(est && est.maoAtual === 1 ? 'mao1' : 'mao0',
+        partido && fase === 'jogador')
 
-      msgMesa.textContent = est ? (est.mensagem || '') : 'Escolha a aposta e mande distribuir.'
+      // --- fichas no feltro --------------------------------------------------
+      // Dividiu: a aposta da primeira mao acompanha a mao dela pro lado. O
+      // deslocamento so pega com a pilha vazia, que e sempre o caso aqui — o
+      // split acontece com a mesa ja apostada e a pilha nova comeca do zero.
+      m.fichas('aposta', apostaNoFeltro(est, fase, 0),
+        { de: 'jogador', x: partido ? 0.26 : 0.00 })
+      m.fichas('aposta1', apostaNoFeltro(est, fase, 1), { de: 'jogador' })
 
-      // --- fim da mao: paga UMA vez so ---
+      // --- a virada da carta tapada: aproxima e recua -------------------------
+      // A ANTECIPACAO. A carta de baixo da casa e a ultima coisa que se revela
+      // numa mao de blackjack, e e o unico momento em que ninguem tem decisao
+      // nenhuma pra tomar — entao a lente pode mergulhar nela sem atrapalhar.
+      if (escondidaAntes && !escondida && est) {
+        irPara('revelar', 0.42)
+        clearTimeout(tVoltar)
+        tVoltar = setTimeout(() => {
+          tVoltar = 0
+          irPara(quadroBase(), 0.55)
+        }, 1500 + Math.round(esperaDealer * 1000))
+      }
+      escondidaAntes = escondida
+
+      // --- fim da mao: le UMA vez e agenda a apresentacao ---------------------
       if (est && fase === 'fim' && !pago) {
         pago = true
-        placar.textContent = ''
-        const rs = Array.isArray(est.resultados) ? est.resultados : []
-        let total = 0
-        for (let i = 0; i < rs.length; i++) {
-          const r = rs[i]
-          const ganho = inteiro(chamar(carteira, 'ganharOuro', r.retorno))
-          total += ganho
-          const linha = el('div', 'res' +
-            (r.tipo === 'blackjack' ? ' top' : (r.tipo === 'ganhou' ? ' bom' : (r.tipo === 'empate' ? '' : ' ruim'))))
-          const esq = el('span', null, rotuloResultado(r.tipo) + (rs.length > 1 ? ' (mao ' + (i + 1) + ')' : ''))
-          const dir = el('b', null, ganho > 0 ? '+' + num(ganho) : '—')
-          linha.append(esq, dir)
-          placar.appendChild(linha)
-        }
-        if (total > 0) {
-          avisar('Voce recebeu ' + num(total) + ' de ouro.', 'bom')
-          if (rs.some((r) => r && r.tipo === 'blackjack')) comemorar(1500)
-        } else {
-          avisar('A casa levou essa. A proxima e sua.', 'ruim')
-        }
+        pendente = { rs: Array.isArray(est.resultados) ? est.resultados.slice() : [] }
+        clearTimeout(tPagar)
+        // 0.8 s e o voo mais o giro da ultima carta; T_REVELACAO e a pausa que
+        // separa "a carta caiu" de "e agora o resultado".
+        tPagar = setTimeout(quitarMao,
+          Math.max(900, Math.round((esperaDealer + 0.8) * 1000) + T_REVELACAO))
       }
-      if (fase !== 'fim') placar.textContent = ''
 
-      // --- botoes ---
+      // --- a faixa ------------------------------------------------------------
       const apostando = !est || fase === 'aposta'
-      barraAposta.style.display = apostando ? '' : 'none'
-      barraAcoes.style.display = apostando ? 'none' : ''
       // Aparar a aposta pelo saldo so vale enquanto ela AINDA PODE SER GASTA.
-      // No meio da mao o ouro ja saiu da carteira, entao 'ouro' e o que sobrou
-      // DEPOIS de pagar — cortar a aposta ali zerava ela em toda mao apostada
-      // por inteiro, e o jogador terminava a mao com o premio no bolso, a barra
-      // de aposta escondida (fase 'fim' nao mostra ela) e um JOGAR DE NOVO
-      // desabilitado por um valor que ele nunca escolheu: mesa travada pra
-      // sempre, sem nenhum botao que desfaca.
+      // No meio da mao o ouro ja saiu, entao 'ouro' e o que sobrou DEPOIS de
+      // pagar — cortar a aposta ali zerava ela em toda mao apostada por inteiro,
+      // e o jogador terminava com o premio no bolso e um JOGAR DE NOVO
+      // desabilitado por um valor que ele nunca escolheu.
       const emJogo = fase === 'jogador' || fase === 'dealer'
       if (!emJogo && aposta > ouro) aposta = Math.min(BJ_MAX, ouro)
-      // Caminho de volta: no fim da mao nao ha fichas na tela pra corrigir uma
-      // aposta abaixo do minimo (ela so cai ai por falta de ouro, nunca por
-      // escolha). Deu pra pagar a mesa de novo, ela volta sozinha pro minimo —
-      // e o que faz "passar no caixa e voltar" destravar a mesa.
+      // Caminho de volta: passar no caixa e voltar tem que destravar a mesa.
       if (fase === 'fim' && aposta < BJ_MIN && ouro >= BJ_MIN) aposta = BJ_MIN
-      mostraAposta.textContent = num(aposta) + (aposta >= BJ_MAX ? '  (teto da mesa)' : '')
-      fichas.atualizar(Math.min(ouro, BJ_MAX - aposta), -1)
-      btLimpar.disabled = aposta <= 0
-      btDar.disabled = aposta < BJ_MIN || aposta > ouro
-      btDar.textContent = aposta >= BJ_MIN ? 'DISTRIBUIR (' + num(aposta) + ')' : 'DISTRIBUIR'
+
+      faixa.setBolso(ouro, carteira ? carteira.fichas : 0, 'ouro')
+      const minha = maos.length ? maos[Math.max(0, est.maoAtual)] || maos[0] : null
+      if (apostando) {
+        faixa.setValor('Sua aposta', aposta, aposta >= BJ_MAX ? 'teto da mesa' : 'em ouro')
+      } else {
+        faixa.setValor('Voce', minha ? inteiro(minha.valor) : 0,
+          'casa ' + valorCasa + (minha && minha.macio ? '  ·  macio' : ''))
+      }
+      faixa.mostrarFichas(apostando)
+      faixa.atualizarFichas(Math.min(ouro, BJ_MAX - aposta), -1)
+      if (!est) faixa.setRecado('Escolha a aposta e mande distribuir.', '')
+      else if (fase !== 'fim' && est.mensagem) faixa.setRecado(est.mensagem, '')
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
       const extra = (est && fase === 'jogador') ? Math.max(0, inteiro(chamar(jogo, 'custoExtra'))) : 0
-      btPedir.disabled = acoes.indexOf('pedir') < 0
-      btParar.disabled = acoes.indexOf('parar') < 0
-      btDobrar.disabled = acoes.indexOf('dobrar') < 0
-      btDividir.disabled = acoes.indexOf('dividir') < 0
-      btDobrar.textContent = extra > 0 ? 'DOBRAR (' + num(extra) + ')' : 'DOBRAR'
-      btDividir.textContent = extra > 0 ? 'DIVIDIR (' + num(extra) + ')' : 'DIVIDIR'
       const fim = fase === 'fim'
-      btDeNovo.style.display = fim ? '' : 'none'
-      btPedir.style.display = fim ? 'none' : ''
-      btParar.style.display = fim ? 'none' : ''
-      btDobrar.style.display = fim ? 'none' : ''
-      btDividir.style.display = fim ? 'none' : ''
-      btDeNovo.disabled = aposta < BJ_MIN || aposta > ouro
-      btDeNovo.textContent = 'JOGAR DE NOVO (' + num(aposta) + ')'
+      faixa.ajustar('limpar', { ver: apostando, ligado: aposta > 0 })
+      faixa.ajustar('dar', {
+        ver: apostando,
+        ligado: aposta >= BJ_MIN && aposta <= ouro,
+        txt: aposta >= BJ_MIN ? 'DISTRIBUIR (' + num(aposta) + ')' : 'DISTRIBUIR',
+        chama: aposta >= BJ_MIN && aposta <= ouro,
+      })
+      faixa.ajustar('pedir', { ver: !apostando && !fim, ligado: acoes.indexOf('pedir') >= 0 })
+      faixa.ajustar('parar', { ver: !apostando && !fim, ligado: acoes.indexOf('parar') >= 0 })
+      faixa.ajustar('dobrar', {
+        ver: !apostando && !fim,
+        ligado: acoes.indexOf('dobrar') >= 0,
+        txt: extra > 0 ? 'DOBRAR (' + num(extra) + ')' : 'DOBRAR',
+      })
+      faixa.ajustar('dividir', {
+        ver: !apostando && !fim,
+        ligado: acoes.indexOf('dividir') >= 0,
+        txt: extra > 0 ? 'DIVIDIR (' + num(extra) + ')' : 'DIVIDIR',
+      })
+      faixa.ajustar('denovo', {
+        ver: fim,
+        ligado: aposta >= BJ_MIN && aposta <= ouro,
+        txt: 'JOGAR DE NOVO (' + num(aposta) + ')',
+        chama: aposta >= BJ_MIN && aposta <= ouro,
+      })
+      faixa.setDica('Sapato: ' + (baralhoBJ ? inteiro(baralhoBJ.restantes) : 0) +
+        ' cartas  ·  a casa para em qualquer 17  ·  Esc sai da mesa')
 
-      sapato.textContent = baralhoBJ ? ('Sapato: ' + inteiro(baralhoBJ.restantes) + ' cartas  ·  a casa compra ate 17') : ''
+      // A lente sempre volta pro enquadramento da fase — a nao ser que um
+      // mergulho esteja em curso, e ai quem devolve a lente e o relogio dele.
+      if (!tVoltar) irPara(quadroBase(), T_TROCA)
     }
 
-    return {
-      nome: 'blackjack',
-      sec,
-      render,
-      principal() {
-        const est = jogo ? chamar(jogo, 'estado') : null
-        if (!est || est.fase === 'aposta') return btDar
-        if (est.fase === 'fim') return btDeNovo
-        return btPedir
-      },
-      kicker: 'MESA DA ATENDENTE',
-      titulo: 'Blackjack',
+    M.render = render
+
+    M.aoEntrar = () => {
+      faixa.definirFichas(FICHAS_BJ, (v) => {
+        // clicar EMPILHA, como numa mesa de verdade: subir a aposta e um gesto
+        // repetido, nao um numero que se escolhe de uma vez.
+        aposta = Math.min(BJ_MAX, aposta + v)
+        const teto = carteira ? carteira.ouro : 0
+        if (aposta > teto) aposta = Math.max(0, teto)
+        renderMesa()
+      })
+      faixa.definirBotoes([
+        { id: 'limpar', txt: 'LIMPAR', cls: 'fantasma', ao: () => { aposta = 0; renderMesa() } },
+        { id: 'dar', txt: 'DISTRIBUIR', cls: 'ouro grande', ao: comecar },
+        { id: 'pedir', txt: 'PEDIR', cls: 'verde grande', ao: () => acao('pedir') },
+        { id: 'parar', txt: 'PARAR', cls: '', ao: () => acao('parar') },
+        { id: 'dobrar', txt: 'DOBRAR', cls: '', ao: () => acao('dobrar') },
+        { id: 'dividir', txt: 'DIVIDIR', cls: '', ao: () => acao('dividir') },
+        { id: 'denovo', txt: 'JOGAR DE NOVO', cls: 'ouro grande', ao: novaMao },
+        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo', ao: () => fechar() },
+      ])
+      escondidaAntes = true
     }
+
+    // Sair no meio da espera nao pode comer o premio: quita antes de tudo.
+    M.aoSair = () => { quitarMao(); limparRelogios() }
+
+    M.principal = () => {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      if (!est || est.fase === 'aposta') return faixa.botao('dar')
+      if (est.fase === 'fim') return faixa.botao('denovo')
+      return faixa.botao('pedir')
+    }
+
+    return M
   }
 
   // -------------------------------------------------------------------------
-  // TELA 3 — POKER HEADS-UP DE 2 CARTAS (FICHAS)
+  // MESA 2 — POKER HEADS-UP DE 2 CARTAS (FICHAS)
+  //
+  // A diferenca em relacao ao blackjack nao e de regra, e de COMPOSICAO: aqui
+  // ha um adversario, e ele e metade do jogo. A lente do 'jogo' abre pra caber
+  // o ricaco inteiro do outro lado do feltro e paga por isso com carta pequena;
+  // quem devolve o tamanho sao os dois mergulhos ('minhas' depois de repartir,
+  // 'revelar' no showdown). Os numeros estao medidos em cassino/mesa-3d.js.
+  //
+  // POR QUE O JOGADOR NAO SENTA NA CADEIRA. Chegou-se a usar player.sitOn na
+  // cadeira vazia que world/casino.js ja deixa pronta ali. O problema e
+  // geometrico: pra caber o ricaco, a lente precisa ficar POR CIMA DO OMBRO do
+  // jogador, uns 60 cm atras da cadeira. Com o boneco sentado, a cabeca dele
+  // fica entre a lente e o feltro e tapa justamente as duas cartas do jogador.
+  // Em pe, ele fica ATRAS da lente e some do quadro. Sentar so ficaria bem com
+  // a camera na altura do olho de quem esta sentado — e ai o ricaco nao cabe.
   // -------------------------------------------------------------------------
-  function construirPoker() {
-    const sec = el('section', 'tela')
-
+  function construirMesaPoker() {
     let jogo = null
     let ante = ANTES_POKER[1]
     let entradaPaga = 0        // quanto ja saiu da carteira NESTA mao
     let pago = false           // resultado ja creditado?
+    let pendente = null
     let subida = AUMENTOS_POKER[0]
     let fichasDele = 2000      // a banca dele atravessa as maos
+    let tPagar = 0
+    let tVoltar = 0
+    let reveladoAntes = false
+    let ultimaFala = ''
 
-    const npc = el('div', 'npc')
-    const retrato = retratoRicaco(128)
-    retrato.className = cn('retrato')
-    const balao = el('div', 'balao')
-    const nomeNpc = el('b', null, NOME_NPC_POKER)
-    const falaNpc = document.createTextNode('Senta ai. Ficha na mesa e sem conversa mole.')
-    balao.append(nomeNpc, falaNpc)
-    npc.append(retrato, balao)
+    const M = {
+      nome: 'poker',
+      moeda: 'ficha',
+      kicker: 'MESA DE POKER',
+      titulo: NOME_NPC_POKER,
+      quadroInicial: 'aposta',
+      mesa: null,
+      quadro: null,
+    }
 
-    const mesa = el('div', 'mesa')
-    const ladoDele = el('div', 'lado')
-    const cabDele = el('div', 'cab')
-    const maoDeleTxt = el('span', 'tag', '')
-    cabDele.append(el('span', 'rot', 'Dom Sebastiao'), maoDeleTxt)
-    const filaDele = el('div', 'fila')
-    ladoDele.append(cabDele, filaDele)
-
-    const placas = el('div', 'placas')
-    const pPote = placa('pote')
-    const pFalta = placa('pra pagar')
-    const pBanca = placa('fichas dele')
-    placas.append(pPote.el, pFalta.el, pBanca.el)
-
-    const ladoEu = el('div', 'lado')
-    const cabEu = el('div', 'cab')
-    const minhaEntradaTxt = el('span', 'nota', '')
-    cabEu.append(el('span', 'rot', 'Voce'), minhaEntradaTxt)
-    const filaEu = el('div', 'fila')
-    const minhaMaoTxt = el('div', 'mao1', '')
-    ladoEu.append(cabEu, filaEu, minhaMaoTxt)
-
-    mesa.append(ladoDele, placas, ladoEu)
-
-    const placar = el('div', 'placar')
-    const msgMesa = el('div', 'nota', '')
-
-    // --- barra da ante ---
-    const barraAnte = el('div', 'caixa2')
-    barraAnte.append(el('div', 'rot', 'Ante da mao'))
-    const mostraAnte = el('div', 'grande', String(ante))
-    barraAnte.append(mostraAnte, el('div', 'nota', 'em FICHAS. Os dois pagam a ante; quem desistir depois deixa o que ja botou.'))
-    const fichasAnte = fileiraFichas(ANTES_POKER, (v) => { ante = v; renderTela() })
-    const btRepartir = botao('ouro', 'REPARTIR', () => comecar())
-    const linhaAnte = el('div', 'linha')
-    linhaAnte.append(btRepartir)
-    barraAnte.append(fichasAnte.el, linhaAnte)
-
-    // --- barra de acoes ---
-    const barraSubida = el('div', 'caixa2')
-    barraSubida.append(el('div', 'rot', 'Tamanho da subida'))
-    const fichasSubida = fileiraFichas(AUMENTOS_POKER, (v) => { subida = v; renderTela() })
-    barraSubida.append(fichasSubida.el)
-
-    const barraAcoes = el('div', 'linha')
-    const btPassar = botao('', 'PASSAR', () => acao('passar'))
-    const btApostar = botao('verde', 'APOSTAR', () => acao('apostar'))
-    const btPagar = botao('verde', 'PAGAR', () => acao('pagar'))
-    const btAumentar = botao('ouro', 'AUMENTAR', () => acao('aumentar'))
-    const btDesistir = botao('bordo', 'DESISTIR', () => acao('desistir'))
-    const btDeNovo = botao('ouro', 'OUTRA MAO', () => novaMao())
-    barraAcoes.append(btPassar, btApostar, btPagar, btAumentar, btDesistir, btDeNovo)
-
-    // Tabela de maos: e um jogo inventado, entao a regra fica na tela. Sem isto
-    // o jogador perde uma mao com dois reis e acha que a UI errou.
-    const ranking = el('div', 'ranking')
-    ranking.append(
-      el('em', null, 'PAR'), el('s', null, '>'),
-      el('em', null, 'SEQUENCIA'), el('s', null, '>'),
-      el('em', null, 'NAIPE'), el('s', null, '>'),
-      el('em', null, 'CARTA ALTA'),
-      el('span', null, '· com 2 cartas o mesmo naipe (23,5%) e mais comum que cartas seguidas (~14,5%), entao sequencia vale mais.'),
-    )
-
-    sec.append(npc, mesa, placar, msgMesa, barraAnte, barraSubida, barraAcoes, ranking)
+    function limparRelogios() {
+      clearTimeout(tPagar); tPagar = 0
+      clearTimeout(tVoltar); tVoltar = 0
+    }
 
     function comecar() {
       if (!baralhoPk) baralhoPk = criarBaralho(1)
       const v = Math.max(1, inteiro(ante))
-      if (!chamar(carteira, 'temFichas', v)) { avisar('Fichas insuficientes pra ante. Passe no caixa.', 'ruim'); return }
+      if (!chamar(carteira, 'temFichas', v)) {
+        faixa.setRecado('Fichas insuficientes pra ante. Passe no caixa.', 'ruim')
+        return
+      }
       // 1) cobra a ante  2) so entao cria a mao (comecar() cobra a dele)
-      if (!chamar(carteira, 'gastarFichas', v)) { avisar('Fichas insuficientes.', 'ruim'); return }
+      if (!chamar(carteira, 'gastarFichas', v)) {
+        faixa.setRecado('Fichas insuficientes.', 'ruim')
+        return
+      }
+      quitarMao()
+      limparRelogios()
       if (baralhoPk && baralhoPk.precisaEmbaralhar) chamar(baralhoPk, 'embaralhar')
       ante = v
       pago = false
-      placar.textContent = ''
+      reveladoAntes = false
+      ultimaFala = ''
+      if (M.mesa) { M.mesa.limparCartas(0); M.mesa.limparFichas() }
       jogo = criarPoker({ baralho: baralhoPk, aposta: v, fichasNpc: fichasDele })
       chamar(carteira, 'contarMao')
       chamar(jogo, 'comecar')
       // Baliza da cobranca: o que o modulo ja conta como minha entrada agora e
       // exatamente a ante que EU acabei de pagar. Tudo acima disso e que sera
-      // debitado dali pra frente — assim nao importa se o modulo conta a ante
-      // dentro ou fora de minhaEntrada.
+      // debitado dali pra frente.
       const est = chamar(jogo, 'estado')
       entradaPaga = est ? Math.max(0, inteiro(est.minhaEntrada)) : v
-      avisar('')
-      renderTela()
+      faixa.setRecado('')
+      renderMesa()
+      // Aproxima nas MINHAS duas cartas por um instante — e o gesto de quem
+      // levanta a ponta da carta pra espiar — e depois recua pra mesa toda.
+      // Vem DEPOIS do render de proposito: o render termina pedindo a lente da
+      // fase, e pedir o mergulho antes dele so pra ele desfazer nao anima nada.
+      irPara('minhas', 0.55)
+      clearTimeout(tVoltar)
+      tVoltar = setTimeout(() => { tVoltar = 0; irPara('jogo', 0.60) }, 2100)
     }
 
     function novaMao() {
@@ -1458,25 +1627,18 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // objetivo, em vez de cada mao comecar do zero contra um cofre infinito.
       const est = jogo ? chamar(jogo, 'estado') : null
       if (est) fichasDele = Math.max(0, inteiro(est.fichasNpc))
+      quitarMao()
       jogo = null
       pago = false
-      placar.textContent = ''
-      // limpa a mesa pras cartas da proxima mao entrarem voando de novo
-      pintarCartas(filaDele, [])
-      pintarCartas(filaEu, [])
-      // ja reparte: quem clicou "outra mao" quer jogar, nao voltar pra tela de
-      // ante e apertar mais um botao. Trocar a ante continua possivel — as
-      // fichas dela ficam na tela e mudam o valor da proxima.
       if (carteira && carteira.temFichas(ante)) { comecar(); return }
-      avisar('Fichas insuficientes pra outra ante. Passe no caixa.', 'ruim')
-      renderTela()
+      faixa.setRecado('Fichas insuficientes pra outra ante. Passe no caixa.', 'ruim')
+      renderMesa()
     }
 
     /**
      * Quanto essa acao vai custar de ficha. Quem responde e o modulo —
      * custoExtra(acao, valor) ja aplica o limite da mesa, entao pedir 25 numa
-     * mesa de minimo 50 devolve 50 e o botao mostra o numero VERDADEIRO. A
-     * conta na mao aqui embaixo e so rede de seguranca.
+     * mesa de minimo 50 devolve 50 e o botao mostra o numero VERDADEIRO.
      */
     function custoDe(nome, valor) {
       if (nome === 'passar' || nome === 'desistir') return 0
@@ -1502,7 +1664,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         // que existe — a carteira nunca fica negativa, esse e o contrato dela.
         const cabe = Math.min(falta, carteira ? carteira.fichas : 0)
         if (cabe > 0) chamar(carteira, 'gastarFichas', cabe)
-        avisar('Suas fichas acabaram no meio da mao.', 'ruim')
+        faixa.setRecado('Suas fichas acabaram no meio da mao.', 'ruim')
       }
       entradaPaga = alvo
     }
@@ -1514,14 +1676,14 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       const valor = Math.max(1, inteiro(subida))
       const custo = custoDe(nome, valor)
       if (custo > 0 && !chamar(carteira, 'temFichas', custo)) {
-        avisar('Fichas insuficientes: essa jogada custa ' + num(custo) + '.', 'ruim')
+        faixa.setRecado('Fichas insuficientes: essa jogada custa ' + num(custo) + '.', 'ruim')
         return
       }
       if (nome === 'apostar' || nome === 'aumentar') chamar(jogo, nome, valor)
       else chamar(jogo, nome)
       // O NPC responde dentro da propria chamada; aqui so acertamos o caixa.
       acertarEntrada()
-      renderTela()
+      renderMesa()
     }
 
     function nomeMao(m) {
@@ -1531,129 +1693,227 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     }
 
     function rotuloResultado(t) {
-      if (t === 'ganhou') return 'Voce levou o pote'
-      if (t === 'perdeu') return 'Ele levou o pote'
-      if (t === 'empate') return 'Empate — divide o pote'
-      if (t === 'desistiu') return 'Voce correu'
-      if (t === 'ele-desistiu') return 'Ele correu'
+      if (t === 'ganhou') return 'VOCE LEVOU O POTE'
+      if (t === 'perdeu') return 'ELE LEVOU O POTE'
+      if (t === 'empate') return 'EMPATE'
+      if (t === 'desistiu') return 'VOCE CORREU'
+      if (t === 'ele-desistiu') return 'ELE CORREU'
       return String(t || '')
     }
 
+    /** O corpo do ricaco responde ao que acabou de acontecer na mesa. */
+    function reagir(est) {
+      const r = garantirRicaco()
+      if (!r || !r.disponivel) return
+      if (!est) { r.gesto('repouso'); return }
+      if (est.resultado) {
+        const t = est.resultado.tipo
+        if (t === 'ele-desistiu') r.gesto('recua')
+        else if (t === 'ganhou') r.gesto('perde')
+        else if (t === 'perdeu' || t === 'desistiu') r.gesto('ganha')
+        else r.gesto('olha')
+        return
+      }
+      const msg = String(est.mensagem || '')
+      if (msg.indexOf('aumentou') >= 0 || msg.indexOf('apostou') >= 0) r.gesto('aposta')
+      else if (msg.indexOf('passou') >= 0) r.gesto('apoia')
+      else if (est.fase === 'npc') r.gesto('pensa')
+      else r.gesto('olha')
+    }
+
+    function quitarMao() {
+      if (!pendente) return
+      const r = pendente.r
+      pendente = null
+      clearTimeout(tPagar); tPagar = 0
+      const m = M.mesa
+      const ganho = inteiro(chamar(carteira, 'ganharFichas', r.retorno))
+      if (m) {
+        const destino = ganho > 0 ? 'jogador' : 'casa'
+        m.varrer('minha', destino, 0.05)
+        m.varrer('dele', destino, 0.14)
+        if (ganho > 0) m.acender(0x9fe6b4, 0.7, 1.1)
+      }
+      const sub = nomeMao(r.minhaMao) && nomeMao(r.maoDele)
+        ? nomeMao(r.minhaMao) + '  x  ' + nomeMao(r.maoDele)
+        : (ganho > 0 ? '+' + num(ganho) + ' em fichas' : '')
+      if (ganho > 0) {
+        faixa.setRecado('Voce recebeu ' + num(ganho) + ' em fichas.', 'bom')
+        faixa.anunciar(rotuloResultado(r.tipo), 'top', sub)
+        somMesa.dourado(0.05)
+        faixa.piscar('bom')
+      } else {
+        faixa.setRecado('Essa foi dele.', 'ruim')
+        faixa.anunciar(rotuloResultado(r.tipo), 'ruim', sub)
+        somMesa.selo(0.05)
+      }
+      renderMesa()
+    }
+
     function render() {
+      const m = M.mesa
+      if (!m || !faixa) return
       const est = jogo ? chamar(jogo, 'estado') : null
       const fase = est ? est.fase : 'aposta'
       const meuSaldo = carteira ? carteira.fichas : 0
 
-      if (est && est.fala) falaNpc.nodeValue = String(est.fala)
-
-      // --- cartas dele: dois versos ate o showdown ---
+      // --- cartas dele: dois versos ate o showdown ---------------------------
       const dele = (est && Array.isArray(est.dele)) ? est.dele : []
-      if (!est) {
-        pintarCartas(filaDele, [])
-        maoDeleTxt.textContent = ''
-      } else if (dele.length >= 2) {
-        pintarCartas(filaDele, [def(dele[0], false), def(dele[1], false)])
-      } else {
-        pintarCartas(filaDele, [def(null, true), def(null, true)])
-        maoDeleTxt.textContent = ''
-      }
+      const revelado = dele.length >= 2
+      if (!est) m.cartas('ele', [])
+      else if (revelado) m.cartas('ele', [def(dele[0], false), def(dele[1], false)])
+      else m.cartas('ele', [def(null, true), def(null, true)])
 
-      // --- minhas cartas ---
+      // --- minhas cartas ------------------------------------------------------
       const minhas = (est && Array.isArray(est.minhas)) ? est.minhas : []
       const defsEu = []
       for (let i = 0; i < minhas.length; i++) defsEu.push(def(minhas[i], false))
-      pintarCartas(filaEu, defsEu)
-      if (minhas.length >= 2) {
-        let f = null
-        try { f = forcaDaMao(minhas[0], minhas[1]) } catch (err) { void err }
-        minhaMaoTxt.textContent = f ? 'Sua mao: ' + nomeMao(f) : ''
-      } else {
-        minhaMaoTxt.textContent = ''
+      m.cartas('eu', defsEu)
+
+      // --- as duas pilhas do pote --------------------------------------------
+      m.fichas('minha', est ? Math.max(0, inteiro(est.minhaEntrada)) : 0, { de: 'jogador' })
+      m.fichas('dele', est ? Math.max(0, inteiro(est.entradaDele)) : 0, { de: 'casa' })
+
+      // --- o showdown: aproxima nas cartas dele --------------------------------
+      if (revelado && !reveladoAntes) {
+        irPara('revelar', 0.45)
+        clearTimeout(tVoltar)
+        tVoltar = setTimeout(() => { tVoltar = 0; irPara('jogo', 0.60) }, 2600)
       }
+      reveladoAntes = revelado
 
-      pPote.valor.textContent = num(est ? est.pote : 0)
-      pFalta.valor.textContent = num(est ? est.paraPagar : 0)
-      pBanca.valor.textContent = num(est ? est.fichasNpc : fichasDele)
-      minhaEntradaTxt.textContent = est ? ('no pote: ' + num(est.minhaEntrada)) : ''
-      msgMesa.textContent = est ? (est.mensagem || '') : 'Escolha a ante e mande repartir.'
-
-      // --- fim: credita UMA vez ---
+      // --- fim: le UMA vez e agenda a apresentacao -----------------------------
       if (est && est.resultado && !pago) {
         pago = true
-        const r = est.resultado
-        const ganho = inteiro(chamar(carteira, 'ganharFichas', r.retorno))
+        pendente = { r: est.resultado }
         fichasDele = Math.max(0, inteiro(est.fichasNpc))
-        maoDeleTxt.textContent = nomeMao(r.maoDele) ? ('MAO DELE: ' + nomeMao(r.maoDele)) : ''
-        placar.textContent = ''
-        const linha = el('div', 'res' + (r.tipo === 'ganhou' || r.tipo === 'ele-desistiu' ? ' bom' : (r.tipo === 'empate' ? '' : ' ruim')))
-        const esq = el('span', null, rotuloResultado(r.tipo) +
-          (nomeMao(r.minhaMao) && nomeMao(r.maoDele) ? '  ·  ' + nomeMao(r.minhaMao) + ' x ' + nomeMao(r.maoDele) : ''))
-        const dir = el('b', null, ganho > 0 ? '+' + num(ganho) : '—')
-        linha.append(esq, dir)
-        placar.appendChild(linha)
-        if (ganho > 0) { avisar('Voce recebeu ' + num(ganho) + ' em fichas.', 'bom'); comemorar(1200) }
-        else avisar('Essa foi dele.', 'ruim')
+        clearTimeout(tPagar)
+        tPagar = setTimeout(quitarMao, revelado ? T_REVELACAO + 700 : 500)
       }
-      if (!est || !est.resultado) placar.textContent = ''
 
-      // --- botoes ---
+      // --- o ricaco -----------------------------------------------------------
+      const fala = est ? String(est.mensagem || '') + '|' + String(est.fala || '') : ''
+      if (fala !== ultimaFala) { ultimaFala = fala; reagir(est) }
+
+      // --- a faixa -------------------------------------------------------------
       const emMao = !!est && fase !== 'fim'
-      barraAnte.style.display = emMao ? 'none' : ''
-      barraSubida.style.display = (emMao && fase === 'jogador') ? '' : 'none'
-      barraAcoes.style.display = est ? '' : 'none'
-
+      const fim = !!est && fase === 'fim'
       // Mesma armadilha do blackjack: dentro da mao 'meuSaldo' e o que sobrou
       // DEPOIS de pagar a ante, entao aparar aqui derrubava a ante escolhida
-      // pra 1 em toda mao paga com o saldo justo — e a proxima 'OUTRA MAO'
-      // repartia por 1 ficha sem o jogador ter mexido em nada.
+      // pra 1 em toda mao paga com o saldo justo.
       if (!emMao && ante > meuSaldo) ante = Math.min(ante, Math.max(1, meuSaldo))
-      mostraAnte.textContent = num(ante)
-      fichasAnte.atualizar(meuSaldo, ante)
-      btRepartir.disabled = !(carteira && carteira.temFichas(ante)) || ante <= 0
-      btRepartir.textContent = 'REPARTIR (ante ' + num(ante) + ')'
-      // No fim da mao quem reparte e o OUTRA MAO: dois botoes que fazem a mesma
-      // coisa, lado a lado, so servem pra o jogador escolher errado.
-      btRepartir.style.display = (est && fase === 'fim') ? 'none' : ''
+
+      faixa.setBolso(carteira ? carteira.ouro : 0, meuSaldo, 'ficha')
+      if (!est) {
+        faixa.setValor('Ante da mao', ante, 'em fichas')
+        faixa.setRecado('Escolha a ante e mande repartir.', '')
+      } else {
+        faixa.setValor('Pote', inteiro(est.pote),
+          est.paraPagar > 0 ? 'pra pagar ' + num(est.paraPagar) : ('ele tem ' + num(est.fichasNpc)))
+        if (!fim && est.mensagem) faixa.setRecado(est.mensagem, '')
+      }
+
+      // Na fase de aposta as fichas escolhem a ANTE; dentro da mao, o tamanho
+      // da subida. E a mesma fileira porque e o mesmo gesto — botar ficha na
+      // mesa — e duas fileiras lado a lado so fariam o jogador errar qual.
+      if (!emMao) {
+        faixa.definirFichas(ANTES_POKER, (v) => { ante = v; renderMesa() })
+        faixa.atualizarFichas(meuSaldo, ante)
+        faixa.mostrarFichas(true)
+      } else if (fase === 'jogador') {
+        faixa.definirFichas(AUMENTOS_POKER, (v) => { subida = v; renderMesa() })
+        faixa.atualizarFichas(meuSaldo, subida)
+        faixa.mostrarFichas(true)
+      } else {
+        faixa.mostrarFichas(false)
+      }
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
-      const temAcao = (n) => acoes.indexOf(n) >= 0
-      fichasSubida.atualizar(meuSaldo, subida)
-      // Cada botao mostra o que vai sair da carteira SE for clicado. Botao de
-      // aposta com numero errado e a unica coisa que o jogador nunca perdoa.
-      const custoPagar = temAcao('pagar') ? custoDe('pagar', 0) : 0
-      const custoApostar = temAcao('apostar') ? custoDe('apostar', subida) : subida
-      const custoAumentar = temAcao('aumentar') ? custoDe('aumentar', subida) : subida
-      btPassar.style.display = temAcao('passar') ? '' : 'none'
-      btApostar.style.display = temAcao('apostar') ? '' : 'none'
-      btPagar.style.display = temAcao('pagar') ? '' : 'none'
-      btAumentar.style.display = temAcao('aumentar') ? '' : 'none'
-      btDesistir.style.display = temAcao('desistir') ? '' : 'none'
-      btDeNovo.style.display = (est && fase === 'fim') ? '' : 'none'
-      btApostar.textContent = 'APOSTAR ' + num(custoApostar)
-      btAumentar.textContent = 'AUMENTAR ' + num(custoAumentar)
-      btPagar.textContent = custoPagar > 0 ? 'PAGAR ' + num(custoPagar) : 'PAGAR'
-      btApostar.disabled = !carteira || !carteira.temFichas(custoApostar)
-      btAumentar.disabled = !carteira || !carteira.temFichas(custoAumentar)
-      btPagar.disabled = !carteira || !carteira.temFichas(custoPagar)
-      btDeNovo.disabled = !(carteira && carteira.temFichas(ante))
+      const tem = (n) => acoes.indexOf(n) >= 0
+      const custoPagar = tem('pagar') ? custoDe('pagar', 0) : 0
+      const custoApostar = tem('apostar') ? custoDe('apostar', subida) : subida
+      const custoAumentar = tem('aumentar') ? custoDe('aumentar', subida) : subida
+
+      faixa.ajustar('repartir', {
+        ver: !est,
+        ligado: !!(carteira && carteira.temFichas(ante)) && ante > 0,
+        txt: 'REPARTIR (ante ' + num(ante) + ')',
+        chama: !!(carteira && carteira.temFichas(ante)),
+      })
+      faixa.ajustar('passar', { ver: tem('passar'), ligado: true })
+      faixa.ajustar('apostar', {
+        ver: tem('apostar'),
+        ligado: !!(carteira && carteira.temFichas(custoApostar)),
+        txt: 'APOSTAR ' + num(custoApostar),
+      })
+      faixa.ajustar('pagar', {
+        ver: tem('pagar'),
+        ligado: !!(carteira && carteira.temFichas(custoPagar)),
+        txt: custoPagar > 0 ? 'PAGAR ' + num(custoPagar) : 'PAGAR',
+        chama: !!(carteira && carteira.temFichas(custoPagar)),
+      })
+      faixa.ajustar('aumentar', {
+        ver: tem('aumentar'),
+        ligado: !!(carteira && carteira.temFichas(custoAumentar)),
+        txt: 'AUMENTAR ' + num(custoAumentar),
+      })
+      faixa.ajustar('desistir', { ver: tem('desistir'), ligado: true })
+      faixa.ajustar('denovo', {
+        ver: fim,
+        ligado: !!(carteira && carteira.temFichas(ante)),
+        txt: 'OUTRA MAO (' + num(ante) + ')',
+        chama: !!(carteira && carteira.temFichas(ante)),
+      })
+
+      // Tabela de maos na dica: e um jogo inventado, entao a regra fica na tela.
+      // Sem isto o jogador perde uma mao com dois reis e acha que a UI errou.
+      let meu = ''
+      if (minhas.length >= 2) {
+        try { meu = nomeMao(forcaDaMao(minhas[0], minhas[1])) } catch (err) { void err }
+      }
+      faixa.setDica((meu ? 'Sua mao: ' + meu + '  ·  ' : '') +
+        'PAR > SEQUENCIA > NAIPE > CARTA ALTA  ·  Esc sai da mesa')
+
+      if (!tVoltar) irPara(est ? 'jogo' : 'aposta', T_TROCA)
     }
 
-    return {
-      nome: 'poker',
-      sec,
-      render,
-      principal() {
-        const est = jogo ? chamar(jogo, 'estado') : null
-        if (!est) return btRepartir
-        if (est.fase === 'fim') return btDeNovo
-        if (Array.isArray(est.acoes) && est.acoes.indexOf('pagar') >= 0) return btPagar
-        return btPassar
-      },
-      kicker: 'MESA DE POKER',
-      titulo: 'Cabeca a cabeca',
+    M.render = render
+    M.atualizar = (dt) => { if (ricaco) ricaco.atualizar(dt) }
+
+    M.aoEntrar = () => {
+      // A pose de mesa entra AQUI, antes de a camera comecar a viajar: a troca
+      // de pose e um corte seco, e a 3,5 m com a lente ja em movimento ela nao
+      // se ve. Trocada mais tarde, no meio da mao, seria um salto.
+      chamar(garantirRicaco(), 'entrar')
+      faixa.definirFichas(ANTES_POKER, (v) => { ante = v; renderMesa() })
+      faixa.definirBotoes([
+        { id: 'repartir', txt: 'REPARTIR', cls: 'ouro grande', ao: comecar },
+        { id: 'passar', txt: 'PASSAR', cls: '', ao: () => acao('passar') },
+        { id: 'apostar', txt: 'APOSTAR', cls: 'verde grande', ao: () => acao('apostar') },
+        { id: 'pagar', txt: 'PAGAR', cls: 'verde grande', ao: () => acao('pagar') },
+        { id: 'aumentar', txt: 'AUMENTAR', cls: 'ouro', ao: () => acao('aumentar') },
+        { id: 'desistir', txt: 'DESISTIR', cls: 'bordo', ao: () => acao('desistir') },
+        { id: 'denovo', txt: 'OUTRA MAO', cls: 'ouro grande', ao: novaMao },
+        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo', ao: () => fechar() },
+      ])
+      reveladoAntes = false
     }
+
+    M.aoSair = () => {
+      quitarMao()
+      limparRelogios()
+    }
+
+    M.principal = () => {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      if (!est) return faixa.botao('repartir')
+      if (est.fase === 'fim') return faixa.botao('denovo')
+      if (Array.isArray(est.acoes) && est.acoes.indexOf('pagar') >= 0) return faixa.botao('pagar')
+      return faixa.botao('passar')
+    }
+
+    return M
   }
-
   // -------------------------------------------------------------------------
   // TELA 4 — CACA-NIQUEL (FICHAS)
   // -------------------------------------------------------------------------
@@ -1923,14 +2183,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Montagem sob demanda: quem so passa no caixa nunca constroi a mesa de poker.
+  // Montagem sob demanda: quem so passa no caixa nunca constroi o caca-niquel.
   // -------------------------------------------------------------------------
   function construir(nome) {
     let t = null
     try {
       if (nome === 'caixa') t = construirCaixa()
-      else if (nome === 'blackjack') t = construirBlackjack()
-      else if (nome === 'poker') t = construirPoker()
       else if (nome === 'slot') t = construirSlot()
     } catch (err) {
       console.warn('[cassino-ui] nao consegui montar a tela ' + nome + ':', err)
@@ -1942,6 +2200,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     return t
   }
 
+  // As duas mesas sao montadas na primeira vez que alguem senta nelas. Elas nao
+  // vivem em `telas` (que e o mapa das telas do painel modal) porque nao tem
+  // <section> nenhuma: a "tela" delas e o feltro.
+  let mesaBlackjack = null
+  let mesaPoker = null
+
   // -------------------------------------------------------------------------
   // API publica
   // -------------------------------------------------------------------------
@@ -1950,11 +2214,17 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   return {
     abrirCaixa() { abrirTela('caixa') },
 
-    // Blackjack e poker guardam a mao em andamento: quem fecha no meio e volta
+    // Blackjack e poker guardam a mao em andamento: quem sai no meio e volta
     // encontra a mesa como deixou, em vez de perder a aposta por ter apertado
     // Esc sem querer.
-    abrirBlackjack() { abrirTela('blackjack') },
-    abrirPoker() { abrirTela('poker') },
+    abrirBlackjack() {
+      if (!mesaBlackjack) mesaBlackjack = construirMesaBlackjack()
+      abrirMesa(mesaBlackjack)
+    },
+    abrirPoker() {
+      if (!mesaPoker) mesaPoker = construirMesaPoker()
+      abrirMesa(mesaPoker)
+    },
 
     abrirSlot(i) {
       const t = telas.get('slot') || construir('slot')
@@ -1965,26 +2235,82 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
 
     fechar() { fechar() },
 
-    get aberto() { return aberto },
+    /**
+     * A UNICA pergunta que o main.js faz a este modulo, e ela vale ouro: e por
+     * ela que `uiAberta()` decide se o E de interacao, as teclas 1-9 da barra de
+     * itens, o F5/F6/F8 e o clique de tiro valem. Repare que ela continua TRUE
+     * durante a viagem de volta da camera — ver a armadilha do destravamento no
+     * cabecalho do arquivo.
+     */
+    get aberto() { return modo !== null },
+
+    /** Qual mesa esta no ar, ou null. Existe pro teste e pro console. */
+    get mesa() { return mesaAtiva ? mesaAtiva.nome : null },
 
     /**
-     * Existe pra fechar o contrato com o main. Nao faz nada de proposito: TODA
-     * animacao daqui e CSS (giro do rolete, carta entrando, carta virando) ou
-     * setTimeout, entao o painel funciona igual se o laco de render nunca
-     * chamar isto — e nao ha uma unica alocacao por quadro para o coletor.
+     * O laco de desenho do main chama isto. O painel modal nao precisa dele
+     * (toda animacao dele e CSS ou setTimeout), mas a FAIXA da mesa tem o
+     * cartaz e o clarao, e a mesa 3D tem cartas voando — quem move essas duas
+     * e atualizarCamera, chamado de world/casino.js na ordem certa do quadro.
+     * Este aqui fica de proposito vazio pra o contrato com o main nao mudar.
      */
     atualizar() {},
 
+    /**
+     * O QUADRO DA MESA. Chamado por world/casino.js DEPOIS de player.update(),
+     * que e a unica ordem em que a camera da cena sobrevive ao quadro (ver o
+     * cabecalho de systems/camera-cena.js).
+     *
+     * A ordem AQUI DENTRO tambem importa, e por um motivo diferente: o tremor
+     * e somado DEPOIS de camera-cena.atualizar(), porque ela escreve
+     * camera.position e camera.quaternion inteiros — somar antes seria somar
+     * num valor que ela vai jogar fora no mesmo quadro.
+     */
+    atualizarCamera(dt, gm) {
+      const d = Math.min(Math.max(dt || 0, 0), 0.1)
+      tremorT += d
+      const m = mesaAtiva && mesaAtiva.mesa
+      if (m) m.atualizar(d)
+      if (mesaAtiva && typeof mesaAtiva.atualizar === 'function') mesaAtiva.atualizar(d)
+      if (!cena) return
+      if (!cena.atualizar(d)) return
+
+      const forca = m ? m.tremorAtual : 0
+      if (forca <= 0.001) return
+      const cam = (gm && gm.camera) || (game && game.camera)
+      if (!cam) return
+      // Tremor de camera, escrito na mao em vez de com um Vector3: este arquivo
+      // e o unico do cassino que nao importa three, e mantê-lo assim vale mais
+      // que a elegancia de um applyQuaternion. Tres senoides de frequencia
+      // irracional entre si nao repetem padrao no meio segundo que ele dura.
+      const t = tremorT
+      const a = forca * 0.020
+      cam.position.x += Math.sin(t * 47.3) * a
+      cam.position.y += Math.sin(t * 61.7 + 1.3) * a
+      cam.position.z += Math.sin(t * 53.1 + 2.7) * a * 0.6
+      cam.rotateZ(Math.sin(t * 39.1) * forca * 0.010)
+    },
+
     dispose() {
-      fechar()
+      if (modo === 'mesa') fecharMesa(true)
+      fecharPainel()
       clearTimeout(festaTimer)
       for (const t of telas.values()) chamar(t, 'soltar')
+      chamar(mesaBlackjack, 'aoSair')
+      chamar(mesaPoker, 'aoSair')
+      for (const m of mesas3d.values()) chamar(m, 'dispose')
+      mesas3d.clear()
+      if (faixa) { faixa.dispose(); faixa = null }
+      if (ricaco) { ricaco.soltar(); ricaco = null }
+      if (cena) { cena.cortar(); cena = null }
       try { desligarCarteira() } catch (err) { void err }
       window.removeEventListener('keydown', aoTeclar, true)
       document.removeEventListener('pointerlockchange', aoTrancarMouse)
       if (raiz.parentNode) raiz.parentNode.removeChild(raiz)
       telas.clear()
       telaAtual = null
+      mesaBlackjack = null
+      mesaPoker = null
     },
   }
 }

@@ -32,6 +32,7 @@
     "shot-npcs": "node tools/shot-npcs.mjs",
     "teste-local": "node tools/teste-local.mjs",
     "teste-adega": "node tools/teste-adega.mjs",
+    "teste-bar": "node tools/teste-bar.mjs",
     "teste-cortico": "node tools/teste-cortico.mjs",
     "perfil-fps": "node tools/perfil-fps.mjs",
     "shot-clima": "node tools/shot-clima.mjs",

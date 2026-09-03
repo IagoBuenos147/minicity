@@ -395,7 +395,9 @@ function ligarNivel(grupo, perfil, seg) {
    * quadro.
    */
   function animar(dt) {
-    if (!bolhas.visible) return
+    // `dt === 0` e a chamada de INICIALIZACAO (ver o fim de ligarNivel): ela
+    // precisa escrever as matrizes mesmo com as bolhas escondidas.
+    if (!bolhas.visible && dt !== 0) return
     tBolha += dt || 0
     const base = perfil.fundo + 0.0015
     const topoLiq = perfil.fundo + (utilTopo - perfil.fundo) * nivel
@@ -422,6 +424,21 @@ function ligarNivel(grupo, perfil, seg) {
   }
 
   aplicar(0, cor, 0)
+
+  // AS TRES PECAS ESCONDIDAS NASCEM DO TAMANHO DE UM METRO, e isso tem que ser
+  // desfeito aqui e nao na primeira vez que elas aparecem.
+  //
+  // A cupula, o anel e as bolhas usam geometria UNITARIA compartilhada (quem
+  // usa escala — ver coroaDeEspuma). Enquanto estao invisiveis isso nao pinta
+  // pixel nenhum, mas custa duas coisas de verdade: a CAIXA do copo passa a ter
+  // dois metros (o que estraga qualquer teste de encaixe e infla o volume que o
+  // frustum considera), e as bolhas so recebem matriz no primeiro `animar` —
+  // ou seja, o quadro em que elas ficam visiveis desenha 26 esferas de raio 1
+  // antes de alguem encolher. Um copo cheio de bolas gigantes por um quadro.
+  colarinho.scale.setScalar(0.0001)
+  cupula.scale.setScalar(0.0001)
+  animar(0)
+
   grupo.userData.setNivel = aplicar
   grupo.userData.animarBebida = animar
   grupo.userData.perfil = perfil
@@ -591,6 +608,52 @@ for (const c of COPOS) POR_ID.set(c.id, c)
 
 /** Espelha bebidaDe()/itemDe(): quem vende e quem serve usam a mesma porta. */
 export function copoDe(id) { return POR_ID.get(id) || null }
+
+// ---------------------------------------------------------------------------
+// A FORMA DO COPO, PRA QUEM PRECISA POR COISA NELE
+//
+// O bar do cassino (src/bar/) precisa de tres numeros que ate agora so
+// existiam dentro de PERFIS: a ALTURA (pra pousar o copo de boca pra baixo no
+// escorredor, pra saber onde e a borda em que a rodela de limao encaixa e pra
+// alinhar a boca com o bico da torneira), o RAIO DA BOCA (o encaixe da
+// guarnicao e o anel da marca de dose) e a altura do FUNDO (o gelo se acomoda
+// em cima dele, nao no vertice do copo).
+//
+// Copiar esses numeros pra la seria a mesma duplicacao que o catalogo unico de
+// ids existe pra evitar: no dia em que a tulipa mudasse de perfil, a rodela de
+// limao ficaria flutuando dois centimetros acima da borda e ninguem ligaria
+// uma coisa na outra. Uma porta so, derivada do MESMO perfil que desenha a
+// peca.
+// ---------------------------------------------------------------------------
+
+const FORMA_DE = {
+  'copo-americano': 'americano',
+  'copo-tulipa': 'tulipa',
+  'caneca-chope': 'caneca',
+}
+
+/**
+ * @returns {{alt:number, raioBoca:number, raioBase:number, fundo:number,
+ *            parede:number, utilTopo:number}|null}
+ *
+ * `utilTopo` e onde o liquido para: 4 mm abaixo da boca, a mesma sobra que
+ * ligarNivel() usa. Quem enche um copo por fora precisa da MESMA conta, senao a
+ * marca de "cheio" fica num lugar e o liquido para em outro.
+ */
+export function formaDe(id) {
+  const chave = FORMA_DE[id]
+  const p = chave && PERFIS[chave]
+  if (!p) return null
+  return {
+    alt: p.alt,
+    parede: p.parede,
+    fundo: p.fundo,
+    raioBase: raioEm(p, 0),
+    raioBoca: raioEm(p, p.alt),
+    raioDentroBoca: raioDentro(p, p.alt),
+    utilTopo: p.alt - 0.004,
+  }
+}
 
 /** true se o item daquele id e um copo (o main usa pra escolher a mao certa). */
 export function ehCopo(id) { return POR_ID.has(id) }

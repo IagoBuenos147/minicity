@@ -10,6 +10,8 @@ import { createNPC, POSES } from '../npc/npc.js'
 import { HIPS_Y } from '../player/character.js'
 import { congelarPersonagem } from '../player/congelar.js'
 import { SIMBOLOS as SIM_SLOT, PAGAMENTOS } from '../cassino/slots.js'
+import { buildCasinoBar } from './casino-bar.js'
+import { buildCasinoCozinha } from './casino-cozinha.js'
 
 // ---------------------------------------------------------------------------
 // CASSINO ESTRELA — o unico predio do mapa que traz a PROPRIA casca.
@@ -1914,9 +1916,13 @@ function buildJuice(g, colliders, mats) {
   // plantas nos cantos (props.js resolve o vaso e a folhagem)
   const plantas = [
     [IN.x0 + 0.9, IN.z0 + 1.0, 3], [IN.x1 - 0.9, IN.z0 + 1.0, 7],
-    [IN.x0 + 0.9, IN.z1 - 1.0, 11], [IN.x1 - 0.9, IN.z1 - 1.0, 5],
+    [IN.x0 + 0.9, IN.z1 - 1.0, 11],
     [IN.x1 - 0.9, 21.0, 9],
   ]
+  // A quinta planta ficava em (IN.x1-0.9, IN.z1-1.0) — o canto nordeste, que
+  // hoje e DENTRO da cozinha (world/casino-cozinha.js). Ela sai daqui e nao da
+  // limpeza de la: construir um vaso pra outro modulo apagar no quadro seguinte
+  // e trabalho que o jogador paga em malha e ninguem ve.
   for (const p of plantas) {
     if (typeof Props.makePotPlant !== 'function') break
     const o = Props.makePotPlant(p[2])
@@ -1929,7 +1935,9 @@ function buildJuice(g, colliders, mats) {
 
   // quadros na parede leste (a unica parede grande sem movel encostado)
   if (typeof Props.makeFramedPicture === 'function') {
-    const quadros = [[19.6, 2.3, 12], [21.6, 2.3, 21], [26.5, 2.5, 33]]
+    // O terceiro quadro ficava em z=26.5, que hoje e parede DE DENTRO da
+    // cozinha — sairia virado pro azulejo. Mesma razao da quinta planta acima.
+    const quadros = [[19.6, 2.3, 12], [21.6, 2.3, 21]]
     for (const q of quadros) {
       const pic = Props.makeFramedPicture(1.1, 1.4, 'abstract', q[2])
       pic.position.set(IN.x1 - 0.07, q[1], q[0])
@@ -2156,8 +2164,35 @@ export function buildCasino(game) {
   buildBlackjack(dentro, colliders, matsFicha)
   buildPoker(dentro, colliders, matsFicha)
   const maquinas = buildSlots(dentro, colliders, interactables, matsFase)
-  buildBar(dentro, colliders)
+  // O bar VELHO (balcao encostado na parede do fundo, espelho, garrafas de
+  // enfeite) nasce dentro de um grupo NOMEADO e num contador de colisores
+  // marcado. E o unico jeito de world/casino-bar.js poder aposenta-lo inteiro
+  // — grupo e colisores — sem precisar editar este arquivo: quem constroi o
+  // bar de verdade tem que poder tirar o desenho de bar que estava no lugar.
+  const barAntigo = new THREE.Group()
+  barAntigo.name = 'casino-bar-antigo'
+  buildBar(barAntigo, colliders)
+  dentro.add(barAntigo)
   buildJuice(dentro, colliders, matsFicha)
+
+  // --- OS DOIS COMODOS QUE MORAM EM MODULO PROPRIO -----------------------
+  //
+  // O BAR DO BARMAN (bancada de trabalho, parede de bebidas, fruteira, o
+  // preparo do drink) e a COZINHA (porta + pia) nao entram neste arquivo de
+  // proposito. Cada um e um sistema com estado proprio, e este arquivo ja e o
+  // maior do mundo do jogo. Mais concreto que o tamanho: tres abas do projeto
+  // mexem nele ao mesmo tempo, e sistema novo em arquivo novo e o que faz duas
+  // mudancas grandes caberem no mesmo dia sem uma comer a outra.
+  //
+  // Eles recebem o MIOLO ja montado e penduram o que precisam nele; o que
+  // empurrarem em colliders/interactables sobe junto com o do cassino.
+  const barman = buildCasinoBar({
+    raiz: dentro, colliders, interactables, occluders, base: BASE, dentro: IN, predio: B,
+    barAntigo,
+  })
+  const cozinha = buildCasinoCozinha({
+    raiz: dentro, colliders, interactables, occluders, base: BASE, dentro: IN, predio: B,
+  })
   const npcs = buildNPCs(dentro, colliders)
   group.add(dentro)
 
@@ -2354,6 +2389,19 @@ export function buildCasino(game) {
       }
     }
 
+    // --- os dois modulos vizinhos ------------------------------------------
+    if (barman && barman.update) barman.update(d, gm)
+    if (cozinha && cozinha.update) cozinha.update(d, gm)
+
+    // A CAMERA CINEMATOGRAFICA DAS MESAS roda daqui, e nao do main.js, por um
+    // motivo de ORDEM: este update esta em moduleUpdates, que o laco chama
+    // DEPOIS de player.update(). Quem escreve na camera por ultimo ganha o
+    // quadro — chamada de qualquer ponto anterior, a camera da mesa seria
+    // sobrescrita pelo controller do jogador no mesmo quadro em que nasceu.
+    if (gm && gm.cassino && typeof gm.cassino.atualizarCamera === 'function') {
+      gm.cassino.atualizarCamera(d, gm)
+    }
+
     // --- NPCs: escolhe o alvo do olhar ANTES de animar, senao a cabeca so
     // acompanha o jogador com um quadro de atraso -------------------------
     olhar(npcs.dealer, BJ_NPC.x, BJ_NPC.z, gm, 36)
@@ -2387,6 +2435,33 @@ export function buildCasino(game) {
     },
     girarMaquina,
     festa,
+    barman,
+    cozinha,
+    // OS TRES NPCs (dealer, ricaco, caixa). Saem daqui pra quem enquadra a mesa
+    // poder pedir uma POSE ao ricaco em vez de so girar o corpo dele: setPose e
+    // do NPC, e achar o boneco por getObjectByName('Dom Sebastiao') — que era o
+    // contorno — quebra no dia em que ele mudar de nome.
+    npcs,
+    // AS ANCORAS DAS DUAS MESAS, em coordenadas de MUNDO. Existem pra quem
+    // enquadra a camera (ui/cassino-ui.js) nao precisar copiar numero daqui:
+    // numero copiado e numero que envelhece sozinho no dia em que a mesa andar
+    // 20 cm. 'tampo' ja e o Y do feltro NO MUNDO (o miolo inteiro sobe BASE).
+    mesas: {
+      blackjack: {
+        centro: new THREE.Vector3(BJ.x, BASE, BJ.z),
+        raio: BJ.r,
+        tampo: BASE + 0.92,
+        dealer: new THREE.Vector3(BJ_NPC.x, BASE, BJ_NPC.z),
+        jogador: new THREE.Vector3(BJ.x, BASE, BJ.z - BJ.r - 0.55),
+      },
+      poker: {
+        centro: new THREE.Vector3(PK.x, BASE, PK.z),
+        rx: PK.rx, rz: PK.rz,
+        tampo: BASE + 0.78,
+        npc: new THREE.Vector3(PK_NPC.x, BASE, PK_NPC.z),
+        jogador: new THREE.Vector3(PK_VAZIA.x, BASE, PK_VAZIA.z),
+      },
+    },
     // Quantas paradas o tambor tem. E o mesmo SIM_SLOT.length de
     // cassino/slots.js, exposto aqui so pra quem tem o 'mundo' na mao nao
     // precisar importar a logica so pra validar um indice.

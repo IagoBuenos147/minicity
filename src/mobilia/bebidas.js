@@ -585,6 +585,407 @@ export function garrafaWhiskey() {
   return g
 }
 
+// ===========================================================================
+// 4. A PAREDE DE BEBIDAS DO BAR — seis silhuetas a mais
+//
+// POR QUE ELAS ENTRARAM AQUI, E POR QUE NAO ENTRAM NO CATALOGO.
+//
+// O bar do cassino (src/bar/) pediu uma PAREDE de garrafas, e uma parede de
+// garrafas tem uma exigencia que a prateleira do mercado nunca teve: as
+// garrafas precisam ser DIFERENTES UMAS DAS OUTRAS. Repetir a mesma silhueta
+// com o liquido trocado de cor nao faz parede de bar — faz uma fileira de
+// cilindros pintados, que e exatamente a coisa que o cabecalho deste arquivo
+// existe pra evitar. A silhueta e o que o olho conta.
+//
+// Elas NAO entram em BEBIDAS de proposito. Aquela lista e a prateleira da
+// MERCEARIA (ver o cabecalho do catalogo la embaixo), e a mercearia nao vende
+// vermute nem xarope de acucar. Estas moram na parede do bar, sao servidas por
+// DOSE e nunca vao pra mochila do jogador — quem as usa importa a funcao
+// direto. E o mesmo criterio que ja separou ADEGA_CATALOGO de BEBIDAS: uma
+// familia de formas por arquivo, uma lista por lugar que vende.
+// ===========================================================================
+
+/**
+ * PROJETA UM TORNO REDONDO SOBRE UM POLIGONO REGULAR DE N LADOS.
+ *
+ * E o irmao mais geral de quadrar(): la o poligono e sempre o quadrado
+ * chanfrado do whiskey e a conta esta escrita a mao com tres retas; aqui o
+ * numero de lados e parametro, o que da de graca a garrafa TRIANGULAR (3), a
+ * hexagonal (6) e a "quase redonda" (8) a partir do mesmo perfil.
+ *
+ *   f(a) = 1 / cos( (a mod passo) - passo/2 )
+ *
+ * e a funcao radial de um poligono regular de apotema 1: no meio de cada face
+ * ela vale 1 (o raio do perfil E a distancia ate a face, entao da pra ler a
+ * medida direto) e no canto vale 1/cos(passo/2).
+ *
+ * `arred` de 0 a 1 puxa o resultado de volta pro circulo: 0 e canto vivo, 0.35
+ * e a quina levemente quebrada que uma garrafa de vidro moldado tem de verdade.
+ * Canto vivo em vidro nao existe — molde nao consegue, e a peca lascaria.
+ *
+ * O gargalo continua REDONDO pela mesma razao do whiskey (tampa de rosca), e o
+ * efeito some por altura entre `yCheio` e `yRedondo`.
+ */
+function facetar(geo, lados, arred, aspecto, yCheio, yRedondo) {
+  const n = Math.max(3, lados | 0)
+  const passo = (Math.PI * 2) / n
+  const asp = aspecto === undefined ? 1 : aspecto
+  const p = geo.attributes.position
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
+    const r = Math.hypot(x, z)
+    if (r < 1e-6) continue
+    const k = Math.min(1, Math.max(0, (yRedondo - y) / (yRedondo - yCheio)))
+    let d = Math.atan2(z, x) % passo
+    if (d < 0) d += passo
+    const cheio = 1 / Math.cos(d - passo / 2)
+    const f = 1 + (cheio - 1) * (1 - arred)
+    const e = 1 + (f - 1) * k
+    p.setX(i, x * e)
+    p.setZ(i, z * e * (1 + (asp - 1) * k))
+  }
+  p.needsUpdate = true
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  return geo
+}
+
+/** Material do liquido, cacheado por cor. Mesma receita do ambar do whiskey. */
+function liquidoMat(cor) {
+  return stdMat('beb-liq:' + cor, {
+    color: cor, transparent: true, opacity: 0.86, roughness: 0.12,
+    metalness: 0.0, side: THREE.DoubleSide, depthWrite: false,
+  })
+}
+
+/** Vidro de garrafa TINGIDO (verde de vermute, ambar de licor). */
+function vidroMat(cor, op) {
+  return stdMat('beb-vidro:' + cor + ':' + op, {
+    color: cor, transparent: true, opacity: op, roughness: 0.09,
+    metalness: 0.0, side: THREE.DoubleSide, depthWrite: false,
+  })
+}
+
+/** Rolha de cortica com capuz — o fecho que nao e tampa de rosca. */
+function rolha(g, y, r) {
+  const c = cyl(r * 0.92, r * 0.96, 0.028, solid(0xbd9a62, 0.90, 0.0), 16)
+  c.position.y = y + 0.014
+  c.castShadow = true
+  g.add(c)
+  const capuz = cyl(r * 1.16, r * 1.16, 0.014, M.plasticoPreto, 18)
+  capuz.position.y = y + 0.035
+  capuz.castShadow = true
+  g.add(capuz)
+}
+
+/**
+ * A. GARRAFA DE LICOR — 26 cm, corpo baixo e gordo, gargalo longo e afilado.
+ *
+ * SETE MALHAS. A silhueta e o oposto da vodka: la o corpo sobe reto ate 63% da
+ * altura; aqui ele para em 42% e o resto e OMBRO E GARGALO. Uma garrafa em que
+ * mais da metade da altura e pescoco le como licor a dez metros, e essa e a
+ * unica informacao que a prateleira precisa passar de longe.
+ */
+export function garrafaLicor(corLiquido = 0xd97a18, corVidro = 0xe8ddc4) {
+  const g = new THREE.Group()
+  g.add(torno([
+    [0.0000, 0.0070], [0.0300, 0.0052], [0.0450, 0.0022], [0.0500, 0.0000],
+    [0.0520, 0.0060], [0.0528, 0.0180],
+    [0.0528, 0.1080],   // o corpo acaba em 42% da altura
+    [0.0500, 0.1230], [0.0420, 0.1400], [0.0320, 0.1560], [0.0248, 0.1700],
+    [0.0205, 0.1860],   // gargalo longo e afilado
+    [0.0178, 0.2100], [0.0166, 0.2320],
+    [0.0172, 0.2460], [0.0196, 0.2540],  // o labio saliente
+    [0.0186, 0.2580], [0.0148, 0.2590],
+    [0.0136, 0.2560], [0.0134, 0.2000],
+  ], vidroMat(corVidro, 0.20)))
+
+  const liq = torno([
+    [0.0000, 0.0100], [0.0330, 0.0080], [0.0470, 0.0040], [0.0500, 0.0180],
+    [0.0500, 0.1080], [0.0472, 0.1225], [0.0396, 0.1395], [0.0300, 0.1550],
+    [0.0230, 0.1690], [0.0190, 0.1850], [0.0165, 0.2060], [0.0000, 0.2060],
+  ], liquidoMat(corLiquido))
+  liq.castShadow = false
+  g.add(liq)
+
+  // ombreira gravada: um torus achatado bem na virada, onde a luz pega
+  const om = new THREE.Mesh(new THREE.TorusGeometry(0.0505, 0.0026, 6, 26), M.vidroFosco)
+  om.rotation.x = Math.PI / 2
+  om.position.y = 0.1105
+  om.castShadow = false
+  g.add(om)
+
+  rolha(g, 0.2590, 0.0150)
+  // o selo de papel em volta do gargalo — chapa lisa, sem uma letra
+  const selo = cyl(0.0175, 0.0180, 0.026, M.creme, 18)
+  selo.position.y = 0.2270
+  g.add(selo)
+  return g
+}
+
+/**
+ * B. GARRAFA DE VINHO AROMATIZADO — 32 cm, alta e magra, ombro LONGO.
+ *
+ * SEIS MALHAS. Ela e a mais alta da parede e a mais estreita: 7,6 cm de
+ * diametro por 32 de altura. O ombro nao e um canto (whiskey) nem uma curva
+ * curta (vodka) — ele leva 7 cm pra acontecer, e e isso que diz "vinho".
+ */
+export function garrafaVermute(corLiquido = 0x7a1f28, corVidro = 0x2e4a26) {
+  const g = new THREE.Group()
+  g.add(torno([
+    [0.0000, 0.0180],   // o PUNT: o fundo empurrado pra dentro, marca de vinho
+    [0.0150, 0.0130], [0.0280, 0.0055], [0.0355, 0.0004], [0.0380, 0.0000],
+    [0.0384, 0.0120], [0.0384, 0.1780],
+    [0.0378, 0.1960], [0.0352, 0.2160], [0.0300, 0.2340],   // ombro de 7 cm
+    [0.0232, 0.2480], [0.0180, 0.2600],
+    [0.0152, 0.2720], [0.0146, 0.2980],
+    [0.0158, 0.3120], [0.0172, 0.3175],
+    [0.0160, 0.3200], [0.0126, 0.3205],
+    [0.0116, 0.3175], [0.0114, 0.2700],
+  ], vidroMat(corVidro, 0.28)))
+
+  const liq = torno([
+    [0.0000, 0.0200], [0.0250, 0.0110], [0.0350, 0.0060], [0.0358, 0.0140],
+    [0.0358, 0.1780], [0.0352, 0.1960], [0.0326, 0.2150], [0.0278, 0.2330],
+    [0.0212, 0.2465], [0.0000, 0.2465],
+  ], liquidoMat(corLiquido))
+  liq.castShadow = false
+  g.add(liq)
+
+  // a capsula de estanho no gargalo (a "cabeca" da garrafa de vinho)
+  const cap = cyl(0.0180, 0.0180, 0.048, M.cromo, 20)
+  cap.position.y = 0.2985
+  cap.castShadow = true
+  g.add(cap)
+  g.add(estrias(0.0182, 0.040, 0.2985, 22, M.cromo))
+  // o rotulo: chapa creme sem letra, com um filete escuro por tras
+  g.add(cyl(0.0388, 0.0388, 0.090, M.creme, 24).translateY(0.0900))
+  g.add(cyl(0.0390, 0.0390, 0.008, M.rotuloPreto, 24).translateY(0.1290))
+  return g
+}
+
+/**
+ * C. GARRAFA DE AGAVE — 30 cm, corpo reto e magro com uma BOLA no ombro.
+ *
+ * OITO MALHAS. A esfera entre o corpo e o gargalo e a coisa mais distinta da
+ * parede inteira: nenhuma outra garrafa tem uma barriga no lugar do ombro, e
+ * uma silhueta com uma bola no meio se reconhece de qualquer angulo. Ela sai do
+ * PROPRIO perfil (o torno passa por ela), e nao de uma esfera colada — colada,
+ * a costura abre exatamente na altura em que a mao segura.
+ */
+export function garrafaAgave(corLiquido = 0xf4eed0) {
+  const g = new THREE.Group()
+  g.add(torno([
+    [0.0000, 0.0060], [0.0200, 0.0045], [0.0340, 0.0018], [0.0368, 0.0000],
+    [0.0380, 0.0080], [0.0382, 0.0160],
+    [0.0382, 0.1560],   // corpo reto e magro
+    [0.0398, 0.1680], [0.0452, 0.1840], [0.0470, 0.1980],   // a BOLA
+    [0.0452, 0.2120], [0.0392, 0.2240], [0.0300, 0.2330],
+    [0.0210, 0.2400], [0.0172, 0.2480],
+    [0.0158, 0.2660], [0.0156, 0.2860],
+    [0.0170, 0.2940], [0.0186, 0.2985],
+    [0.0172, 0.3005], [0.0138, 0.3010],
+    [0.0128, 0.2980], [0.0126, 0.2500],
+  ], M.vidro))
+
+  const liq = torno([
+    [0.0000, 0.0090], [0.0280, 0.0070], [0.0356, 0.0040], [0.0358, 0.0160],
+    [0.0358, 0.1560], [0.0374, 0.1680], [0.0428, 0.1840], [0.0446, 0.1980],
+    [0.0428, 0.2118], [0.0368, 0.2236], [0.0278, 0.2325], [0.0000, 0.2325],
+  ], liquidoMat(corLiquido))
+  liq.castShadow = false
+  g.add(liq)
+
+  // dois aros gravados abracando a bola: e o que faz a barriga ler como
+  // intencional, e nao como um defeito do molde
+  for (const y of [0.1840, 0.2120]) {
+    const a = new THREE.Mesh(new THREE.TorusGeometry(0.0448, 0.0022, 6, 26), M.vidroFosco)
+    a.rotation.x = Math.PI / 2
+    a.position.y = y
+    a.castShadow = false
+    g.add(a)
+  }
+  rolha(g, 0.3010, 0.0140)
+  const selo = cyl(0.0165, 0.0170, 0.030, M.creme, 18)
+  selo.position.y = 0.2700
+  g.add(selo)
+  return g
+}
+
+/**
+ * D. GARRAFA DE XAROPE — 22 cm, cilindro reto com BICO DOSADOR de metal.
+ *
+ * SEIS MALHAS. E a garrafa mais baixa da parede e a unica sem tampa: ela vive
+ * ABERTA, com o bico de servir enfiado no gargalo. Isso e informacao — na
+ * bancada de um bar, o que tem bico e o que se usa a cada drink.
+ */
+export function garrafaXarope(corLiquido = 0xefe4c4) {
+  const g = new THREE.Group()
+  g.add(torno([
+    [0.0000, 0.0050], [0.0220, 0.0040], [0.0330, 0.0012], [0.0348, 0.0000],
+    [0.0358, 0.0070], [0.0360, 0.0150],
+    [0.0360, 0.1620],   // reto ate 74%: e um pote, nao uma garrafa
+    [0.0344, 0.1720], [0.0286, 0.1840], [0.0216, 0.1930],
+    [0.0176, 0.2000], [0.0172, 0.2130],
+    [0.0186, 0.2185], [0.0166, 0.2200],
+    [0.0148, 0.2185], [0.0146, 0.1900],
+  ], M.vidro))
+
+  const liq = torno([
+    [0.0000, 0.0080], [0.0260, 0.0065], [0.0336, 0.0035], [0.0338, 0.0150],
+    [0.0338, 0.1620], [0.0322, 0.1718], [0.0266, 0.1836], [0.0200, 0.1925],
+    [0.0000, 0.1925],
+  ], liquidoMat(corLiquido))
+  liq.castShadow = false
+  g.add(liq)
+
+  // O BICO: um cone de inox saindo do gargalo, torto pra frente. O tampo de
+  // borracha que veda e o anel preto na base dele.
+  const bico = cyl(0.0042, 0.0110, 0.052, M.cromo, 12)
+  bico.position.set(0, 0.2420, 0.0075)
+  bico.rotation.x = 0.28
+  bico.castShadow = true
+  g.add(bico)
+  g.add(cyl(0.0132, 0.0132, 0.010, M.plasticoPreto, 14).translateY(0.2200))
+  // a faixa de papel colada no corpo (chapa lisa, sem letra)
+  g.add(cyl(0.0364, 0.0364, 0.062, M.creme, 24).translateY(0.0760))
+  return g
+}
+
+/**
+ * E. GARRAFA TRIANGULAR — 28 cm, secao de tres lados com a quina quebrada.
+ *
+ * SEIS MALHAS. Tres lados e o numero que mais muda a silhueta com o giro: de
+ * frente ela e larga, girada 60 graus ela e uma quina. Numa prateleira em que
+ * tudo e cilindro, uma garrafa que muda de largura conforme voce anda e a que
+ * o olho acha primeiro.
+ */
+export function garrafaTriangular(corLiquido = 0x3f6b22, corVidro = 0xd8e2d0) {
+  const TRI = { lados: 3, arred: 0.34, aspecto: 1.0, yCheio: 0.1900, yRedondo: 0.2260 }
+  const g = new THREE.Group()
+
+  const casca = torno([
+    [0.0000, 0.0060], [0.0230, 0.0048], [0.0360, 0.0018], [0.0392, 0.0000],
+    [0.0406, 0.0080], [0.0410, 0.0170],
+    [0.0410, 0.1900],
+    [0.0392, 0.1990], [0.0316, 0.2120], [0.0234, 0.2210],
+    [0.0182, 0.2290], [0.0170, 0.2520],
+    [0.0184, 0.2660], [0.0202, 0.2720],
+    [0.0186, 0.2745], [0.0150, 0.2750],
+    [0.0140, 0.2720], [0.0138, 0.2300],
+  ], vidroMat(corVidro, 0.22))
+  facetar(casca.geometry, TRI.lados, TRI.arred, TRI.aspecto, TRI.yCheio, TRI.yRedondo)
+  g.add(casca)
+
+  const liq = torno([
+    [0.0000, 0.0090], [0.0300, 0.0070], [0.0380, 0.0040], [0.0388, 0.0170],
+    [0.0388, 0.1900], [0.0370, 0.1985], [0.0296, 0.2110], [0.0216, 0.2200],
+    [0.0000, 0.2200],
+  ], liquidoMat(corLiquido))
+  facetar(liq.geometry, TRI.lados, TRI.arred, TRI.aspecto, TRI.yCheio, TRI.yRedondo)
+  liq.castShadow = false
+  g.add(liq)
+
+  g.add(cyl(0.0206, 0.0206, 0.034, M.plasticoPreto, 22).translateY(0.2710))
+  g.add(estrias(0.0208, 0.028, 0.2710, 22, M.plasticoPreto))
+  const tarja = cyl(0.0176, 0.0176, 0.024, M.rotuloPreto, 18)
+  tarja.position.y = 0.2440
+  g.add(tarja)
+  return g
+}
+
+/**
+ * F. CANTIL — 24 cm, achatado. A garrafa que e larga de frente e FINA de lado.
+ *
+ * CINCO MALHAS. O aspecto de 0,44 (10,4 cm de frente por 4,6 cm de fundo) e o
+ * que faz ela sumir quando vista de perfil, e e por isso que ela fica sempre na
+ * ponta da prateleira: ela e a peca que quebra o ritmo da fileira.
+ */
+export function garrafaCantil(corLiquido = 0xa8641c) {
+  const CAN = { lados: 12, arred: 0.85, aspecto: 0.44, yCheio: 0.1700, yRedondo: 0.2000 }
+  const g = new THREE.Group()
+
+  const casca = torno([
+    [0.0000, 0.0060], [0.0300, 0.0048], [0.0470, 0.0018], [0.0510, 0.0000],
+    [0.0522, 0.0080], [0.0524, 0.0170],
+    [0.0524, 0.1700],
+    [0.0500, 0.1800], [0.0400, 0.1930], [0.0280, 0.2030],
+    [0.0198, 0.2100], [0.0182, 0.2280],
+    [0.0196, 0.2360], [0.0212, 0.2400],
+    [0.0196, 0.2420], [0.0158, 0.2425],
+    [0.0148, 0.2395], [0.0146, 0.2100],
+  ], M.vidro)
+  facetar(casca.geometry, CAN.lados, CAN.arred, CAN.aspecto, CAN.yCheio, CAN.yRedondo)
+  g.add(casca)
+
+  const liq = torno([
+    [0.0000, 0.0090], [0.0360, 0.0070], [0.0490, 0.0040], [0.0502, 0.0170],
+    [0.0502, 0.1700], [0.0478, 0.1795], [0.0382, 0.1922], [0.0264, 0.2020],
+    [0.0000, 0.2020],
+  ], liquidoMat(corLiquido))
+  facetar(liq.geometry, CAN.lados, CAN.arred, CAN.aspecto, CAN.yCheio, CAN.yRedondo)
+  liq.castShadow = false
+  g.add(liq)
+
+  g.add(cyl(0.0216, 0.0216, 0.030, M.cromo, 22).translateY(0.2420))
+  g.add(estrias(0.0218, 0.024, 0.2420, 24, M.cromo))
+  return g
+}
+
+/**
+ * GARRAFA DE FUNDO — as que enchem a parede e ninguem pega.
+ *
+ * TRES MALHAS, e e o ponto: uma parede de bar tem umas cinquenta garrafas e o
+ * jogador so interage com quinze. As outras trinta e cinco existem pra a
+ * prateleira nao ter buraco, sao vistas a dois metros e nunca de perto, e pagar
+ * oito malhas por cada uma seria pagar por um detalhe que nao vai ser visto.
+ *
+ * `estilo` escolhe entre os quatro perfis; a cor do liquido e do vidro vem de
+ * fora. Isso da 4 x (cores) silhuetas diferentes por uma funcao so.
+ */
+export function garrafaDeFundo(estilo, corLiquido, corVidro, alturaK) {
+  const PERFIS_FUNDO = [
+    // 0: ombro curto (familia vodka)
+    [[0.0000, 0.0050], [0.0420, 0.0020], [0.0450, 0.0000], [0.0466, 0.0110],
+      [0.0466, 0.1880], [0.0440, 0.2110], [0.0300, 0.2360], [0.0196, 0.2520],
+      [0.0192, 0.2860], [0.0210, 0.2920], [0.0000, 0.2925]],
+    // 1: ombro longo (familia vinho)
+    [[0.0000, 0.0160], [0.0330, 0.0040], [0.0372, 0.0000], [0.0378, 0.0120],
+      [0.0378, 0.1800], [0.0340, 0.2180], [0.0230, 0.2480], [0.0152, 0.2760],
+      [0.0150, 0.3080], [0.0170, 0.3160], [0.0000, 0.3165]],
+    // 2: gordo e baixo (familia licor)
+    [[0.0000, 0.0060], [0.0490, 0.0020], [0.0516, 0.0000], [0.0524, 0.0170],
+      [0.0524, 0.1100], [0.0450, 0.1400], [0.0270, 0.1700], [0.0180, 0.1960],
+      [0.0176, 0.2480], [0.0198, 0.2545], [0.0000, 0.2550]],
+    // 3: reto e magro (familia agave)
+    [[0.0000, 0.0050], [0.0356, 0.0020], [0.0376, 0.0000], [0.0382, 0.0140],
+      [0.0382, 0.1900], [0.0330, 0.2160], [0.0210, 0.2400], [0.0158, 0.2600],
+      [0.0156, 0.2930], [0.0178, 0.2990], [0.0000, 0.2995]],
+  ]
+  const perfil = PERFIS_FUNDO[Math.abs(estilo | 0) % PERFIS_FUNDO.length]
+  const k = alturaK === undefined ? 1 : alturaK
+  const g = new THREE.Group()
+
+  const pts = perfil.map((p) => [p[0], p[1] * k])
+  g.add(torno(pts, vidroMat(corVidro === undefined ? 0xdfe8e6 : corVidro, 0.22), 18))
+
+  // o liquido: o MESMO perfil encolhido 6% no raio e cortado no ombro
+  const topo = pts[Math.max(0, pts.length - 5)][1]
+  const liqPts = []
+  for (const p of pts) {
+    if (p[1] > topo) break
+    liqPts.push([Math.max(0.0006, p[0] * 0.94), p[1] + 0.002])
+  }
+  liqPts.push([0, topo])
+  const liq = torno(liqPts, liquidoMat(corLiquido === undefined ? 0xb0641c : corLiquido), 18)
+  liq.castShadow = false
+  g.add(liq)
+
+  const yTampa = pts[pts.length - 1][1]
+  g.add(cyl(0.0206, 0.0206, 0.028, M.plasticoPreto, 14).translateY(yTampa - 0.006))
+  return g
+}
+
 // ---------------------------------------------------------------------------
 // O CATALOGO DE BEBIDAS
 //

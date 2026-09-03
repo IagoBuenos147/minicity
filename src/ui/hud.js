@@ -53,6 +53,10 @@ const CSS = `
 #hud.fora-do-jogo #hud-help,
 #hud.fora-do-jogo #hud-cross,
 #hud.fora-do-jogo #hud-prompt,
+/* O botao do microfone entrou nesta lista depois: ele ficava aceso no menu, na
+   criacao de personagem e por cima da faixa da mesa de blackjack, que e onde a
+   foto o pegou. "Ativar Microfone" so faz sentido dentro do jogo. */
+#hud.fora-do-jogo #hud-mic,
 #hud.fora-do-jogo .mcrp-f3 { display: none !important; }
 
 /* --- crosshair --- */
