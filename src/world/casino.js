@@ -424,7 +424,7 @@ const M = {
   // em z = -0.7 e cai em u = 0.31, nao em 0.5. Com o degrade em 0.5 o poco
   // nascia debaixo da atendente e o lugar dos jogadores ficava na sombra.
   //
-  // O raio do poco e menor no blackjack (0.25 contra 0.34) porque a camera da
+  // O raio do poco e menor no blackjack (0.22 contra 0.31) porque a camera da
   // mesa desce a 1,7 m do centro e enche a tela com um metro e meio de pano: se
   // a queda comeca so na borda da mesa ela nao aparece NO QUADRO e o feltro
   // volta a ser uma chapa verde. Na mesa de poker a camera pega o oval inteiro
@@ -452,6 +452,11 @@ const M = {
     })
   },
 }
+
+// O desvio de matiz do poco: quente no miolo, frio na borda (ver o porque no
+// bloco de feltroTex, logo abaixo).
+const POCO_QUENTE = [1.14, 1.02, 0.80]
+const POCO_FRIO = [0.80, 0.94, 1.22]
 
 /**
  * O pano da mesa: fibra + poco de luz + vinheta, tudo assado num canvas.
@@ -482,8 +487,6 @@ const M = {
  * pontinhos redondos. Feltro tem sentido de pelo, e e isso que separa "pano"
  * de "ruido de televisao velha" quando a luz bate raspando.
  */
-const POCO_QUENTE = [1.14, 1.02, 0.80]   // desvio de matiz no miolo do poco
-const POCO_FRIO = [0.80, 0.94, 1.22]     // ... e na borda que caiu pro escuro
 function feltroTex(chave, rgb, cu, cv, raio) {
   return tex('casino-feltro-' + chave, 512, (g, s) => {
     const cor = (k) => {

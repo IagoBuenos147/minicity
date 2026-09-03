@@ -7,14 +7,28 @@
 // o pixel. Pra cada decalque de regra impressa no pano (o material dele leva
 // um .name proprio em world/casino.js exatamente pra isto) projetamos a caixa
 // do mesh na tela e medimos a luminancia MAXIMA e a media do topo 1% dentro
-// dela — a maxima sozinha pega um pixel de carta que passou por cima.
+// dela — e tambem so nas PONTAS da frase, que e onde nao ha carta viva por
+// cima roubando o maximo.
 //
-// E medimos DUAS vezes, com e sem o UnrealBloomPass, porque as duas causas do
+// Medimos DUAS vezes, com e sem o UnrealBloomPass, porque as duas causas do
 // branco estourado sao diferentes e se consertam em lugares diferentes:
 //   sem bloom alto  -> a TINTA e clara demais (arruma-se no material)
 //   so com bloom alto -> a tinta passou do threshold 0.85 e o halo e o bloom
 //                        somando em cima dela (arruma-se baixando a tinta ate
 //                        ela caber embaixo do threshold)
+// Se o bloom parou de somar, o problema do halo acabou — esse e o criterio,
+// nao o "parece melhor".
+//
+// E medimos ANTES e DEPOIS no MESMO enquadramento (ver modoAntigo), porque
+// comparar duas fotos com a camera em lugares diferentes nao compara nada.
+//
+// As cenas, em ordem:
+//   01..03  o salao a pe            — prova que escurecer nao apagou o cassino
+//   04a/04  poker antes / depois    — a medida da tinta
+//   05a/05  blackjack antes/depois
+//   06      blackjack com mao dada
+//   07      a pior hora do relogio  — o sol da cidade nao pode invadir a mesa
+//   08/09   o plano de luz da mesa com e sem o defeito de profundidade
 
 import puppeteer from 'puppeteer-core'
 import fs from 'node:fs'

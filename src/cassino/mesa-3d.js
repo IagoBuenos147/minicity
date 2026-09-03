@@ -155,6 +155,9 @@ const QUIQUE = FICHA_H * 0.55
 
 const POOL_CARTAS = 16
 
+// Quanto o clarao do feltro pode somar, no maximo. Ver acender().
+const BRILHO_PICO = 0.42
+
 // --- layouts ---------------------------------------------------------------
 //
 // Todo numero abaixo esta no espaco da mesa (origem no centro, no chao) e foi
