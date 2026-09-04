@@ -176,9 +176,12 @@ try {
     let alvo = null
     g.traverse((o) => {
       const a = o.userData && o.userData.alvo
-      if (a && a.tipo === 'caixote' && a.v === v) alvo = o
+      if (!a) return
+      // v === null pede o alvo da PILHA DA APOSTA
+      if (v === null ? a.tipo === 'aposta' : (a.tipo === 'caixote' && a.v === v)) alvo = o
     })
     if (!alvo) return 'sem alvo ' + v
+    void 0
     alvo.updateWorldMatrix(true, false)
     const e = alvo.matrixWorld.elements
     const p = new alvo.position.constructor(e[12], e[13], e[14])
@@ -199,7 +202,22 @@ try {
       return bs.some((x) => x.offsetParent && /PASSAR|DESISTIR|DISTRIBUIR|JOGAR DE NOVO/.test(x.textContent.toUpperCase()))
     })
     if (!pronto) { await espera(700); continue }
-    for (const v of [25, 100, 100]) console.log('  ' + await clicarFicha(v))
+      for (const v of [25, 100, 100]) console.log('  ' + await clicarFicha(v))
+    await espera(900)
+    // TIRAR PELA PILHA: clicar no monte da aposta tem que tirar a ficha DE CIMA
+    // (a menor da decomposicao), e nao zerar nem tirar a maior.
+    const naFaixa = () => page.evaluate(() => {
+      const b = [...document.querySelectorAll('.mcrp-mesa-btn')]
+        .find((x) => x.offsetParent && /TIRAR/.test(x.textContent.toUpperCase()))
+      return b ? b.textContent.trim() : null
+    })
+    console.log('  antes de tirar:', await naFaixa())
+    console.log('  ' + await clicarFicha(null))
+    await espera(900)
+    console.log('  depois de tirar:', await naFaixa())
+    // foto NO INSTANTE do clique: e onde o "+N" que sobe existe
+    await espera(260)
+    await shot('08-clique')
     apostou = true
   }
   await espera(3500)

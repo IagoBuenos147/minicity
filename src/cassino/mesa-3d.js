@@ -89,7 +89,18 @@ const FICHA_MAX = 18            // teto de fichas por pilha; acima disso a
 // (14,2 cm) e a folga volta. Coluna de 12 tem 9 cm de altura, que e menos que a
 // pilha de 20 de uma mesa de verdade.
 const FICHA_COLUNA = 12         // fichas por coluna antes de abrir outra
-const POOL_FICHAS = 96
+// O TETO DE INSTANCIAS, e a conta mudou quando o caixote entrou.
+//
+// Antes so havia as pilhas do pote: 36 minhas mais 36 da casa, e 96 sobrava.
+// Agora o CAIXOTE do jogador soma 5 pilhas de ate 8 fichas em cima do pano —
+// 40 a mais — e o pior caso passou a ser 40 + 36 + 36 = 112. Em 96, quem
+// apostasse grande via as pilhas do proprio caixote pararem de nascer no meio
+// da mao (as duas alocacoes tem `break` no teto, entao nao quebrava nada: so
+// sumia dinheiro da tela sem explicacao). 140 cobre o pior caso com folga.
+//
+// Custa uma matriz e uma cor por instancia num InstancedMesh que ja existe:
+// nao ha draw call novo e a memoria e alguns kilobytes.
+const POOL_FICHAS = 140
 
 // --- desenho da ficha ------------------------------------------------------
 // 32 segmentos e 8 insercoes no aro. POR QUE 8 E NAO 6: 32 divide por 8 exato,
@@ -213,7 +224,7 @@ const LAYOUT = {
     // que sai toda aposta. Cinco casas espacadas de 16,5 cm — 6,3 cm de ficha
     // mais 10 de folga, o bastante pra o clique nao errar de pilha e pra as
     // pilhas nao encostarem uma na outra quando estao cheias.
-    caixote: { z: -1.06, passo: 0.175, altura: 8 },
+    caixote: { z: -1.06, passo: 0.115, altura: 8 },
     // pra onde a ficha vai quando alguem leva o dinheiro
     casa: { x: -0.10, z: 0.14 },
     eu: { x: 0.00, z: -1.30 },
@@ -308,7 +319,7 @@ const LAYOUT = {
     // beirada do oval do meu lado. Em z=-0.93 com x ate 0.35 a elipse do tampo
     // (rx 1.55, rz 1.05) ainda tem pano — a conta e (x/1.55)^2+(z/1.05)^2 < 1 —
     // e a pilha fica na frente das minhas cartas (z=-0.68) sem tapa-las.
-    caixote: { z: -0.90, passo: 0.185, altura: 8 },
+    caixote: { z: -0.90, passo: 0.115, altura: 8 },
     casa: { x: 0.00, z: 0.90 },
     eu: { x: 0.00, z: -0.96 },
     brilho: { x: 0.00, z: 0.00, r: 0.85 },
@@ -1480,7 +1491,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   const _raio = new THREE.Raycaster()
   const _pt = new THREE.Vector2()
   const matAlvo = new THREE.MeshBasicMaterial({ visible: false })
-  const geoAlvo = new THREE.CylinderGeometry(0.062, 0.062, 0.16, 8)
+  const geoAlvo = new THREE.CylinderGeometry(0.051, 0.051, 0.16, 8)
 
   function montarAlvos(valores) {
     const cx = L.caixote
@@ -1491,7 +1502,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     for (let i = 0; i < n; i++) {
       const m = new THREE.Mesh(geoAlvo, matAlvo)
       m.position.set(casaCaixote(i, n), Y_CHAO + 0.06, cx.z)
-      m.userData.alvo = { tipo: 'caixote', v: valores[i] }
+      m.userData.alvo = { tipo: 'caixote', v: valores[i], pilha: 'cx:' + valores[i] }
       grupo.add(m)
       alvos.push(m)
     }
@@ -1501,10 +1512,56 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       const m = new THREE.Mesh(geoAlvo, matAlvo)
       m.scale.set(1.7, 1.4, 1.7)
       m.position.set(ap.x, Y_CHAO + 0.09, ap.z)
-      m.userData.alvo = { tipo: 'aposta' }
+      m.userData.alvo = { tipo: 'aposta', pilha: L.pilhas.aposta ? 'aposta' : 'minha' }
       grupo.add(m)
       alvos.push(m)
     }
+  }
+
+  /**
+   * ONDE PENDURAR OS NUMEROS, em coordenadas de MUNDO.
+   *
+   * Devolve um ponto por pilha clicavel, no TOPO dela: a pilha cresce e o
+   * numero sobe junto. Quem projeta pra tela e desenha e ui/cassino-ui.js — uma
+   * etiqueta em DOM le melhor que texto em 3D nesse tamanho (a ficha tem 8 a 14
+   * px de altura na tela) e nao custa draw call nenhum.
+   *
+   * Escreve num array reaproveitado porque isto roda TODO QUADRO: alocar seis
+   * objetos por quadro so pra descartar seria lixo de graca.
+   */
+  const _mv = new THREE.Vector3()
+  function marcadores(saida, cam) {
+    const lista = saida || []
+    lista.length = 0
+    if (!grupo.visible || !cam) return lista
+    // A camera acabou de ser reposicionada neste quadro e o three so recalcula
+    // matrixWorld/matrixWorldInverse no render — que ainda nao aconteceu.
+    // Projetar sem isto usa a matriz do quadro ANTERIOR, e com lente em viagem
+    // (a entrada na mesa) a etiqueta anda um quadro atras da propria pilha.
+    cam.updateMatrixWorld()
+    for (let i = 0; i < alvos.length; i++) {
+      const d = alvos[i].userData && alvos[i].userData.alvo
+      if (!d) continue
+      const p = pilhas.get(d.pilha)
+      const n = p ? p.itens.length : 0
+      const base = p ? p.base : alvos[i].position
+      _mv.set(base.x, Y_CHAO + FICHA_H * n + 0.022, base.z)
+      grupo.localToWorld(_mv)
+      // A PROJECAO ACONTECE AQUI, e nao em quem chama, porque ui/cassino-ui.js
+      // e o unico arquivo do cassino que NAO importa three (esta escrito no
+      // cabecalho dele) e nao vale quebrar isso por uma multiplicacao de
+      // matriz. Ele recebe -1..1 e so converte pra pixel.
+      _mv.project(cam)
+      lista.push({
+        tipo: d.tipo,
+        v: d.v || 0,
+        fichas: n,
+        valor: p ? p.valor : 0,
+        nx: _mv.x, ny: _mv.y,
+        atras: _mv.z > 1,
+      })
+    }
+    return lista
   }
 
   /**
@@ -1661,6 +1718,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     limparCaixote,
     montarAlvos,
     apontar,
+    marcadores,
     acender,
     tremer,
     destacar,

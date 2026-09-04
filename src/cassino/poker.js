@@ -174,24 +174,30 @@ export function criarPoker(opts = {}) {
   }
 
   /**
-   * Aposta valida: nunca menos que a ante, nunca mais do que o ricaco pode
-   * cobrir (senao o pote fica com dinheiro morto) e nunca mais do que QUATRO
-   * VEZES o pote.
+   * Aposta valida: nunca menos que a ante e nunca mais do que o ricaco pode
+   * cobrir. Mais nada.
    *
-   * ERA LIMITE DE POTE — teto = min(pote, npcFichas) — e a razao escrita era
-   * "evita o all-in que acaba com a noite em uma mao". O TETO_AUMENTOS de 3
-   * ja evitava isso sozinho, e o limite de pote cobrava um preco que so
-   * apareceu quando as fichas viraram objeto na mesa: com ante 25, o pote
-   * abre em 50 e a aposta maxima era 50, entao as pilhas de 100, 250 e 500 do
-   * caixote nunca podiam ser empurradas. Uma mesa que mostra cinco pilhas e so
-   * aceita duas nao e uma regra, e uma promessa quebrada.
+   * A MESA E CASH GAME, e o pedido do dono foi literal: "n quero que limite o
+   * quanto pode apostar, tem que ser cash in, entao n pode limitar". Esta
+   * funcao ja teve dois tetos artificiais e os dois cairam:
    *
-   * Quatro vezes o pote deixa a escalada acontecer (50 -> 200 -> 1000) sem
-   * virar "aposto tudo na primeira" — e o all-in continua existindo, agora
-   * limitado pelo que o adversario tem, que e o limite honesto de uma mesa.
+   *   1. LIMITE DE POTE (teto = min(pote, npcFichas)). A razao escrita era
+   *      "evita o all-in que acaba com a noite em uma mao" — mas o
+   *      TETO_AUMENTOS de 3 ja evita isso sozinho. O preco apareceu quando as
+   *      fichas viraram objeto em cima do pano: com ante 25 o pote abre em 50,
+   *      a aposta maxima era 50, e as pilhas de 100, 250 e 500 do caixote nunca
+   *      podiam ser empurradas.
+   *   2. QUATRO VEZES O POTE, a tentativa seguinte. Melhor, e ainda um teto:
+   *      quem tinha vinte mil em ficha continuava sem poder empurrar.
+   *
+   * O QUE SOBROU E O UNICO LIMITE HONESTO DE UMA MESA DE VERDADE: nao da pra
+   * apostar mais do que o adversario tem pra cobrir, porque o excedente seria
+   * dinheiro morto no pote — ninguem ganharia nem perderia com ele. E a regra
+   * de "table stakes", e a faixa mostra o numero ('ele tem 1.975') pra ela
+   * nunca ser uma recusa sem explicacao.
    */
   function limitarAposta(v) {
-    const teto = Math.max(ante, Math.min(pote * 4, npcFichas))
+    const teto = Math.max(ante, npcFichas)
     const bruto = Math.floor(v)
     if (!Number.isFinite(bruto)) return Math.min(ante, teto)
     return Math.max(Math.min(ante, teto), Math.min(teto, bruto))
@@ -392,7 +398,14 @@ export function criarPoker(opts = {}) {
       // O ricaco nunca quebra: se o cofre secou, ele "manda buscar mais". E
       // coerente com o personagem e evita a mesa morta, que e o que acontece
       // se o NPC zerar e o jogador ficar com um botao de jogar que nao joga.
-      if (npcFichas < ante * 20) npcFichas += 2000
+      //
+      // O GATILHO SUBIU (era `< ante*20` somando 2000) porque a banca dele
+      // virou o TETO DA APOSTA: sem limite de pote, o maximo que o jogador pode
+      // empurrar e exatamente o que ele tem pra cobrir. Com o cofre boiando em
+      // 500, o all-in valia 500 e "sem limite" nao queria dizer nada. Repondo
+      // abaixo de 40 antes, ele fica na faixa de 1000 a 5000 — dinheiro que
+      // aguenta uma mao grande e ainda cabe numa noite de jogo.
+      if (npcFichas < ante * 40) npcFichas += 4000
 
       minhas = [baralho.pegar(), baralho.pegar()]
       dele = [baralho.pegar(), baralho.pegar()]

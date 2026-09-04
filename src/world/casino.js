@@ -400,6 +400,16 @@ const M = {
   get vinho() { return solid(0x5a1626, 0.85) },
   get veludo() { return solid(0x7c1226, 0.96) },
   get couro() { return solid(0x3a1b1f, 0.5, 0.05) },
+  // UM material pras ~200 fichas do salao inteiro: a cor de cada denominacao
+  // mora no MAP (a tabelinha de lutFicha), nao aqui. 0.38 de rugosidade e nao
+  // 0.85 porque argila de cassino tem verniz — e e esse brilho fechado que
+  // acende o chanfro e o degrau da tampa como duas linhas finas de luz, que e o
+  // motivo de eles existirem. Os mesmos numeros da ficha viva (mesa-3d.js).
+  get ficha() {
+    return stdMat('casino-ficha', {
+      map: lutFicha(), roughness: 0.38, metalness: 0.06, name: 'ficha-cenario',
+    })
+  },
   // O POCO DE LUZ DAS MESAS MORA AQUI, NO MAP — nao numa luz.
   //
   // Nao da pra acender um foco em cima da mesa: a contagem de luzes VISIVEIS
@@ -1326,19 +1336,250 @@ function tetoELustres(g, luzes) {
 // Pecas reaproveitadas pelas tres mesas
 // ===========================================================================
 
-// Geometria de ficha e de carta: uma so pro modulo inteiro. Sao centenas de
-// pecas e o forno vai fundir tudo por material — o que nao pode e cada ficha
-// nascer com a propria BufferGeometry antes disso.
-// A ficha real tem 39 mm de diametro por 3.3 mm de espessura. Aqui ela e mais
-// gorda de proposito: no tamanho certo uma pilha de 10 tem 3 cm e some no
-// feltro a dois metros de distancia — e a pilha de fichas e metade da leitura
-// de uma mesa de cassino.
-let _geoFicha = null
-function geoFicha() {
-  if (!_geoFicha) _geoFicha = new THREE.CylinderGeometry(0.026, 0.026, 0.0062, 14)
-  return _geoFicha
+// ---------------------------------------------------------------------------
+// A FICHA DO CENARIO — a MESMA ficha da mesa de jogo, so que parada.
+//
+// A ficha VIVA (a que o jogador aposta, a que cai com estalo) mora em
+// cassino/mesa-3d.js. O que estava aqui era outra coisa: um CylinderGeometry de
+// 14 lados, 5,2 cm de diametro, sem desenho nenhum. As duas apareciam NO MESMO
+// QUADRO — as pilhas do jogador na beirada e o pote velho no meio do pano — e o
+// dono viu na hora ("tem umas fichas estranhas na mesa mesmo quando eu aposto").
+// Daqui pra baixo e a GEMEA ESTATICA da ficha viva: mesmo raio (3,15 cm), mesma
+// altura (7,5 mm), mesmo perfil torneado, mesmas 8 insercoes no aro, mesmas
+// cores da tabela DENOM.
+//
+// AS DUAS ANDAM JUNTAS. Mexeu no desenho de uma, mexe na outra, ou o defeito
+// volta. A outra esta em src/cassino/mesa-3d.js (PERFIL_FICHA, FICHA_R,
+// FICHA_H, DENOM e compilarFicha).
+//
+// POR QUE E COPIA E NAO IMPORT. A geometria de la nasce UMA POR MESA e carrega
+// um atributo 'aFlash' POR INSTANCIA — o pisca do pouso. Ficha parada nao pousa,
+// e dividir o InstancedMesh faria o flash de uma aposta no poker acender a
+// vitrine do caixa do outro lado do salao.
+//
+// POR QUE UV + TABELA DE COR, E NAO COR DE VERTICE NEM SHADER INJETADO.
+// O cassino inteiro passa pelo forno (world/bake.js, chamado por main.js), e o
+// forno copia POSITION, NORMAL e UV — SO. Cor de vertice ele descarta sem
+// avisar, entao a ficha sairia do forno cinza. Shader injetado tambem nao serve:
+// o forno funde por MATERIAL, e um material por denominacao e o que ja existia
+// (6 cores viravam 13 meshes assados contando as variantes de sombra).
+// Entao o desenho viaja no UV. Cada vertice aponta pra um texel de uma tabelinha
+// 16x32 onde a cor FINAL ja esta pronta — cor da denominacao vezes o brilho
+// daquele anel, ou a insercao de osso por cima. Resultado: UM material, UM mesh
+// assado pras fichas todas do cassino, contra os 13 de antes.
+// ---------------------------------------------------------------------------
+
+// Medidas identicas as da ficha viva. A ficha real tem 39 mm por 3,3 mm; esta e
+// mais gorda (razao 0,12 contra 0,085) porque o aro tem desenho e desenho
+// precisa de pixel pra existir.
+const FICHA_R = 0.0315
+const FICHA_H = 0.0075
+const ALT_FICHA = FICHA_H
+
+// 16 SEGMENTOS, E NAO OS 32 DA MESA VIVA. A conta e pixel contra triangulo: sao
+// ~200 fichas no cenario e a mais perto da lente e o pote do poker, a 1,6 m:
+// os 6,3 cm dela viram 33 px na tela de 720. Num hexadecagono desse tamanho
+// nenhum lado passa de 3 px e a silhueta le redonda. O que 16 nao podia
+// perder e a DIVISAO POR 8: cada mancha do aro tem que cair em cima de vertice pra sair com quina
+// em vez de degrade. Com periodo 2 e largura 1 a mancha fica com 22,5 graus e a
+// folga com 22,5 — a MESMA proporcao da ficha viva, que usa 32/4/2.
+// Custa 192 triangulos por ficha, contra 384 na mesa e 56 no cilindro velho.
+const SEG_FICHA = 16
+const SPOT_PERIODO = 2
+const SPOT_LARGURA = 1
+
+// As cores e a ORDEM sao a tabela DENOM de cassino/mesa-3d.js (do maior valor
+// pro menor). Os nomes existem pra o call site dizer QUAL ficha esta na mesa —
+// 'pilhaFichas(u, x, y, z, 9, D25)' se le, 'cor 4' nao.
+const COR_DENOM = [0xc9a24a, 0x8f2f45, 0x23262e, 0x2f6f9f, 0x2f8f5b, 0x7a5ea8, 0x4a6f8f, 0xe8e2d2]
+const D500 = 0, D250 = 1, D100 = 2, D50 = 3, D25 = 4, D10 = 5, D5 = 6, D1 = 7
+
+// A de 500 da mesa viva tem um emissivo de base (DENOM[0].bri = 0.10) que faz a
+// dourada parecer metal numa pilha misturada. Emissivo aqui e impossivel — ele
+// seria por material e ha um material so — entao a dourada do cenario leva 12%
+// de albedo a mais. Nao e a mesma coisa (nao brilha no escuro), mas e o
+// suficiente pra ela nao ler mais apagada que a dourada viva no mesmo quadro.
+const BRILHO_500 = 1.12
+
+// O PERFIL, do centro da tampa ate o centro do fundo. Copia fiel do de
+// mesa-3d.js: [raio em fracao de FICHA_R, altura em fracao de FICHA_H/2,
+// brilho, insercao]. 'insercao' 0 = nada, 2 = "depende do setor" (as 8 manchas),
+// fracao = decalque desbotado (o miolo impresso). Aneis REPETIDOS (mesmo raio e
+// altura, brilho diferente) nao geram triangulo: sao a quina dura entre duas
+// cores, sem eles o anel interno vira degrade e a ficha volta a ler como rodela
+// de plastico.
+const PERFIL_FICHA = [
+  [0.00, 0.78, 1.34, 0.62],  // centro do miolo REBAIXADO: a pastilha impressa
+  [0.40, 0.78, 1.16, 0.62],  // borda da pastilha
+  [0.40, 0.78, 0.42, 0],     // (repetido) comeca o degrau
+  [0.53, 1.00, 0.52, 0],     // topo do degrau — e ele o anel interno escuro
+  [0.53, 1.00, 1.06, 0],     // (repetido) campo da tampa
+  [0.80, 1.00, 0.98, 0],
+  [0.80, 1.00, 0.96, 2],     // (repetido) comeca a faixa das insercoes
+  [0.91, 1.00, 0.88, 2],     // fim da parte plana da insercao
+  [1.00, 0.70, 0.68, 2],     // fim do CHANFRO / topo do aro
+  [1.00, -1.00, 0.38, 2],    // base do aro
+  [1.00, -1.00, 0.28, 0],    // (repetido) comeca o fundo
+  [0.00, -1.00, 0.24, 0],    // centro do fundo
+]
+
+// A TABELA DE COR. 16 colunas (uma por anel do perfil, 12 usadas) por 32 linhas:
+// 8 denominacoes x 2 faixas (lisa / com insercao) x 2 pixels de altura.
+//
+// Os DOIS pixels de altura nao sao enfeite. O vertice amostra no MEIO da faixa,
+// no fio entre os dois pixels iguais: a interpolacao linear devolve a cor exata
+// e nunca puxa nada da denominacao vizinha. Na horizontal e o contrario — a
+// amostra cai no CENTRO do texel e um quadrado do perfil anda de uma coluna pra
+// coluna do lado, o que devolve de graca o mesmo degrade que a cor de vertice
+// dava entre dois aneis.
+const LUT_W = 16
+const LUT_H = 32
+// Creme de osso, quase-preto e o corte de luminancia entre os dois: copiados do
+// shader da ficha viva pra as insercoes das duas serem a MESMA cor na cena. O
+// corte existe porque insercao clara em ficha clara nao e ficha, e disco — so a
+// de 1 (marfim) passa dele.
+const INS_CLARA = [0.80, 0.77, 0.69]
+const INS_ESCURA = [0.07, 0.08, 0.10]
+const INS_CORTE = 0.52
+
+let _lutFicha = null
+function lutFicha() {
+  if (_lutFicha) return _lutFicha
+  const cv = document.createElement('canvas')
+  cv.width = LUT_W
+  cv.height = LUT_H
+  const g = cv.getContext('2d')
+  const base = new THREE.Color()
+  const saida = new THREE.Color()
+  for (let d = 0; d < COR_DENOM.length; d++) {
+    base.setHex(COR_DENOM[d], THREE.SRGBColorSpace)   // ja chega em espaco LINEAR
+    if (d === D500) base.multiplyScalar(BRILHO_500)
+    for (let c = 0; c < PERFIL_FICHA.length; c++) {
+      const sh = PERFIL_FICHA[c][2]
+      const sp = PERFIL_FICHA[c][3]
+      const r = base.r * sh, v = base.g * sh, b = base.b * sh
+      // A luminancia e lida DEPOIS do brilho do anel, igual ao shader de la:
+      // e por isso que a marfim tem insercao escura na tampa e insercao creme
+      // no aro (o aro ja caiu abaixo do corte).
+      const ins = 0.299 * r + 0.587 * v + 0.114 * b >= INS_CORTE ? INS_ESCURA : INS_CLARA
+      for (let faixa = 0; faixa < 2; faixa++) {
+        const t = sp === 2 ? faixa : sp
+        saida.setRGB(
+          r + (sh * ins[0] - r) * t,
+          v + (sh * ins[1] - v) * t,
+          b + (sh * ins[2] - b) * t,
+        )
+        g.fillStyle = '#' + saida.getHexString(THREE.SRGBColorSpace)
+        g.fillRect(c, d * 4 + faixa * 2, 1, 2)
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(cv)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping
+  // flipY FALSE, e este e o unico jeito de a linha 'd' da tabela ser mesmo a
+  // denominacao 'd'. O padrao do three e virar a imagem de cabeca pra baixo na
+  // subida pra GPU (a convencao de UV do OpenGL), o que aqui nao borra nada —
+  // simplesmente troca a ficha de 500 pela de 1 e a de 250 pela de 5. Foi
+  // exatamente o que a primeira foto do pote mostrou: as cores certas, todas
+  // na ficha errada.
+  t.flipY = false
+  // SEM MIPMAP, e isto nao e economia: numa tabela de cor o mip nivel 1 ja
+  // mistura a ficha de 500 com a de 250 e a de 30 px de tela sai marrom. Sem
+  // mip nao ha aliasing pra pagar, porque o UV de cada quadrado anda no maximo
+  // um texel — nunca ha mais de uma cor por pixel de tela.
+  t.generateMipmaps = false
+  t.magFilter = THREE.LinearFilter
+  t.minFilter = THREE.LinearFilter
+  t.anisotropy = 1
+  _lutFicha = t
+  return t
 }
-const ALT_FICHA = 0.0062
+
+/**
+ * A ficha torneada, uma geometria por denominacao (so o V muda entre elas).
+ * NAO E INDEXADA de proposito, pelo mesmo motivo da ficha viva: vertice
+ * compartilhado interpola a cor por cima da quina da mancha e o aro vira
+ * tracejado borrado em vez de insercao.
+ */
+const _geosFicha = []
+function geoFicha(d) {
+  if (_geosFicha[d]) return _geosFicha[d]
+  const meia = FICHA_H / 2
+  const pos = [], nor = [], uvs = []
+  const vLisa = (d * 4 + 1) / LUT_H
+  const vSpot = (d * 4 + 3) / LUT_H
+  const vert = (c, s, r, y, nr, nv, col, spot) => {
+    pos.push(c * r, y, s * r)
+    nor.push(nr * c, nv, nr * s)
+    uvs.push((col + 0.5) / LUT_W, spot ? vSpot : vLisa)
+  }
+  for (let p = 0; p < PERFIL_FICHA.length - 1; p++) {
+    const a = PERFIL_FICHA[p]
+    const b = PERFIL_FICHA[p + 1]
+    const r0 = a[0] * FICHA_R, y0 = a[1] * meia
+    const r1 = b[0] * FICHA_R, y1 = b[1] * meia
+    if (r0 === r1 && y0 === y1) continue          // anel repetido: so troca cor
+    // Normal do segmento do perfil girada 90 graus: (-dy, dr) normalizado. Da
+    // (0,1) na tampa, (1,0) no aro e o angulo certo no chanfro — com uma conta
+    // so. Sem isso o aro de 16 lados le facetado.
+    const dr = r1 - r0, dy = y1 - y0
+    const ln = Math.hypot(dr, dy) || 1
+    const nr = -dy / ln, nv = dr / ln
+    for (let s = 0; s < SEG_FICHA; s++) {
+      const t0 = (s / SEG_FICHA) * Math.PI * 2
+      const t1 = ((s + 1) / SEG_FICHA) * Math.PI * 2
+      const c0 = Math.cos(t0), s0 = Math.sin(t0)
+      const c1 = Math.cos(t1), s1 = Math.sin(t1)
+      const mancha = (s % SPOT_PERIODO) < SPOT_LARGURA
+      const spA = a[3] === 2 && mancha
+      const spB = b[3] === 2 && mancha
+      if (r0 > 0) {
+        vert(c0, s0, r0, y0, nr, nv, p, spA)
+        vert(c1, s1, r0, y0, nr, nv, p, spA)
+        vert(c1, s1, r1, y1, nr, nv, p + 1, spB)
+      }
+      if (r1 > 0) {
+        vert(c0, s0, r0, y0, nr, nv, p, spA)
+        vert(c1, s1, r1, y1, nr, nv, p + 1, spB)
+        vert(c0, s0, r1, y1, nr, nv, p + 1, spB)
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+  geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3))
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2))
+  geo.computeBoundingSphere()
+  _geosFicha[d] = geo
+  return geo
+}
+
+/**
+ * Pilha de fichas: n fichas empilhadas.
+ *
+ * O giro de 0,485 rad por ficha e a razao aurea do periodo da mancha
+ * (2*PI/8 = 0,785): e o passo que espalha as insercoes ao maximo antes de
+ * repetir. Com um passo "redondo" (0,35, que era o daqui) uma ficha sim outra
+ * nao voltava a alinhar e a coluna virava um cilindro listrado.
+ *
+ * castShadow/receiveShadow IGUAIS EM TODA FICHA de proposito: o forno separa os
+ * baldes tambem por essas duas flags, e uma ficha solta com castShadow false
+ * abriria um segundo mesh assado so pra ela.
+ */
+function pilhaFichas(g, x, y, z, n, cor) {
+  const geo = geoFicha(cor)
+  const mat = M.ficha
+  for (let i = 0; i < n; i++) {
+    const f = new THREE.Mesh(geo, mat)
+    f.position.set(x, y + ALT_FICHA / 2 + i * ALT_FICHA, z)
+    f.rotation.y = i * 0.485
+    f.castShadow = true
+    f.receiveShadow = true
+    g.add(f)
+  }
+}
+
 let _geoCarta = null
 function geoCarta() {
   if (!_geoCarta) _geoCarta = new THREE.BoxGeometry(0.066, 0.003, 0.093)
@@ -1348,24 +1589,6 @@ let _geoDorso = null
 function geoDorso() {
   if (!_geoDorso) _geoDorso = new THREE.BoxGeometry(0.052, 0.0012, 0.078)
   return _geoDorso
-}
-
-const MAT_FICHA = () => [
-  solid(0xf2f0e8, 0.5), solid(0xc8102e, 0.5), solid(0x1f52a8, 0.5),
-  solid(0x1f8a4c, 0.5), solid(0x18181c, 0.55), solid(0xd8ab3e, 0.35, 0.6),
-]
-
-/** Pilha de fichas: n discos empilhados, com o filete branco da borda. */
-function pilhaFichas(g, x, y, z, n, cor, mats) {
-  const mat = mats[cor % mats.length]
-  for (let i = 0; i < n; i++) {
-    const f = new THREE.Mesh(geoFicha(), mat)
-    f.position.set(x, y + ALT_FICHA / 2 + i * ALT_FICHA, z)
-    f.rotation.y = i * 0.35
-    f.castShadow = true
-    f.receiveShadow = true
-    g.add(f)
-  }
 }
 
 /**
@@ -1445,7 +1668,7 @@ function fazGarrafa(cor, alt) {
 // ===========================================================================
 // CAIXA — onde o ouro vira ficha
 // ===========================================================================
-function buildCaixa(g, colliders, mats) {
+function buildCaixa(g, colliders) {
   const bancada = (r) => {
     const w = r.x1 - r.x0, d = r.z1 - r.z0
     const cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2
@@ -1515,9 +1738,15 @@ function buildCaixa(g, colliders, mats) {
   }
   g.add(placa)
 
-  // fichas expostas no tampo, atras do vidro (a vitrine da mercadoria)
-  for (let i = 0; i < 6; i++) {
-    pilhaFichas(g, CX.x0 + 0.7 + i * 0.28, CX.h + 0.03, CX.z1 - 0.26, 5 + (i % 4) * 4, i, mats)
+  // A VITRINE DA MERCADORIA: fichas expostas no tampo, atras do vidro.
+  //
+  // Uma pilha por denominacao e a altura CAINDO com o valor, que e como uma
+  // gaveta de caixa de verdade fica — sobra ficha de 1 e falta ficha de 500. As
+  // seis pilhas ficam a 28 cm uma da outra (a ficha tem 6,3 cm), entao nenhuma
+  // encosta na vizinha nem no vidro, que esta 54 cm a frente delas.
+  const gaveta = [[D1, 12], [D5, 9], [D25, 7], [D100, 6], [D250, 5], [D500, 4]]
+  for (let i = 0; i < gaveta.length; i++) {
+    pilhaFichas(g, CX.x0 + 0.7 + i * 0.28, CX.h + 0.03, CX.z1 - 0.26, gaveta[i][1], gaveta[i][0])
   }
   // gaveta de ouro: barrinhas empilhadas do lado de dentro
   for (let i = 0; i < 5; i++) {
@@ -1538,7 +1767,7 @@ function buildCaixa(g, colliders, mats) {
 // ===========================================================================
 // BLACKJACK — mesa semicircular, atendente do lado reto
 // ===========================================================================
-function buildBlackjack(g, colliders, mats) {
+function buildBlackjack(g, colliders) {
   const r = BJ.r
   const yT = 0.92                       // altura do feltro
   const u = new THREE.Group()
@@ -1593,7 +1822,10 @@ function buildBlackjack(g, colliders, mats) {
       const dorso = solid(0x8c1224, 0.55)
       carta(u, px - 0.05, yT + 0.010, pz + 0.03, 0.2 + i, dorso)
       carta(u, px + 0.04, yT + 0.010, pz - 0.02, -0.4 + i, dorso)
-      pilhaFichas(u, px, yT + 0.010, pz + 0.16, 4 + i, i, mats)
+      // A aposta desses dois lugares fica DENTRO do anel impresso (raio 0.15),
+      // que e onde a ficha vai numa mesa de verdade — antes ela caia 16 cm
+      // adiante dele, no meio do pano, e lia como ficha esquecida.
+      pilhaFichas(u, px, yT + 0.010, pz, i === 1 ? 5 : 7, i === 1 ? D25 : D100)
     }
   }
   // As duas linhas impressas no feltro. As DUAS saem de regras que
@@ -1642,14 +1874,23 @@ function buildBlackjack(g, colliders, mats) {
   sombras(desc)
   u.add(desc)
 
-  // RACK de fichas da casa, encaixado na corda
+  // RACK de fichas da casa, encaixado na corda.
+  //
+  // As cinco casas guardam CINCO DENOMINACOES, do 1 ao 500 da esquerda pra
+  // direita, e nao cinco cores sorteadas: e a bandeja do dealer, e bandeja de
+  // dealer e ordenada. A altura cai com o valor pelo mesmo motivo da vitrine do
+  // caixa. As divisorias vao de 4,5 cm a 13,5 cm acima do feltro e a pilha mais
+  // cheia (9 fichas de 7,5 mm sobre a base de 7 cm) para em 13,75: ela encosta
+  // no topo da divisoria e nao passa dela, que e o que faz o rack ler como rack
+  // em vez de cinco torres soltas em cima de uma tabua.
   const rack = new THREE.Group()
   rack.position.set(0, yT, -0.20)
   rack.add(box(0.86, 0.07, 0.26, M.madeira, 0, 0.035, 0))
+  const casaRack = [[D1, 9], [D5, 8], [D25, 8], [D100, 7], [D500, 6]]
   for (let i = 0; i < 5; i++) {
     const x = -0.32 + i * 0.16
     rack.add(box(0.02, 0.09, 0.24, M.ouroEscuro, x + 0.08, 0.09, 0))
-    pilhaFichas(rack, x, 0.07, 0, 9, i, mats)
+    pilhaFichas(rack, x, 0.07, 0, casaRack[i][1], casaRack[i][0])
   }
   rack.add(box(0.02, 0.09, 0.24, M.ouroEscuro, -0.40, 0.09, 0))
   sombras(rack)
@@ -1679,7 +1920,7 @@ function buildBlackjack(g, colliders, mats) {
 // POKER — mesa oval de heads-up, so duas cadeiras
 // ===========================================================================
 /** @returns {THREE.Group} o par de cartas de enfeite do feltro (ver abaixo). */
-function buildPoker(g, colliders, mats) {
+function buildPoker(g, colliders) {
   const yT = 0.78                       // mesa de poker e mais baixa: joga-se sentado
   const u = new THREE.Group()
   u.position.set(PK.x, 0, PK.z)
@@ -1748,22 +1989,63 @@ function buildPoker(g, colliders, mats) {
     carta(enfeite, 0.06, yT + 0.010, zc, -0.05, s > 0 ? dorso : dorso2)
   }
   u.add(enfeite)
-  // botao do dealer
-  const bt = new THREE.Mesh(geoFicha(), solid(0xf4f2ea, 0.4))
-  bt.scale.set(1.5, 2.2, 1.5)
-  bt.position.set(-0.55, yT + 0.016, 0.18)
+  // BOTAO DO DEALER. E a ficha de marfim mais gorda e mais larga, e nao um
+  // disco liso: liso era exatamente o que o dono chamou de estranho, e um botao
+  // liso branco no meio das fichas novas continuaria sendo a peca velha da foto.
+  // Como usa o mesmo material das fichas, ele nao custa draw call nenhum.
+  const bt = new THREE.Mesh(geoFicha(D1), M.ficha)
+  bt.scale.set(1.30, 1.75, 1.30)
+  bt.position.set(-0.55, yT + ALT_FICHA * 0.9, 0.18)
+  bt.castShadow = true
+  bt.receiveShadow = true
   u.add(bt)
-  // pote no meio
-  for (let i = 0; i < 5; i++) {
-    pilhaFichas(u, -0.22 + i * 0.11, yT + 0.010, -0.05, 3 + (i % 3) * 3, (i + 2) % 6, mats)
-  }
-  // a muralha de fichas do ricaco (lado +Z) contra as poucas do jogador
-  for (let i = 0; i < 6; i++) {
-    pilhaFichas(u, -0.42 + i * 0.15, yT + 0.010, 0.74, 6 + (i % 4) * 3, (i + 1) % 6, mats)
-  }
-  for (let i = 0; i < 3; i++) {
-    pilhaFichas(u, -0.18 + i * 0.15, yT + 0.010, -0.74, 4, i, mats)
-  }
+
+  // O POTE, E ELE E UM MONTE, NAO UMA FILEIRA.
+  //
+  // Eram cinco pilhas alinhadas em x com 11 cm de passo, a mesma altura de
+  // ombro, e o resultado na foto era uma regua de disquinhos atravessada no meio
+  // do pano — a leitura de "alguem derrubou fichas na mesa", nao a de pote.
+  // Pote de verdade e um amontoado irregular: alturas diferentes, encostadas
+  // mas nao alinhadas. As cinco cabem num circulo de 16 cm em volta de
+  // (-0.10, -0.02), longe dos 28 cm em x onde a mesa viva empilha as apostas de
+  // verdade (LAYOUT.poker.pilhas em cassino/mesa-3d.js) — as duas nao podem
+  // ocupar o mesmo pano ou a aposta do jogador nasce dentro do enfeite.
+  const pote = [
+    [-0.24, -0.10, 6, D25], [-0.11, 0.04, 4, D100], [0.01, -0.07, 9, D500],
+    [-0.17, 0.10, 4, D50], [-0.02, 0.10, 5, D250],
+  ]
+  for (const p of pote) pilhaFichas(u, p[0], yT + 0.010, p[1], p[2], p[3])
+
+  // A MURALHA DO RICACO (lado +Z), agora em DUAS FILEIRAS.
+  //
+  // Uma fileira so de seis pilhas iguais lia como estante. Com a de tras alta e
+  // de valor alto (500 e 250) e a da frente baixa e barata, o monte ganha volume
+  // e conta a mesma historia com MENOS ficha — 44 contra as 57 de antes, que e o
+  // que paga os 192 triangulos por ficha do modelo novo.
+  // A fileira da frente para em z=0.72 e nao 0.70: as cartas decorativas do
+  // ricaco terminam em z=0.667 e a ficha tem 3,15 cm de raio.
+  const muralha = [
+    [-0.36, 0.84, 9, D500], [-0.19, 0.84, 7, D250], [-0.02, 0.84, 11, D500], [0.15, 0.84, 6, D100],
+    [-0.28, 0.72, 4, D25], [-0.11, 0.72, 3, D50], [0.06, 0.72, 4, D25],
+  ]
+  for (const p of muralha) pilhaFichas(u, p[0], yT + 0.010, p[1], p[2], p[3])
+
+  // AS FICHAS QUE ALGUEM DEIXOU, e elas SAIRAM DA FRENTE DO JOGADOR.
+  //
+  // Eram tres pilhas de quatro em z=-0.74, a 16 cm da beirada onde a mesa viva
+  // faz nascer o caixote do jogador (z=-0.90). Com a mesa aberta as duas caiam na
+  // mesma faixa do quadro: cinco pilhas grandes e VIVAS e, logo atras, tres
+  // pilhinhas mortas do mesmo tamanho. Era a comparacao mais cruel entre a ficha
+  // velha e a nova que a foto tinha.
+  //
+  // Agora sao um montinho no canto -X do oval (a DIREITA da tela), num lugar que
+  // e vago dos tres jeitos: fora do caixote vivo (x de -0.40 a +0.40 em z=-0.90),
+  // fora da linha impressa no pano (x de -0.8 a +0.8, z de -0.52 a -0.32) e ainda
+  // dentro do oval: a mais afastada fica a 16 cm da linha do tampo, o que deixa
+  // uns 4 cm de pano livre entre ela e a borda estofada. Ali elas leem como "o
+  // ultimo jogador esqueceu isto" em vez de "as suas fichas, mas mortas".
+  const esquecidas = [[-0.74, -0.62, 6, D25], [-0.84, -0.72, 3, D100], [-0.64, -0.74, 3, D5]]
+  for (const p of esquecidas) pilhaFichas(u, p[0], yT + 0.010, p[1], p[2], p[3])
 
   // copo de uisque e charuto apagado no cinzeiro, do lado do ricaco
   const copo = new THREE.Group()
@@ -2146,7 +2428,7 @@ function buildBar(g, colliders) {
 }
 
 /** O que sobra: plantas, quadros, corda de veludo e sujeira de mesa. */
-function buildJuice(g, colliders, mats) {
+function buildJuice(g, colliders) {
   // corda de veludo canalizando quem entra (dois postes + cordao)
   for (const s of [-1, 1]) {
     const px = B.door.center + s * 2.5
@@ -2211,24 +2493,34 @@ function buildJuice(g, colliders, mats) {
     t.add(cyl(0.42, 0.42, 0.06, M.madeira, 22).translateY(0.67))
     sombras(t)
     g.add(t)
-    pilhaFichas(g, m[0] - 0.12, 0.70, m[1] + 0.06, 7, 1, mats)
-    pilhaFichas(g, m[0] + 0.10, 0.70, m[1] - 0.08, 4, 4, mats)
+    pilhaFichas(g, m[0] - 0.12, 0.70, m[1] + 0.06, 6, D250)
+    pilhaFichas(g, m[0] + 0.10, 0.70, m[1] - 0.08, 4, D25)
     const bar2 = box(0.065, 0.022, 0.092, dorso, m[0] + 0.16, 0.711, m[1] + 0.14)
     bar2.rotation.y = 0.6
     g.add(bar2)
     colliders.push({ minX: m[0] - 0.3, maxX: m[0] + 0.3, minZ: m[1] - 0.3, maxZ: m[1] + 0.3, tag: 'cassino-mesinha' })
   }
 
-  // fichas caidas no carpete: o detalhe que diz que alguem ja jogou aqui
+  // Fichas caidas no carpete: o detalhe que diz que alguem ja jogou aqui. Estas
+  // continuam SOLTAS de proposito — ficha no chao nao esta empilhada, e a mesma
+  // regra que juntou as do pano em monte manda deixar estas espalhadas.
+  // Ficam a meia altura de ficha do carpete (o modelo novo tem 7,5 mm e a origem
+  // no meio) mais 1 mm de folga contra o z-fighting com o piso.
+  //
+  // NENHUMA PODE CAIR EM x>26.8 COM z>25.6. Aquele retangulo e a cozinha, e
+  // world/casino-cozinha.js varre a zona inteira depois que este arquivo termina
+  // (limparZona: tudo que couber dentro da caixa e for menor que 3 m sai). A
+  // ficha que estava em 26.9/25.7 vinha sendo apagada ali havia tempo — existia
+  // no codigo e nunca no chao. Ela agora esta em 26.35, do lado de fora.
   const soltas = [
-    [23.2, 20.6, 0], [23.5, 20.9, 2], [22.9, 21.3, 4],
-    [26.6, 26.0, 1], [26.9, 25.7, 3], [18.4, 20.0, 5], [30.2, 18.4, 2],
+    [23.2, 20.6, D25], [23.5, 20.9, D100], [22.9, 21.3, D500],
+    [26.6, 26.0, D250], [26.35, 25.65, D50], [18.4, 20.0, D10], [30.2, 18.4, D1],
   ]
   for (const f of soltas) {
-    const m = new THREE.Mesh(geoFicha(), mats[f[2]])
-    m.position.set(f[0], 0.008, f[1])
+    const m = new THREE.Mesh(geoFicha(f[2]), M.ficha)
+    m.position.set(f[0], ALT_FICHA / 2 + 0.001, f[1])
     m.rotation.y = f[0]
-    m.castShadow = false
+    m.castShadow = true
     m.receiveShadow = true
     g.add(m)
   }
@@ -2393,7 +2685,6 @@ export function buildCasino(game) {
     emissive(0xffd24a, 3.2).clone(),
     emissive(0xffd24a, 3.2).clone(),
   ]
-  const matsFicha = MAT_FICHA()
 
   // --- casca (coordenadas de mundo, chao em y=0) --------------------------
   const casca = new THREE.Group()
@@ -2414,9 +2705,9 @@ export function buildCasino(game) {
   pisoInterno(dentro)
   revestimento(dentro)
   tetoELustres(dentro, luzes)
-  buildCaixa(dentro, colliders, matsFicha)
-  buildBlackjack(dentro, colliders, matsFicha)
-  const enfeitePoker = buildPoker(dentro, colliders, matsFicha)
+  buildCaixa(dentro, colliders)
+  buildBlackjack(dentro, colliders)
+  const enfeitePoker = buildPoker(dentro, colliders)
   const maquinas = buildSlots(dentro, colliders, interactables, matsFase)
   // O bar VELHO (balcao encostado na parede do fundo, espelho, garrafas de
   // enfeite) nasce dentro de um grupo NOMEADO e num contador de colisores
@@ -2427,7 +2718,7 @@ export function buildCasino(game) {
   barAntigo.name = 'casino-bar-antigo'
   buildBar(barAntigo, colliders)
   dentro.add(barAntigo)
-  buildJuice(dentro, colliders, matsFicha)
+  buildJuice(dentro, colliders)
 
   // --- OS DOIS COMODOS QUE MORAM EM MODULO PROPRIO -----------------------
   //

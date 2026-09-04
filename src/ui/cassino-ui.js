@@ -76,7 +76,12 @@ const P = 'mcrp-cas-'
 // ficam aqui tambem porque a UI precisa deles ANTES do jogo existir (a tela de
 // aposta desenha o "minimo 25 / maximo 2000" com a mesa ainda vazia).
 const BJ_MIN = 25
-const BJ_MAX = 2000
+// SEM TETO DE MESA. O modulo do blackjack exige um `maximo`, entao ele existe —
+// mas alto o bastante pra nunca ser quem manda: quem limita e o que o jogador
+// tem em ficha. E o mesmo "tem que ser cash in" que tirou o limite de pote do
+// poker; uma mesa que recusa a aposta de quem tem o dinheiro na mao nao e uma
+// regra, e um botao quebrado.
+const BJ_MAX = 1000000
 
 // Fichas clicaveis de cada mesa. Sao valores de cassino de verdade (25/50/100/
 // 250/500): numero redondo o jogador soma de cabeca, e cada degrau e o dobro ou
@@ -229,6 +234,56 @@ function injetarEstilo() {
 // CSS — verde-feltro, bordo e dourado por cima do mesmo vidro escuro do HUD.
 // ---------------------------------------------------------------------------
 const CSS = `
+/* --- etiquetas em cima das fichas do pano ---------------------------------
+   Elas moram DENTRO da raiz da faixa da mesa (que ja e fixed inset:0 e some
+   junto com a mesa), e nao numa camada propria: uma segunda camada fixed teria
+   que repetir o ciclo de vida da mesa inteiro pra nada. pointer-events none no
+   pai e obrigatorio — a raiz da faixa e quem recebe o clique do feltro, e uma
+   etiqueta por cima da pilha comeria justamente o clique que ela anuncia. */
+.${P}marcas{ position:absolute; inset:0; pointer-events:none; z-index:2; }
+.${P}marca{
+  position:absolute; left:0; top:0; white-space:nowrap;
+  font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums; font-weight:700; line-height:1;
+  opacity:0; transition:opacity .18s ease;
+  text-shadow:0 2px 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.8);
+}
+/* o valor da ficha: pequeno, discreto, so pra dizer qual pilha e qual */
+.${P}marca.${P}valor{
+  font-size:12px; letter-spacing:.04em; color:#efe6cf;
+  padding:2px 6px; border-radius:999px;
+  background:rgba(6,10,9,.62); border:1px solid rgba(233,196,106,.30);
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+}
+/* o total apostado: grande e dourado, e o numero que o jogador acompanha */
+.${P}marca.${P}aposta{
+  font-size:clamp(19px,2.2vw,28px); letter-spacing:.02em; color:#ffdf9e;
+  padding:3px 11px; border-radius:10px;
+  background:linear-gradient(180deg, rgba(20,26,24,.80), rgba(8,12,11,.86));
+  border:1px solid rgba(233,196,106,.55);
+  box-shadow:0 8px 22px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.10);
+}
+/* o "+100" de cada clique: nasce no numero e sobe apagando */
+.${P}sobe{
+  position:absolute; left:0; top:0; white-space:nowrap; pointer-events:none;
+  font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums; font-weight:700; font-size:21px;
+  color:#a8f0c2; text-shadow:0 2px 8px rgba(0,0,0,.95), 0 0 12px rgba(80,220,140,.5);
+  animation:${P}sobeFicha 1.05s cubic-bezier(.2,.85,.3,1) forwards;
+}
+@keyframes ${P}sobeFicha{
+  0%{ opacity:0; margin-top:6px; }
+  14%{ opacity:1; margin-top:-4px; }
+  100%{ opacity:0; margin-top:-58px; }
+}
+/* o pulso do total: 0.18 s de escala e um aro dourado que abre e some */
+.${P}marca.${P}pulso{ animation:${P}pulsoAposta .34s cubic-bezier(.2,.9,.3,1.3); }
+@keyframes ${P}pulsoAposta{
+  0%{ box-shadow:0 8px 22px rgba(0,0,0,.55), 0 0 0 0 rgba(255,223,158,.75); }
+  35%{ box-shadow:0 8px 22px rgba(0,0,0,.55), 0 0 0 7px rgba(255,223,158,0); }
+  100%{ box-shadow:0 8px 22px rgba(0,0,0,.55), 0 0 0 7px rgba(255,223,158,0); }
+}
+
 .${P}raiz, .${P}raiz *{ box-sizing:border-box; }
 .${P}raiz{
   position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center;
@@ -860,6 +915,135 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     faixa.el.style.cursor = alvoDoPano(ev) ? 'pointer' : ''
   }
 
+  // -------------------------------------------------------------------------
+  // OS NUMEROS EM CIMA DAS FICHAS
+  //
+  // O pedido: "temos que deixar intuitivo quando apostar, tem que ter o numero
+  // de quanto apostei subindo, ou o numero na ficha". Ficha 3D com numero
+  // impresso exigiria um atlas de digitos e um uv por instancia, e no tamanho
+  // de tela que a ficha tem (8 a 14 px de altura) o digito sairia ilegivel. O
+  // que funciona e uma etiqueta em DOM ancorada no TOPO da pilha: ela le em
+  // qualquer resolucao, custa zero draw call e sobe junto quando a pilha cresce.
+  //
+  // Sao duas: a do CAIXOTE diz o valor da ficha ("100"), a da APOSTA diz quanto
+  // ja esta no pano. Essa segunda CONTA ATE O NUMERO em vez de saltar, e cospe
+  // um "+100" que sobe e apaga a cada clique — e o "numero subindo" do pedido,
+  // e e o que faz o clique ter consequencia visivel sem olhar pro rodape.
+  // -------------------------------------------------------------------------
+  let marcas = null            // { raiz, mapa:Map<chave, el> }
+  const bufMarc = []
+  let apostaVista = 0          // valor JA DESENHADO (anda ate o real)
+  let apostaAlvo = 0
+
+  function garantirMarcas() {
+    if (marcas || !faixa) return marcas
+    const raiz = el('div', 'marcas')
+    faixa.el.appendChild(raiz)
+    marcas = { raiz, mapa: new Map() }
+    return marcas
+  }
+
+  function marcaDe(chave, cls) {
+    const mk = garantirMarcas()
+    if (!mk) return null
+    let e = mk.mapa.get(chave)
+    if (!e) {
+      e = el('div', 'marca ' + cls)
+      mk.raiz.appendChild(e)
+      mk.mapa.set(chave, e)
+    }
+    return e
+  }
+
+  /** O "+100" que sobe e apaga. Um elemento por clique, morto em 0,8 s. */
+  function pularNumero(txt) {
+    const mk = garantirMarcas()
+    const ancora = mk && mk.mapa.get('aposta')
+    if (!ancora) return
+    const e = el('div', 'sobe', txt)
+    e.style.transform = ancora.style.transform
+    mk.raiz.appendChild(e)
+    setTimeout(() => { if (e.parentNode) e.parentNode.removeChild(e) }, 850)
+  }
+
+  /**
+   * Poe cada etiqueta em cima da sua pilha. Roda TODO QUADRO (vem de
+   * atualizarCamera): a lente tem paralaxe de ponteiro, entao a projecao muda
+   * mesmo com a mesa parada e ancorar uma vez so nao serve.
+   */
+  function moverMarcas(dt) {
+    if (!mesaAtiva || !mesaAtiva.mesa || !faixa) return
+    const cam = game && game.camera
+    if (!cam) return
+    const mk = garantirMarcas()
+    if (!mk) return
+    const lista = mesaAtiva.mesa.marcadores(bufMarc, cam)
+    const cv = game.renderer ? game.renderer.domElement : null
+    const larg = cv ? cv.clientWidth : window.innerWidth
+    const alt = cv ? cv.clientHeight : window.innerHeight
+    const vistos = new Set()
+
+    // O numero da aposta ANDA ate o alvo em vez de saltar: 12 por segundo de
+    // constante de tempo chega em ~0,25 s, que e rapido o bastante pra parecer
+    // resposta e lento o bastante pra o olho ver o numero correndo.
+    const k = 1 - Math.exp(-12 * Math.min(0.1, Math.max(0, dt || 0)))
+    apostaVista += (apostaAlvo - apostaVista) * k
+    if (Math.abs(apostaAlvo - apostaVista) < 0.6) apostaVista = apostaAlvo
+
+    for (let i = 0; i < lista.length; i++) {
+      const d = lista[i]
+      const chave = d.tipo === 'aposta' ? 'aposta' : 'cx' + d.v
+      vistos.add(chave)
+      const e = marcaDe(chave, d.tipo === 'aposta' ? 'aposta' : 'valor')
+      if (!e) continue
+      // Atras da lente ou fora do quadro: some em vez de aparecer espelhada.
+      const fora = d.atras || d.nx < -1.2 || d.nx > 1.2 || d.ny < -1.2 || d.ny > 1.2
+      // A POSICAO E ESCRITA MESMO COM A ETIQUETA APAGADA, e isso importa: o
+      // "+100" de cada clique nasce copiando o transform da etiqueta da aposta,
+      // e no PRIMEIRO clique ela ainda esta invisivel (a aposta era zero). Sem
+      // escrever aqui, esse primeiro "+100" nascia no canto de cima da tela.
+      if (!fora) {
+        const x = Math.round((d.nx * 0.5 + 0.5) * larg)
+        const y = Math.round((-d.ny * 0.5 + 0.5) * alt)
+        e.style.transform = 'translate(-50%,-100%) translate(' + x + 'px,' + y + 'px)'
+      }
+      const some = fora || (d.tipo === 'aposta' ? apostaAlvo <= 0 : d.fichas <= 0)
+      e.style.opacity = some ? '0' : '1'
+      if (some) continue
+      const txt = d.tipo === 'aposta' ? num(Math.round(apostaVista)) : num(d.v)
+      if (e.textContent !== txt) e.textContent = txt
+    }
+    for (const [chave, e] of mk.mapa) {
+      if (!vistos.has(chave)) e.style.opacity = '0'
+    }
+  }
+
+  /** Quanto a etiqueta da aposta tem que mostrar. Quem sabe e cada mesa. */
+  function setAposta(v) {
+    const alvo = Math.max(0, inteiro(v))
+    if (alvo === apostaAlvo) return
+    const dif = alvo - apostaAlvo
+    apostaAlvo = alvo
+    if (dif <= 0) return
+    pularNumero('+' + num(dif))
+    // O NUMERO TAMBEM PULSA, e nao so o "+100" que sobe. Sao dois sinais pro
+    // mesmo evento de proposito: o "+100" dura 0,9 s e quem clica rapido tres
+    // vezes ve os tres se atropelarem, enquanto o pulso do total responde a
+    // cada clique sem depender de o olho estar no lugar certo na hora certa.
+    const e = marcas && marcas.mapa.get('aposta')
+    if (!e) return
+    marca(e, 'pulso', false)
+    void e.offsetWidth      // forca o reflow: sem ele o segundo clique nao anima
+    marca(e, 'pulso', true)
+  }
+
+  function limparMarcas() {
+    apostaVista = 0
+    apostaAlvo = 0
+    if (!marcas) return
+    for (const e of marcas.mapa.values()) e.style.opacity = '0'
+  }
+
   function ligarPano(v) {
     if (!faixa) return
     const modo = v ? 'addEventListener' : 'removeEventListener'
@@ -985,6 +1169,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     if (modo !== 'mesa') return
     const quem = mesaAtiva
     ligarPano(false)
+    limparMarcas()
     chamar(quem, 'aoSair')
     if (faixa) faixa.mostrar(false)
     if (ricaco) ricaco.soltar()
@@ -1575,7 +1760,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       const minha = maos.length ? maos[Math.max(0, est.maoAtual)] || maos[0] : null
       if (apostando) {
         faixa.setValor(fim ? 'Proxima aposta' : 'Sua aposta', aposta,
-          aposta >= BJ_MAX ? 'teto da mesa' : 'em fichas')
+          aposta >= bolso ? 'tudo que voce tem' : 'em fichas')
       } else {
         faixa.setValor('Voce', minha ? inteiro(minha.valor) : 0,
           'casa ' + valorCasa + (minha && minha.macio ? '  ·  macio' : ''))
@@ -1585,6 +1770,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // uma mao ja repartida so ensina a clicar a toa, e a pilha vazia deixa o
       // pano limpo pras cartas, que sao o assunto naquele instante.
       m.caixote(FICHAS_MESA, apostando ? Math.max(0, bolso - aposta) : 0)
+      setAposta(apostaNoFeltro(est, fase, 0) + (partido ? apostaNoFeltro(est, fase, 1) : 0))
 
       if (apostando && bolso < BJ_MIN) {
         faixa.setRecado(carteira && carteira.ouro >= BJ_MIN
@@ -1636,6 +1822,16 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       faixa.setDica('Sapato: ' + (baralhoBJ ? inteiro(baralhoBJ.restantes) : 0) +
         ' cartas  ·  a casa para em qualquer 17  ·  Esc sai da mesa')
 
+      // A chamada diz o proximo GESTO, nao o estado. Ver a nota gemea na mesa
+      // de poker: e ela que conta que as pilhas do pano sao clicaveis, coisa
+      // que nenhum botao do rodape consegue dizer.
+      if (apostando) {
+        faixa.setChamada(bolso < BJ_MIN ? 'passe no caixa'
+          : aposta < BJ_MIN ? 'clique nas suas fichas'
+            : 'mande distribuir')
+      } else if (acoes.length) faixa.setChamada('sua vez')
+      else faixa.setChamada('')
+
       // A lente sempre volta pro enquadramento da fase — a nao ser que um
       // mergulho esteja em curso, e ai quem devolve a lente e o relogio dele.
       if (!tVoltar) irPara(quadroBase(), T_TROCA)
@@ -1658,11 +1854,6 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       const bolso = carteira ? carteira.fichas : 0
       if (alvo.tipo === 'caixote') {
         const v = Math.max(1, inteiro(alvo.v))
-        if (aposta + v > BJ_MAX) {
-          faixa.setRecado('O teto da mesa e ' + num(BJ_MAX) + '.', 'ruim')
-          renderMesa()
-          return
-        }
         if (aposta + v > bolso) {
           faixa.setRecado('Voce nao tem ficha de ' + num(v) + ' sobrando.', 'ruim')
           renderMesa()
@@ -1688,7 +1879,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         { id: 'parar', txt: 'PARAR', cls: '', ao: () => acao('parar') },
         { id: 'dobrar', txt: 'DOBRAR', cls: '', ao: () => acao('dobrar') },
         { id: 'dividir', txt: 'DIVIDIR', cls: '', ao: () => acao('dividir') },
-        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo', ao: () => fechar() },
+        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo fantasma', ao: () => fechar() },
       ])
       escondidaAntes = true
     }
@@ -1735,7 +1926,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     // em toda acao e em toda mao nova — ficha esquecida no pano de uma mao pra
     // outra seria dinheiro apostado sem ninguem ter mandado.
     let naMesa = 0
-    let fichasDele = 2000      // a banca dele atravessa as maos
+    let fichasDele = 5000      // a banca dele atravessa as maos e e o teto do all-in
     let tPagar = 0
     let tMao = 0               // relogio da proxima mao (a mesa reparte sozinha)
     let ultimaFala = ''
@@ -2048,6 +2239,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // que ele mostra ja desconta o que esta empurrado no pano — senao a mesma
       // ficha apareceria duas vezes, uma na aposta e outra ainda no caixote.
       const minhaVez = emMao && fase === 'jogador'
+      setAposta((est ? Math.max(0, inteiro(est.minhaEntrada)) : 0) + naMesa)
       // O CAIXOTE MOSTRA TUDO QUE O JOGADOR TEM, e nao so o que cabe nesta
       // jogada. Cheguei a esconder as pilhas acima do teto da mao (a mesa
       // limita a aposta a quatro vezes o pote) e o resultado era um caixote de
@@ -2123,9 +2315,18 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       }
       faixa.setDica((meu ? 'Sua mao: ' + meu + '  ·  ' : '') +
         'Entrada ' + num(ante) + '  ·  PAR > SEQUENCIA > NAIPE > CARTA ALTA  ·  Esc sai da mesa')
-      if (minhaVez && naMesa === 0 && !est.mensagem) {
-        faixa.setRecado('Clique nas suas fichas na mesa pra apostar.', '')
-      }
+
+      // A CHAMADA E A UNICA LINHA DO RODAPE QUE DA ORDEM, e por isso ela nao
+      // divide espaco com o recado: recado e o que ACONTECEU ("ele aumentou
+      // para 150"), chamada e o que se espera de mim AGORA. Antes eu tentava
+      // enfiar a instrucao no recado e perdia — est.mensagem chega depois e
+      // ganha —, entao o jogador na primeira mao via "Sua vez" e nenhuma pista
+      // de que as fichas do pano sao clicaveis.
+      if (!est) faixa.setChamada(semFichas ? 'passe no caixa' : 'repartindo')
+      else if (fim) faixa.setChamada('')
+      else if (naMesa > 0) faixa.setChamada('confirme a aposta')
+      else if (minhaVez) faixa.setChamada(custoPagar > 0 ? 'pague, corra ou empurre fichas' : 'empurre fichas ou passe')
+      else faixa.setChamada('ele esta pensando')
 
       // UMA LENTE SO, A SESSAO INTEIRA. Nao ha nem o recuo de 'aposta' entre
       // maos: com a mesa repartindo sozinha a cada 2,6 segundos, um recuo por
@@ -2158,7 +2359,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       }
       const teto = tetoDaMesa()
       if (teto > 0 && naMesa + v > teto) {
-        faixa.setRecado('O maximo desta mao e ' + num(teto) + ' (limite de pote).', 'ruim')
+        // Nao ha limite de mesa; o teto e o que ELE tem pra cobrir. Dizer o
+        // numero e de quem ele e evita que a recusa leia como regra escondida.
+        faixa.setRecado('Ele so pode cobrir ' + num(teto) + '. Aposta maior fica parada no pote.', 'ruim')
         renderMesa()
         return
       }
@@ -2181,7 +2384,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         { id: 'aumentar', txt: 'AUMENTAR', cls: 'ouro grande', ao: () => acao('aumentar') },
         { id: 'desistir', txt: 'DESISTIR', cls: 'bordo', ao: () => acao('desistir') },
         { id: 'denovo', txt: 'PROXIMA MAO', cls: 'fantasma', ao: novaMao },
-        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo', ao: () => fechar() },
+        // 'bordo fantasma': o BORDO e o que manda o botao pro grupo da direita
+        // (ver ladoDe em faixa-mesa.js) e o FANTASMA e quem pinta, porque a
+        // regra dele vem depois no CSS. Sem isso, DESISTIR e SAIR DA MESA
+        // ficavam dois blocos vermelhos identicos lado a lado — e sair da mesa
+        // nao e o mesmo tipo de decisao que correr de uma mao.
+        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo fantasma', ao: () => fechar() },
       ])
       // Sem isto, quem sai da mesa com uma mao paga e volta encontra a mesa
       // parada: quitarMao ja tinha agendado, aoSair limpou o relogio e ninguem
@@ -2573,6 +2781,14 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (!cena) return
       if (!cena.atualizar(d)) return
 
+      // AS ETIQUETAS ANDAM DEPOIS DA CAMERA DE CENA, e a ordem e o conserto de
+      // um defeito visto na foto: as etiquetas nasciam amontoadas no meio da
+      // tela, com um terco do espalhamento das pilhas que elas marcam. Antes de
+      // cena.atualizar() a camera ainda esta onde o controller do jogador a
+      // deixou neste quadro — outra posicao e outro fov — e projetar dali
+      // encolhe tudo em direcao ao centro. Depois dela, a lente ja e a da mesa.
+      moverMarcas(d)
+
       const forca = m ? m.tremorAtual : 0
       if (forca <= 0.001) return
       const cam = (gm && gm.camera) || (game && game.camera)
@@ -2598,6 +2814,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       chamar(mesaPoker, 'aoSair')
       for (const m of mesas3d.values()) chamar(m, 'dispose')
       mesas3d.clear()
+      if (marcas) { marcas.mapa.clear(); marcas = null }
       if (faixa) { faixa.dispose(); faixa = null }
       if (ricaco) { ricaco.soltar(); ricaco = null }
       if (cena) { cena.cortar(); cena = null }

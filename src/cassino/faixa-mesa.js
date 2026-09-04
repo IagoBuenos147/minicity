@@ -23,6 +23,15 @@
 //   3. VIDRO ESCURO E DOURADO, NUNCA JANELA BRANCA. A faixa e a mesma
 //      linguagem do cassino (feltro, bordo, ouro fosco) e nao a de um
 //      formulario. Ela tem que parecer o balcao, nao o navegador.
+//   4. O EIXO DO RODAPE E O CENTRO DA TELA. A versao anterior era uma linha de
+//      tres colunas com os botoes empurrados pra DIREITA: o jogador lia o
+//      numero na esquerda, o recado no meio, e so achava o que apertar no canto
+//      oposto ao que estava olhando. Agora a ACAO fica no meio da largura e a
+//      INFORMACAO vai pras beiradas, que e como uma mesa de verdade se arruma —
+//      o pano na frente, o rack e a placa de limite nas laterais. O meio da
+//      fileira de botoes bate com o meio da tela em 0 px, medido em toda mao
+//      das duas mesas por tools/shot-hud.mjs; o que faz a acao principal
+//      saltar dentro dela e o TAMANHO dela, nao a coordenada (ver `.acao`).
 //
 // Este arquivo NAO conhece regra de jogo nem carteira: recebe rotulos, valores
 // e funcoes de clique. Quem sabe o que "DOBRAR" custa e ui/cassino-ui.js.
@@ -181,32 +190,91 @@ const CSS = `
   100%{ opacity:0; transform:translateY(-10px) scale(1.02); }
 }
 
-/* --- a faixa --- */
+/* --- a faixa: DOIS ANDARES, UM EIXO SO -------------------------------------
+   Andar de cima = INFORMACAO, esparramada nas beiradas (numero na esquerda,
+   estado no meio, regra na direita). Andar de baixo = ACAO, no eixo da tela.
+
+   O ORCAMENTO DE ALTURA e a regra dura deste bloco. O meio da tela nao e meu:
+   as cartas vivem entre 35% e 78% da altura e a base das pilhas de ficha do
+   jogador fica em 86%. Entao a faixa inteira tem que caber DEPOIS de 87%, e
+   numa tela de 720 px isso da 93 px de teto. A conta que cabe:
+
+     6 (padding topo) + 25 (linha de informacao) + 4 (respiro)
+       + 42 (botao principal) + 11 (padding base)  =  87 px  =  12,1% de 720
+
+   Medido em 1280x720 pelo tools/shot-hud.mjs: o rodape comeca em 87,94%, com
+   6 px de folga contra o teto. Se um dia o botao principal precisar de mais
+   peso, cresca a LARGURA dele (min-width abaixo), que nao custa altura;
+   crescer a ALTURA come a pilha de fichas do jogador. */
 .${P}faixa{
   position:absolute; left:0; right:0; bottom:0;
-  display:flex; align-items:flex-end; gap:18px; flex-wrap:wrap;
-  padding:14px clamp(14px,3vw,34px) clamp(14px,2.4vh,22px);
-  background:linear-gradient(180deg, rgba(4,8,7,0) 0%, rgba(5,10,9,.72) 34%, rgba(4,7,6,.94) 100%);
+  display:flex; flex-direction:column; gap:4px;
+  padding:6px clamp(12px,2.2vw,26px) clamp(10px,1.5vh,16px);
+  background:linear-gradient(180deg, rgba(4,8,7,0) 0%, rgba(5,10,9,.60) 30%, rgba(4,7,6,.95) 100%);
   transform:translateY(22px); opacity:0;
   transition:transform .30s cubic-bezier(.18,.9,.3,1.1), opacity .24s ease;
 }
 .${P}raiz.${P}on .${P}faixa{ transform:none; opacity:1; }
+/* O fio de ouro do topo NAO e mais uma barra uniforme: ele acende no meio e
+   apaga nas pontas. E o mesmo eixo que a fileira de acao ocupa embaixo, so que
+   em luz — de longe o rodape ja aponta pro proprio centro. */
 .${P}faixa::before{
   content:''; position:absolute; left:0; right:0; top:0; height:1px;
-  background:linear-gradient(90deg, rgba(233,196,106,0), rgba(233,196,106,.55) 22%, rgba(233,196,106,.55) 78%, rgba(233,196,106,0));
+  background:linear-gradient(90deg,
+    rgba(233,196,106,0) 6%, rgba(233,196,106,.18) 24%,
+    rgba(255,224,152,.85) 50%, rgba(233,196,106,.18) 76%, rgba(233,196,106,0) 94%);
 }
 
-.${P}col{ display:flex; flex-direction:column; gap:8px; }
-.${P}col.${P}cresce{ flex:1 1 260px; min-width:200px; }
-.${P}rot{ font-size:9.5px; letter-spacing:.22em; text-transform:uppercase; color:#8f9aa4; font-weight:700; }
-.${P}valor{ font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; color:#ffe1a4; line-height:1; text-shadow:0 2px 10px rgba(0,0,0,.8); }
-.${P}valor small{ font-size:11px; color:#8f9aa4; letter-spacing:.08em; margin-left:7px; font-weight:600; }
-.${P}recado{ font-size:13.5px; font-weight:600; color:#cfc4ac; min-height:19px; text-shadow:0 2px 8px rgba(0,0,0,.85); }
+/* --- andar de cima: informacao nas beiradas, estado no meio --- */
+.${P}linha{
+  display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:center; gap:clamp(10px,2vw,26px); min-height:24px;
+}
+.${P}lado{ display:flex; align-items:baseline; gap:7px; min-width:0; white-space:nowrap; overflow:hidden; }
+.${P}rot{ font-size:9.5px; letter-spacing:.2em; text-transform:uppercase; color:#8a939f; font-weight:700; flex:0 0 auto; }
+.${P}rot:empty{ display:none; }
+/* O numero e a unica coisa da beirada que compete com o botao — ele tem que
+   ser lido de canto de olho, sem virar titulo. 1.75vw da 22 px em 1280.
+   O TETO DE 26 px NAO E ESTETICA: e ele quem manda na altura da linha de
+   informacao, e essa altura sai do orcamento da faixa. Com 28 px, uma janela
+   de 1920x720 empurrava o rodape pra 87.2% — na trave. Com 26 sobra folga em
+   toda largura medida (600 a 1920). */
+.${P}valor{
+  font-size:clamp(20px,1.75vw,26px); font-weight:700; font-variant-numeric:tabular-nums;
+  color:#ffe1a4; line-height:1.05; text-shadow:0 2px 10px rgba(0,0,0,.85); flex:0 0 auto;
+}
+.${P}valor small{ font-size:11px; color:#939ba6; letter-spacing:.06em; margin-left:7px; font-weight:600; }
+.${P}aviso{ display:flex; align-items:center; justify-content:center; gap:9px; min-width:0; }
+/* A CHAMADA (setChamada) e o unico texto do rodape que pode dar ORDEM. Ela e
+   pequena e dourada de proposito: quem grita e o botao, ela so nomeia a vez. */
+.${P}chamada{
+  font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+  color:#22190a; background:linear-gradient(180deg,#ffdf9e,#e0a93f);
+  padding:3px 9px; border-radius:999px; flex:0 0 auto;
+  box-shadow:0 2px 10px rgba(226,168,60,.30);
+}
+.${P}chamada:empty{ display:none; }
+.${P}recado{
+  font-size:13.5px; font-weight:600; color:#ded3bc; min-height:19px; line-height:1.35;
+  text-shadow:0 2px 8px rgba(0,0,0,.9); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
 .${P}recado.${P}bom{ color:#9fe6b4; }
 .${P}recado.${P}ruim{ color:#f2a2a2; }
-.${P}recado.${P}pisca{ animation:${P}pisca .4s ease; }
-@keyframes ${P}pisca{ 0%{ transform:translateX(-5px); opacity:.35; } 100%{ transform:none; opacity:1; } }
-.${P}dica{ font-size:10.5px; color:#77808c; letter-spacing:.05em; }
+.${P}recado.${P}entra{ animation:${P}entra .34s cubic-bezier(.2,.9,.3,1.1); }
+@keyframes ${P}entra{ 0%{ transform:translateY(4px); opacity:.2; } 100%{ transform:none; opacity:1; } }
+/* A dica e REFERENCIA, nao instrucao: uma linha so, cortada com reticencia. Ela
+   perdeu a briga por espaco de proposito — o que o jogador precisa AGORA esta
+   no botao e no recado. */
+.${P}dica{
+  font-size:10.5px; color:#79828e; letter-spacing:.04em; text-align:right;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;
+}
+.${P}tecla{
+  display:inline-block; padding:0 5px; margin:0 2px; border-radius:4px;
+  font-size:9.5px; font-weight:700; letter-spacing:.06em; color:#e6dcc4;
+  background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.20);
+  border-bottom-width:2px;
+}
 
 /* A FILEIRA DE FICHAS CLICAVEIS SAIU DAQUI e foi pro pano, em 3D. O pedido do
    dono foi "quero que fique em cima da mesa as fichas que eu tenho, cada monte
@@ -215,48 +283,233 @@ const CSS = `
    coisa desenhada duas vezes. O que sobrou aqui do desenho de ficha e o pino do
    cabecalho, que continua sendo uma ficha em miniatura. */
 
-/* --- botoes --- */
-.${P}botoes{ display:flex; gap:9px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+/* --- andar de baixo: a fileira de acao ------------------------------------
+   TRES GRUPOS NUMA FILA CENTRADA. O pedido era literal — "quero eles
+   centralizado e abaixo" — e quem centraliza o BLOCO INTEIRO e o
+   justify-content:center daqui: seja qual for a combinacao de botoes da vez,
+   o meio da fileira cai no meio da tela (o shot-hud.mjs mede isso e reprova
+   acima de 2 px de desvio).
+
+   Ja tentei a outra leitura — uma grade minmax(0,1fr)/auto/minmax(0,1fr) que
+   prende o botao PRINCIPAL no pixel central. Prende mesmo, mas o preco e o
+   bloco todo escorregar: na vez do poker sem ficha no pano ele ficava 66 px a
+   direita do centro (medido), porque DESISTIR e SAIR pesam mais que o TUDO
+   sozinho do outro lado. E, no blackjack, forcar PEDIR pro centro obrigaria
+   PARAR/DOBRAR/DIVIDIR a mudar de ordem — e pedir/parar/dobrar/dividir e uma
+   ordem que o jogador ja traz de fora. Bloco centrado ganhou; quem faz o
+   principal saltar aqui e o TAMANHO dele, nao a coordenada.
+
+   A ORDEM dentro da fila e a hierarquia:
+     ajustes da aposta  |  ACAO (o principal e os irmaos dele)  |  sair da mao */
+.${P}acao{
+  display:flex; align-items:center; justify-content:center;
+  gap:10px; flex-wrap:wrap;
+}
+.${P}grupo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.${P}grupo.${P}esq{ justify-content:flex-end; }
+.${P}grupo.${P}meio{ justify-content:center; gap:9px; }
+/* SAIR e DESISTIR ficam depois de um vao maior que o resto: acao que tira o
+   jogador da mao nao pode encostar na que o mantem nela — 20 px de vao e o que
+   separa "apertei sem querer" de "apertei de proposito". */
+.${P}grupo.${P}dir{ justify-content:flex-start; padding-left:10px; }
+/* Grupo sem botao visivel sai da fila: senao o gap e o padding-left dele
+   continuariam contando e o bloco ficaria torto justo nas maos mais vazias. */
+.${P}grupo.${P}vazio{ display:none; }
+
+/* --- botoes ---------------------------------------------------------------
+   TRES PESOS, e a diferenca entre eles e de TAMANHO antes de ser de cor:
+     principal (.grande)   42 px de altura, 140..190 px de largura, ouro/verde
+     acao      (padrao)    38 px, vidro escuro, largura do rotulo
+     ajuste    (.fantasma) 34 px, quase so contorno
+   Antes os tres tinham a mesma caixa e so trocavam de cor, e num rodape de
+   cinco botoes isso e o mesmo que nao ter hierarquia nenhuma. */
 .${P}btn{
-  appearance:none; cursor:pointer; font:inherit; font-size:13px; font-weight:700; letter-spacing:.06em;
-  padding:12px 20px; border-radius:11px; color:#e8e0d0; white-space:nowrap;
-  background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+  position:relative; overflow:hidden; appearance:none; cursor:pointer; font:inherit;
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  font-size:12.5px; font-weight:700; letter-spacing:.06em;
+  min-height:38px; padding:0 18px; border-radius:10px; color:#e8e0d0; white-space:nowrap;
+  background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.04));
   border:1px solid rgba(255,255,255,.16);
-  box-shadow:0 6px 16px rgba(0,0,0,.45);
-  transition:background .14s, transform .1s, box-shadow .14s, opacity .14s;
+  box-shadow:0 5px 14px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
+  transition:background .14s ease, transform .12s cubic-bezier(.2,.9,.3,1.4),
+             box-shadow .16s ease, filter .14s ease, opacity .14s ease;
 }
-.${P}btn:hover{ background:linear-gradient(180deg, rgba(255,255,255,.19), rgba(255,255,255,.08)); }
-.${P}btn:active{ transform:translateY(1px); }
-.${P}btn[disabled]{ opacity:.30; cursor:default; transform:none; }
-.${P}btn[disabled]:hover{ background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)); }
+/* PESO NO HOVER, AFUNDAR NO CLIQUE. O -2px do hover e o +1px do active dao 3 px
+   de curso: e o minimo que o olho registra como "isto e um objeto" num botao
+   de 38 px. Mais que isso e o texto que comeca a tremer. */
+.${P}btn:hover{
+  background:linear-gradient(180deg, rgba(255,255,255,.20), rgba(255,255,255,.08));
+  transform:translateY(-2px);
+  box-shadow:0 10px 22px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.14);
+}
+.${P}btn:active{
+  transform:translateY(1px) scale(.985);
+  box-shadow:0 2px 6px rgba(0,0,0,.5), inset 0 2px 7px rgba(0,0,0,.38);
+}
+/* A ONDA nasce ONDE O DEDO ENCOSTOU (--px/--py sao escritos no pointerdown),
+   nao no meio do botao: e o que faz o clique parecer que tocou em alguma coisa
+   em vez de so trocar de cor. */
+.${P}btn::before{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  opacity:0; transform-origin:var(--px,50%) var(--py,50%);
+  background:radial-gradient(circle at var(--px,50%) var(--py,50%),
+    rgba(255,255,255,.62), rgba(255,255,255,.18) 34%, rgba(255,255,255,0) 62%);
+}
+.${P}btn.${P}onda::before{ animation:${P}onda .46s ease-out; }
+@keyframes ${P}onda{
+  0%{ opacity:.85; transform:scale(.18); }
+  100%{ opacity:0; transform:scale(1.9); }
+}
+/* ACENDE: o botao ACORDA na hora em que passa a valer.
+   Este e o pedido "deixar intuitivo quando apostar" em uma animacao so. O
+   jogador empurra uma ficha no pano e o APOSTAR — que estava cinza e mudo —
+   estala e ja mostra o preco no rotulo. Sem isso o unico sinal de que a ficha
+   entrou era um cinza virando verde do outro lado da tela, que ninguem ve. Ver
+   ajustar(): o gatilho e a transicao desligado->ligado e a troca de rotulo,
+   nunca o render repetido com o mesmo estado. */
+.${P}btn.${P}acende{ animation:${P}acende .40s cubic-bezier(.2,.9,.3,1.5); }
+@keyframes ${P}acende{
+  0%{ transform:scale(.93); filter:brightness(1.55); }
+  55%{ transform:scale(1.045); filter:brightness(1.16); }
+  100%{ transform:none; filter:none; }
+}
 .${P}btn.${P}ouro{
-  color:#241c0c; border-color:transparent;
-  background:linear-gradient(180deg,#ffd98a,#e2a83c); box-shadow:0 8px 22px rgba(226,168,60,.34);
+  color:#241c0c; border-color:rgba(255,240,200,.34);
+  background:linear-gradient(180deg,#ffdd93,#e2a83c);
+  box-shadow:0 8px 20px rgba(226,168,60,.32), inset 0 1px 0 rgba(255,255,255,.45);
 }
-.${P}btn.${P}ouro:hover{ background:linear-gradient(180deg,#ffe6ab,#f0b64c); }
+.${P}btn.${P}ouro:hover{
+  background:linear-gradient(180deg,#ffeab6,#f2ba52);
+  box-shadow:0 14px 30px rgba(226,168,60,.44), inset 0 1px 0 rgba(255,255,255,.55);
+}
 .${P}btn.${P}verde{
-  color:#0b1a13; border-color:transparent;
-  background:linear-gradient(180deg,#7ee0a6,#2f9d68); box-shadow:0 8px 22px rgba(47,157,104,.30);
+  color:#07160f; border-color:rgba(190,255,220,.30);
+  background:linear-gradient(180deg,#86e6ad,#2f9d68);
+  box-shadow:0 8px 20px rgba(47,157,104,.32), inset 0 1px 0 rgba(255,255,255,.35);
 }
+.${P}btn.${P}verde:hover{
+  background:linear-gradient(180deg,#9df0c0,#37b077);
+  box-shadow:0 14px 30px rgba(47,157,104,.44), inset 0 1px 0 rgba(255,255,255,.45);
+}
+/* BORDO VIROU CONTORNO. Bloco vermelho cheio ao lado do botao principal
+   disputava o olho com ele — e DESISTIR nunca e a jogada que se quer sugerir.
+   Vazado, ele continua sendo reconhecivel de longe pela cor da borda e do
+   texto, mas so ganha corpo quando o mouse chega. */
 .${P}btn.${P}bordo{
-  color:#ffe9ec; border-color:rgba(201,57,79,.55);
-  background:linear-gradient(180deg,rgba(160,32,52,.80),rgba(109,26,44,.88));
+  color:#f3a9b3; border-color:rgba(201,57,79,.55);
+  background:linear-gradient(180deg, rgba(84,16,28,.42), rgba(46,10,18,.60));
+  box-shadow:0 4px 12px rgba(0,0,0,.42);
 }
-.${P}btn.${P}bordo:hover{ background:linear-gradient(180deg,rgba(186,42,64,.9),rgba(132,30,50,.94)); }
+.${P}btn.${P}bordo:hover{
+  color:#ffe9ec; border-color:rgba(226,74,98,.9);
+  background:linear-gradient(180deg,rgba(168,34,56,.88),rgba(118,26,44,.94));
+  box-shadow:0 10px 22px rgba(150,25,45,.42);
+}
 .${P}btn.${P}fantasma{
-  background:rgba(0,0,0,.34); border-color:rgba(255,255,255,.13); color:#b9c0cb; font-size:12px; padding:10px 15px;
+  min-height:34px; padding:0 13px; font-size:11.5px; letter-spacing:.05em;
+  background:rgba(0,0,0,.34); border-color:rgba(255,255,255,.12); color:#aab2be;
+  box-shadow:0 3px 9px rgba(0,0,0,.36);
 }
-.${P}btn.${P}grande{ font-size:15px; padding:14px 28px; letter-spacing:.10em; }
-.${P}btn.${P}pisca{ animation:${P}chama 1.1s ease-in-out infinite; }
+.${P}btn.${P}fantasma:hover{ color:#e6ecf4; background:rgba(255,255,255,.12); }
+/* O PRINCIPAL. Ele nao e "o mesmo botao pintado de ouro": e mais alto, MUITO
+   mais largo (min-width) e com a letra mais espacada. Largura e o unico eixo
+   de peso que sobra depois do teto de altura — por isso ela e que carrega a
+   hierarquia aqui. O clamp deixa o rotulo longo ("JOGAR DE NOVO (250)") caber
+   sem quebrar em tela pequena. */
+.${P}btn.${P}grande, .${P}btn.${P}promovido{
+  min-height:42px; min-width:clamp(140px,14vw,190px); padding:0 26px;
+  font-size:15px; letter-spacing:.11em;
+}
+/* PROMOVIDO: o rodape se recusa a ficar sem um botao principal.
+   Entre uma mao e outra do poker o unico botao vivo e PROXIMA MAO, e
+   cassino-ui.js o manda com cls 'fantasma' — a roupa mais fraca da faixa, no
+   momento em que ele e a UNICA coisa a fazer. Em vez de pedir mudanca la
+   (aquele arquivo tem outro dono), a faixa promove sozinha: sem nenhum
+   'grande' visivel, o primeiro botao de acao veste o ouro. Ver revisarGrupos. */
+.${P}btn.${P}promovido{
+  color:#241c0c; border-color:rgba(255,240,200,.34);
+  background:linear-gradient(180deg,#ffdd93,#e2a83c);
+  box-shadow:0 8px 20px rgba(226,168,60,.32), inset 0 1px 0 rgba(255,255,255,.45);
+}
+.${P}btn.${P}promovido:hover{
+  color:#241c0c; background:linear-gradient(180deg,#ffeab6,#f2ba52);
+  box-shadow:0 14px 30px rgba(226,168,60,.44), inset 0 1px 0 rgba(255,255,255,.55);
+}
+/* A CHAMADA DO BOTAO NAO PISCA. Antes era um box-shadow ligando e desligando a
+   cada 1,1 s — no canto do olho isso vira alarme e cansa em duas maos. Agora e
+   um anel que nasce na borda, cresce e some, com 2,4 s de ciclo e uma pausa
+   longa no fim: chama atencao uma vez, respira, chama de novo. */
+.${P}btn.${P}chama{ animation:${P}chama 2.4s cubic-bezier(.22,.7,.3,1) infinite; }
 @keyframes ${P}chama{
-  0%,100%{ box-shadow:0 8px 22px rgba(226,168,60,.34); }
-  50%{ box-shadow:0 8px 26px rgba(226,168,60,.34), 0 0 0 3px rgba(255,217,138,.45); }
+  0%{ box-shadow:0 8px 20px rgba(226,168,60,.32), 0 0 0 0 rgba(255,222,150,.55), inset 0 1px 0 rgba(255,255,255,.45); }
+  46%{ box-shadow:0 10px 26px rgba(226,168,60,.42), 0 0 0 11px rgba(255,222,150,0), inset 0 1px 0 rgba(255,255,255,.5); }
+  100%{ box-shadow:0 8px 20px rgba(226,168,60,.32), 0 0 0 0 rgba(255,222,150,0), inset 0 1px 0 rgba(255,255,255,.45); }
+}
+/* Os dois ao mesmo tempo. A propriedade 'animation' e uma so: sem esta linha o
+   .chama (declarado depois) engolia o estalo do .acende e justo o botao mais
+   importante da mesa era o unico que nao reagia a ficha entrando. */
+.${P}btn.${P}chama.${P}acende{
+  animation:${P}acende .40s cubic-bezier(.2,.9,.3,1.5),
+            ${P}chama 2.4s cubic-bezier(.22,.7,.3,1) .4s infinite;
+}
+/* O selo de ENTER so aparece no botao que esta chamando — e cassino-ui.js so
+   liga 'chama' em botao que o Enter realmente dispara (o principal() dele),
+   entao o selo nunca mente. Ele e ::after de proposito: ajustar({txt}) troca o
+   textContent do botao e apagaria qualquer filho de verdade. */
+.${P}btn.${P}chama::after{
+  content:'\\21B5'; font-size:12px; line-height:1; font-weight:700;
+  padding:2px 5px 3px; border-radius:5px; opacity:.82;
+  background:rgba(0,0,0,.16); border:1px solid rgba(0,0,0,.20);
 }
 
+/* DESLIGADO TEM QUE CONTINUAR LEGIVEL. O opacity .30 de antes apagava o rotulo
+   e o jogador nao conseguia ler "TUDO (2.000)" pra entender POR QUE nao da —
+   ele so via um borrao. Agora o botao perde a COR (saturate) e o relevo, mas o
+   texto fica: quem olha entende que a informacao vale e o botao e que nao.
+
+   Este bloco fica no FIM do arquivo de proposito. As regras de cor
+   (.ouro/.verde/.bordo) tem a mesma especificidade que .btn[disabled], entao
+   quem vem depois ganha — escrito antes delas, o desligado nao conseguia
+   apagar o brilho dourado e um botao morto continuava chamando. */
+.${P}btn[disabled], .${P}btn[disabled]:hover{
+  cursor:not-allowed; opacity:.62; filter:saturate(.10) brightness(.92);
+  box-shadow:none; transform:none; animation:none;
+  background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.04));
+  border-color:rgba(255,255,255,.14); color:#dfd9cd;
+}
+.${P}btn[disabled]::before, .${P}btn[disabled]::after{ display:none; }
+/* PRINCIPAL DESLIGADO PERDE A LARGURA, nao a altura.
+   Medido: na vez do poker sem ficha no pano, o AUMENTAR desligado ocupava os
+   190 px de largura minima do principal e virava o maior objeto da fileira,
+   empurrando o PAGAR — o botao que estava CHAMANDO — 165 px pra esquerda do
+   centro. Botao morto nao pode ser o maior da tela. A altura fica nos 42 px de
+   proposito: encolher em pe faria a fileira inteira pular de altura toda vez
+   que a aposta cruzasse o minimo da mesa. */
+.${P}btn.${P}grande[disabled], .${P}btn.${P}promovido[disabled]{
+  min-width:0; padding:0 18px; font-size:13px; letter-spacing:.07em;
+}
+
+/* --- celular ---------------------------------------------------------------
+   Em 760 px nao ha beirada pra tres: a linha de cima vira duas colunas
+   (numero na esquerda, estado na direita) e a dica sai de cena inteira — ela e
+   regra impressa, a regra nao decide jogada, e metade dela fala de tecla, que
+   num telefone nao existe. Embaixo, os grupos deixam de ter coluna propria e
+   viram uma fila que quebra sozinha, ainda centrada. O que sobra e exatamente
+   o que o dedo precisa: numero, estado e a fileira de acao. */
 @media (max-width:760px){
-  .${P}faixa{ gap:10px; padding:10px 12px 12px; }
-  .${P}valor{ font-size:21px; }
-  .${P}btn{ padding:10px 14px; font-size:12px; }
+  .${P}faixa{ gap:3px; padding:5px 10px 9px; }
+  .${P}linha{ grid-template-columns:auto minmax(0,1fr); gap:10px; min-height:0; }
+  .${P}dica{ display:none; }
+  .${P}aviso{ justify-content:flex-end; }
+  .${P}valor{ font-size:18px; }
+  .${P}recado{ font-size:12px; }
+  .${P}acao{ display:flex; flex-wrap:wrap; justify-content:center; gap:6px; }
+  .${P}grupo{ justify-content:center !important; padding-left:0; gap:6px; }
+  .${P}btn{ min-height:34px; padding:0 13px; font-size:11.5px; }
+  .${P}btn.${P}fantasma{ min-height:30px; padding:0 10px; font-size:10.5px; }
+  .${P}btn.${P}grande, .${P}btn.${P}promovido{
+    min-height:38px; min-width:132px; padding:0 18px; font-size:13.5px;
+  }
 }
 `
 
@@ -307,21 +560,32 @@ export function criarFaixaMesa() {
   // --- faixa --------------------------------------------------------------
   const faixa = el('div', 'faixa')
 
-  const colValor = el('div', 'col')
+  // andar de cima: numero na beirada esquerda, estado no eixo, regra na direita
+  const linha = el('div', 'linha')
+  const ladoValor = el('div', 'lado')
   const rotValor = el('div', 'rot', 'Aposta')
   const valorTxt = el('div', 'valor', '0')
-  colValor.append(rotValor, valorTxt)
-
-  const colMeio = el('div', 'col cresce')
+  ladoValor.append(rotValor, valorTxt)
+  const aviso = el('div', 'aviso')
+  const chamada = el('div', 'chamada', '')
   const recado = el('div', 'recado', '')
-  const dica = el('div', 'dica', 'Esc sai da mesa')
-  colMeio.append(recado, dica)
+  aviso.append(chamada, recado)
+  const dica = el('div', 'dica', '')
+  linha.append(ladoValor, aviso, dica)
 
-  const colBotoes = el('div', 'col')
-  const botoes = el('div', 'botoes')
-  colBotoes.append(botoes)
+  // andar de baixo: os tres grupos da fileira. Eles sao PERMANENTES — quem
+  // troca e o conteudo dentro deles — porque e a ORDEM deles (ajuste, acao,
+  // sair) que da a hierarquia, e recriar os tres a cada definirBotoes deixaria
+  // essa ordem na mao de quem chama.
+  const acao = el('div', 'acao')
+  const grupos = {
+    esq: el('div', 'grupo esq'),
+    meio: el('div', 'grupo meio'),
+    dir: el('div', 'grupo dir'),
+  }
+  acao.append(grupos.esq, grupos.meio, grupos.dir)
 
-  faixa.append(colValor, colMeio, colBotoes)
+  faixa.append(linha, acao)
   raiz.append(vinheta, flash, topo, cartaz, faixa)
   document.body.appendChild(raiz)
 
@@ -376,41 +640,157 @@ export function criarFaixaMesa() {
     recado.textContent = txt || ''
     marca(recado, 'bom', tom === 'bom')
     marca(recado, 'ruim', tom === 'ruim')
-    marca(recado, 'pisca', false)
+    marca(recado, 'entra', false)
     void recado.offsetWidth
-    marca(recado, 'pisca', !!txt)
+    marca(recado, 'entra', !!txt)
   }
 
-  function setDica(txt) { dica.textContent = txt || '' }
+  /**
+   * A CHAMADA: a etiqueta dourada que nomeia a vez ("SUA VEZ", "APOSTE").
+   *
+   * Nasceu opcional e comeca vazia porque cassino-ui.js nao a chama hoje — sem
+   * ninguem chamando, o rodape fica exatamente como esta. Ela nao repete o
+   * recado: recado e o que ACONTECEU, chamada e o que se ESPERA do jogador.
+   */
+  function setChamada(txt) { chamada.textContent = txt ? String(txt).toUpperCase() : '' }
+
+  /**
+   * A dica com as TECLAS EM RELEVO.
+   *
+   * O texto chega em prosa ("... · Esc sai da mesa") e a tecla se perde no meio
+   * dele. Recortar 'Esc'/'Enter' num <kbd> e a diferenca entre uma frase que
+   * ninguem le e um atalho que se ve de relance. O split com grupo de captura
+   * devolve os pedacos capturados nos indices IMPARES — e por isso o i % 2.
+   */
+  function setDica(txt) {
+    dica.textContent = ''
+    const s = String(txt || '')
+    if (!s) return
+    const partes = s.split(/\b(Esc|Enter|Espaco|Shift|Tab)\b/)
+    for (let i = 0; i < partes.length; i++) {
+      if (!partes[i]) continue
+      if (i % 2) dica.appendChild(el('kbd', 'tecla', partes[i]))
+      else dica.appendChild(document.createTextNode(partes[i]))
+    }
+  }
+
+  /**
+   * EM QUE GRUPO DA FILA O BOTAO CAI.
+   *
+   * O contrato com ui/cassino-ui.js e por CLASSE, nao por id — 'bordo' ja quer
+   * dizer "isto tira o jogador da mao" nas duas mesas. A unica excecao e a
+   * lista AJUSTE: 'fantasma' virou classe de dois papeis diferentes (TUDO e
+   * TIRAR ajustam a aposta, mas PROXIMA MAO e a jogada da vez), e um PROXIMA
+   * MAO tratado como ajuste ficaria na ponta da fila, do tamanho de um TUDO,
+   * na unica hora em que ele e a unica coisa a fazer na tela. Estes tres ids
+   * sao a lista inteira; qualquer id novo cai no meio, que e o padrao seguro.
+   */
+  const AJUSTE = { tudo: 1, devolver: 1, limpar: 1 }
+  function ladoDe(d) {
+    if ((' ' + (d.cls || '') + ' ').indexOf(' bordo ') >= 0) return 'dir'
+    if (AJUSTE[d.id]) return 'esq'
+    return 'meio'
+  }
+
+  /**
+   * Duas contas que so podem ser feitas depois de todo `ver` do render:
+   *
+   *   1. GRUPO VAZIO SAI DA FILA. Um grupo sem botao visivel continuaria
+   *      cobrando o gap e o padding-left dele, e o bloco centralizado sairia
+   *      do centro justo nas maos mais vazias.
+   *   2. SEMPRE HA UM BOTAO PRINCIPAL. Se nenhum 'grande' esta visivel, o
+   *      primeiro botao do grupo do MEIO — o das acoes — e promovido ao ouro.
+   *      E o caso da espera entre maos do poker, onde PROXIMA MAO chega
+   *      vestido de 'fantasma' sendo a unica coisa a fazer na tela. So o meio
+   *      concorre: promover um ajuste de aposta (TUDO) a acao principal seria
+   *      apontar pro botao errado.
+   */
+  function revisarGrupos() {
+    let temGrande = false
+    let primeiro = null
+    for (const k of ['esq', 'meio', 'dir']) {
+      const g = grupos[k]
+      let vivo = false
+      for (let i = 0; i < g.children.length; i++) {
+        const b = g.children[i]
+        if (b.style.display === 'none') continue
+        vivo = true
+        if (k !== 'meio') continue
+        if (b.classList.contains(P + 'grande')) temGrande = true
+        if (!primeiro) primeiro = b
+      }
+      marca(g, 'vazio', !vivo)
+    }
+    for (const b of mapaBotoes.values()) marca(b, 'promovido', !temGrande && b === primeiro)
+  }
 
   /** defs = [{ id, txt, cls, ao }]. Devolve nada; use botao(id) pra mexer. */
   function definirBotoes(defs) {
-    botoes.textContent = ''
+    for (const k in grupos) grupos[k].textContent = ''
     mapaBotoes.clear()
     for (let i = 0; i < defs.length; i++) {
       const d = defs[i]
       const b = el('button', 'btn' + (d.cls ? ' ' + d.cls : ''), d.txt)
       b.type = 'button'
       if (d.ao) b.addEventListener('click', d.ao)
-      botoes.appendChild(b)
+      // A onda do clique precisa saber ONDE o dedo encostou; o CSS le isso em
+      // --px/--py. 'pointerdown' e nao 'click' porque a resposta tem que sair
+      // junto com o dedo descendo — meio segundo depois ja nao e resposta.
+      b.addEventListener('pointerdown', (ev) => {
+        if (b.disabled) return
+        const r = b.getBoundingClientRect()
+        if (!r.width || !r.height) return
+        b.style.setProperty('--px', (((ev.clientX - r.left) / r.width) * 100).toFixed(1) + '%')
+        b.style.setProperty('--py', (((ev.clientY - r.top) / r.height) * 100).toFixed(1) + '%')
+        marca(b, 'onda', false)
+        void b.offsetWidth
+        marca(b, 'onda', true)
+      })
+      b.addEventListener('animationend', (ev) => {
+        if (ev.animationName === P + 'onda') marca(b, 'onda', false)
+        if (ev.animationName === P + 'acende') marca(b, 'acende', false)
+      })
+      grupos[ladoDe(d)].appendChild(b)
       mapaBotoes.set(d.id, b)
     }
+    revisarGrupos()
   }
 
   function botao(id) { return mapaBotoes.get(id) || null }
 
   /**
    * Liga/desliga/renomeia um botao numa chamada so.
-   * `cfg`: { ver, ligado, txt, chama } — 'chama' e o pulso dourado do botao
-   * principal, que existe pra o jogador nunca ficar procurando o que apertar.
+   * `cfg`: { ver, ligado, txt, chama } — 'chama' e o anel dourado do botao
+   * principal, que existe pra o jogador nunca ficar procurando o que apertar
+   * (e e ele quem faz nascer o selo de Enter, ver o ::after no CSS).
    */
   function ajustar(id, cfg) {
     const b = mapaBotoes.get(id)
     if (!b) return
-    if (cfg.txt !== undefined) b.textContent = cfg.txt
-    if (cfg.ver !== undefined) b.style.display = cfg.ver ? '' : 'none'
+    // O ESTADO DE ANTES, guardado antes de qualquer escrita. A UI chama ajustar
+    // com o mesmo objeto a cada render (varias vezes por segundo); sem
+    // comparar, o 'acende' dispararia sem parar e viraria ruido em vez de aviso.
+    const eraOff = b.disabled
+    const eraTxt = b.textContent
+    if (cfg.txt !== undefined && String(cfg.txt) !== eraTxt) b.textContent = cfg.txt
+    if (cfg.ver !== undefined) {
+      const ver = cfg.ver ? '' : 'none'
+      if (b.style.display !== ver) { b.style.display = ver; revisarGrupos() }
+    }
     if (cfg.ligado !== undefined) b.disabled = !cfg.ligado
-    if (cfg.chama !== undefined) marca(b, 'pisca', !!cfg.chama && !b.disabled)
+    if (cfg.chama !== undefined) marca(b, 'chama', !!cfg.chama && !b.disabled)
+    // Desligar um botao que estava chamando tem que apagar o anel junto: anel
+    // aceso em botao morto e a pior mentira que este rodape pode contar.
+    if (b.disabled) marca(b, 'chama', false)
+    // O estalo. So em botao vivo e visivel, e so quando ele MUDOU de verdade:
+    // acabou de destravar, ou o preco dentro dele e outro.
+    const acordou = eraOff && !b.disabled
+    const trocou = !b.disabled && b.textContent !== eraTxt
+    if ((acordou || trocou) && b.style.display !== 'none') {
+      marca(b, 'acende', false)
+      void b.offsetWidth
+      marca(b, 'acende', true)
+    }
   }
 
   /** O cartaz grande do meio. tom: '' | 'top' | 'ruim'. */
@@ -456,6 +836,7 @@ export function criarFaixaMesa() {
     setBolso,
     setValor,
     setRecado,
+    setChamada,
     setDica,
     definirBotoes,
     botao,
