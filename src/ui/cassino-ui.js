@@ -255,6 +255,14 @@ const CSS = `
   background:rgba(6,10,9,.62); border:1px solid rgba(233,196,106,.30);
   backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
 }
+/* o monte do ricaco: so aparece com o ponteiro em cima, e diz quanto ele tem */
+.${P}marca.${P}dele{
+  font-size:clamp(15px,1.5vw,20px); letter-spacing:.02em; color:#f3c9cf;
+  padding:3px 10px; border-radius:9px;
+  background:linear-gradient(180deg, rgba(30,12,16,.86), rgba(12,5,7,.90));
+  border:1px solid rgba(201,57,79,.55);
+  box-shadow:0 8px 20px rgba(0,0,0,.55);
+}
 /* o total apostado: grande e dourado, e o numero que o jogador acompanha */
 .${P}marca.${P}aposta{
   font-size:clamp(19px,2.2vw,28px); letter-spacing:.02em; color:#ffdf9e;
@@ -937,7 +945,13 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
    *  as fichas do pano respondem ao clique. */
   function aoMoverPano(ev) {
     if (!faixa) return
-    faixa.el.style.cursor = alvoDoPano(ev) ? 'pointer' : ''
+    const alvo = alvoDoPano(ev)
+    sobreAlvo = alvo
+    // O caixote do ricaco NAO e clicavel — ninguem aposta a ficha do outro —
+    // entao ele nao vira maozinha. Ele so responde ao ponteiro mostrando o
+    // numero (ver moverMarcas), que e o que o dono pediu: "as fichas do npc so
+    // vai mostrar se eu posicionar o mouse nelas".
+    faixa.el.style.cursor = (alvo && alvo.tipo !== 'dele') ? 'pointer' : ''
   }
 
   // -------------------------------------------------------------------------
@@ -956,9 +970,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   // e e o que faz o clique ter consequencia visivel sem olhar pro rodape.
   // -------------------------------------------------------------------------
   let marcas = null            // { raiz, mapa:Map<chave, el> }
+  let sobreAlvo = null         // o que o ponteiro esta tocando no pano, ou null
   const bufMarc = []
   let apostaVista = 0          // valor JA DESENHADO (anda ate o real)
   let apostaAlvo = 0
+  let fichasDoNpc = 0          // quanto o ricaco tem, pro hover em cima do monte dele
 
   function garantirMarcas() {
     if (marcas || !faixa) return marcas
@@ -1017,9 +1033,10 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
 
     for (let i = 0; i < lista.length; i++) {
       const d = lista[i]
-      const chave = d.tipo === 'aposta' ? 'aposta' : 'cx' + d.v
+      const chave = d.tipo === 'caixote' ? 'cx' + d.v : d.tipo
       vistos.add(chave)
-      const e = marcaDe(chave, d.tipo === 'aposta' ? 'aposta' : 'valor')
+      const cls = d.tipo === 'aposta' ? 'aposta' : d.tipo === 'dele' ? 'dele' : 'valor'
+      const e = marcaDe(chave, cls)
       if (!e) continue
       // Atras da lente ou fora do quadro: some em vez de aparecer espelhada.
       const fora = d.atras || d.nx < -1.2 || d.nx > 1.2 || d.ny < -1.2 || d.ny > 1.2
@@ -1032,10 +1049,16 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         const y = Math.round((-d.ny * 0.5 + 0.5) * alt)
         e.style.transform = 'translate(-50%,-100%) translate(' + x + 'px,' + y + 'px)'
       }
-      const some = fora || (d.tipo === 'aposta' ? apostaAlvo <= 0 : d.fichas <= 0)
+      // O do ricaco so existe enquanto o ponteiro esta em cima dele.
+      const some = fora ||
+        (d.tipo === 'aposta' ? apostaAlvo <= 0
+          : d.tipo === 'dele' ? !(sobreAlvo && sobreAlvo.tipo === 'dele')
+            : d.fichas <= 0)
       e.style.opacity = some ? '0' : '1'
       if (some) continue
-      const txt = d.tipo === 'aposta' ? num(Math.round(apostaVista)) : num(d.v)
+      const txt = d.tipo === 'aposta' ? num(Math.round(apostaVista))
+        : d.tipo === 'dele' ? num(fichasDoNpc)
+          : num(d.v)
       if (e.textContent !== txt) e.textContent = txt
     }
     for (const [chave, e] of mk.mapa) {
@@ -1065,6 +1088,8 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   function limparMarcas() {
     apostaVista = 0
     apostaAlvo = 0
+    sobreAlvo = null
+    fichasDoNpc = 0
     if (!marcas) return
     for (const e of marcas.mapa.values()) e.style.opacity = '0'
   }
@@ -1809,7 +1834,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
           : 'Sem fichas pra apostar. Passe no caixa.', 'ruim')
       } else if (apostando && aposta <= 0) {
         faixa.setRecado('Clique nas suas fichas na mesa pra apostar.', '')
-      } else if (!est) faixa.setRecado('Mande distribuir.', '')
+      } else if (!est) {
+        // O recado fica VAZIO quando a chamada ja diz "MANDE DISTRIBUIR": os
+        // dois moram na mesma linha do rodape e diziam a mesma frase duas vezes,
+        // uma em caixa alta e outra com ponto final.
+        faixa.setRecado('')
+      }
       else if (!fim && est.mensagem) faixa.setRecado(est.mensagem, '')
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
@@ -2026,7 +2056,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       naMesa = 0
       empurradas = []
       ultimaFala = ''
-      if (M.mesa) { M.mesa.limparCartas(0); M.mesa.limparFichas() }
+      // O realce sai ANTES das cartas: limparCartas esvazia as filas, e depois
+      // disso limparRealce nao acha mais a carta cuja aura precisa apagar.
+      if (M.mesa) { M.mesa.limparRealce(); M.mesa.limparCartas(0); M.mesa.limparFichas() }
       jogo = criarPoker({ baralho: baralhoPk, aposta: v, fichasNpc: fichasDele })
       chamar(carteira, 'contarMao')
       chamar(jogo, 'comecar')
@@ -2043,19 +2075,6 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // "aproxima demais nas cartas e quando afasta, afasta muito". Quem
       // resolve a leitura da carta agora e a INCLINACAO dela no feltro (ver
       // LAYOUT.poker.filas em cassino/mesa-3d.js), com a lente parada.
-    }
-
-    function novaMao() {
-      // A banca dele atravessa as maos: e o que faz "quebrar o ricaco" ser um
-      // objetivo, em vez de cada mao comecar do zero contra um cofre infinito.
-      const est = jogo ? chamar(jogo, 'estado') : null
-      if (est) fichasDele = Math.max(0, inteiro(est.fichasNpc))
-      quitarMao()
-      jogo = null
-      pago = false
-      if (carteira && carteira.temFichas(ante)) { comecar(); return }
-      faixa.setRecado('Fichas insuficientes pra entrar na mao. Passe no caixa.', 'ruim')
-      renderMesa()
     }
 
     /**
@@ -2259,6 +2278,17 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         pago = true
         pendente = { r: est.resultado }
         fichasDele = Math.max(0, inteiro(est.fichasNpc))
+        // AS CINCO CARTAS QUE GANHARAM SOBEM E ACENDEM. Quem diz quais e o
+        // modulo (resultado.destaque ja vem em indice de fila); aqui so se
+        // repassa. So no showdown: quem corre nao mostra a mao, e realcar uma
+        // mao que ninguem viu seria contar o que a regra manda esconder.
+        const d = est.resultado.destaque
+        if (d && revelado) {
+          m.realcar('eu', d.eu)
+          m.realcar('mesa', d.mesa)
+          m.realcar('ele', d.ele)
+          m.acenderRealce(true, 0.45)
+        }
         clearTimeout(tPagar)
         tPagar = setTimeout(quitarMao, revelado ? T_REVELACAO + 700 : 500)
       }
@@ -2298,7 +2328,10 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // que ele mostra ja desconta o que esta empurrado no pano — senao a mesma
       // ficha apareceria duas vezes, uma na aposta e outra ainda no caixote.
       const minhaVez = emMao && fase === 'jogador'
-      setAposta((est ? Math.max(0, inteiro(est.minhaEntrada)) : 0) + naMesa)
+      const jaNoPote = est ? Math.max(0, inteiro(est.minhaEntrada)) : 0
+      const deleNoPote = est ? Math.max(0, inteiro(est.entradaDele)) : 0
+      setAposta(jaNoPote + naMesa)
+      fichasDoNpc = est ? Math.max(0, inteiro(est.fichasNpc)) : fichasDele
       // O CAIXOTE NAO PISCA ENTRE AS RUAS. Ele so aparecia na minha vez, e com
       // quatro ruas de Hold'em isso virou o dinheiro do jogador sumindo e
       // voltando quatro vezes por mao — cada volta com a queda das 40 fichas de
@@ -2310,7 +2343,17 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // duas pilhas num jogador com vinte mil em ficha — o oposto do pedido,
       // que e ver o proprio dinheiro na mesa. Clique acima do teto responde com
       // o numero exato, e isso ensina a regra sem esconder o dinheiro.
-      m.caixote(contagemCaixote(meuSaldo, empurradas, m.alturaCaixote()))
+      // OS DOIS CAIXOTES ENCOLHEM PELA MAO INTEIRA, e a conta e a mesma dos
+      // dois lados: a pilha mostra o que a pessoa TINHA quando a mao comecou,
+      // menos cada ficha que ja foi pro pote. Sem somar a entrada de volta, o
+      // caixote se recompunha a cada aposta paga (o saldo caia 200 num bolso de
+      // vinte mil e a altura, aparada em 8, nao mudava) e o dinheiro parecia
+      // nunca sair. Somando, ele desce a cada rua e volta ao cheio na mao nova.
+      const alt = m.alturaCaixote()
+      m.caixote(contagemCaixote(meuSaldo + jaNoPote,
+        empurrarLote(jaNoPote).concat(empurradas), alt))
+      m.caixote(contagemCaixote(fichasDoNpc + deleNoPote,
+        empurrarLote(deleNoPote), alt), 'ele')
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
       const tem = (n) => acoes.indexOf(n) >= 0
@@ -2324,7 +2367,15 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       const custoAumentar = naMesa > 0 ? custoDe('aumentar', naMesa) : 0
       const tetoTudo = minhaVez ? Math.max(0, tetoDaMesa()) : 0
 
-      faixa.ajustar('passar', { ver: tem('passar') && naMesa === 0, ligado: true })
+      // 'chama' no PASSAR quando ele E a jogada do Enter: sem aposta na mesa e
+      // sem nada pra pagar, passar e o que o M.principal() dispara, e o selo do
+      // Enter tem que nascer no botao que ele aperta. Antes o selo so existia em
+      // PAGAR e o jogador via um botao de ouro sem atalho anunciado.
+      faixa.ajustar('passar', {
+        ver: tem('passar') && naMesa === 0,
+        ligado: true,
+        chama: naMesa === 0 && custoPagar <= 0,
+      })
       faixa.ajustar('apostar', {
         ver: tem('apostar'),
         ligado: naMesa > 0 && !!(carteira && carteira.temFichas(custoApostar)),
@@ -2344,6 +2395,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // TUDO e o all-in: empurra o maximo que esta mesa aceita de uma vez. Ele
       // nao aposta sozinho — enche o pano e deixa o dedo no gatilho, porque
       // all-in que acontece num clique so e all-in dado sem querer.
+      // O rotulo TEM que sair no formato 'NOME (numero)': a faixa reparte ele em
+      // duas linhas (etiqueta em cima, numero grande embaixo) pra o all-in ler
+      // como plaqueta de ficha. Mudar o formato aqui desmonta o desenho la.
       faixa.ajustar('tudo', {
         ver: minhaVez && (tem('apostar') || tem('aumentar')),
         ligado: tetoTudo > naMesa,
@@ -2360,16 +2414,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // jogada. Um botao de correr que desaparece quando o jogador mexe nas
       // fichas le como mesa travada.
       faixa.ajustar('desistir', { ver: tem('desistir'), ligado: true })
-      // 'denovo' deixou de ser o botao que faz a mao acontecer — ela acontece
-      // sozinha — e virou o de ADIANTAR. Ele so aparece na espera entre maos, e
-      // e por isso que 'ver' olha o relogio e nao a fase: sem ficha o relogio
-      // nao existe, e um botao que promete outra mao sem poder cumprir e pior
-      // que botao nenhum.
-      faixa.ajustar('denovo', {
-        ver: (fim || !est) && !!tMao,
-        ligado: !semFichas,
-        txt: 'PROXIMA MAO',
-      })
+      // O BOTAO DE PROXIMA MAO NAO EXISTE MAIS. Ele ja tinha deixado de ser
+      // necessario quando a mesa passou a repartir sozinha, e o dono mandou
+      // tirar de vez: "n tenha a opcao de proxima mao, ja vai direto". Um botao
+      // que so adianta em dois segundos o que ia acontecer de qualquer jeito e
+      // uma decisao falsa no lugar mais movimentado da tela.
 
       // Tabela de maos na dica: e um jogo inventado, entao a regra fica na tela.
       // Sem isto o jogador perde uma mao com dois reis e acha que a UI errou.
@@ -2386,11 +2435,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // enfiar a instrucao no recado e perdia — est.mensagem chega depois e
       // ganha —, entao o jogador na primeira mao via "Sua vez" e nenhuma pista
       // de que as fichas do pano sao clicaveis.
-      if (!est) faixa.setChamada(semFichas ? 'passe no caixa' : 'repartindo')
-      else if (fim) faixa.setChamada('')
-      else if (naMesa > 0) faixa.setChamada('confirme a aposta')
-      else if (minhaVez) faixa.setChamada(custoPagar > 0 ? 'pague, corra ou empurre fichas' : 'empurre fichas ou passe')
-      else faixa.setChamada('ele esta pensando')
+      // A CHAMADA DO POKER FICOU VAZIA, por pedido direto: "tire isso de
+      // empurre fichas ou passe, pre flop sua vez tb n pode ficar ali". Ela
+      // dizia em texto o que os botoes acesos ja dizem em forma, e no meio de
+      // uma mao de Hold'em isso e mais uma coisa piscando. Fica so o unico
+      // recado que o jogador NAO tem como descobrir sozinho: ficar sem ficha.
+      faixa.setChamada(!est && semFichas ? 'passe no caixa' : '')
 
       // UMA LENTE SO, A SESSAO INTEIRA. Nao ha nem o recuo de 'aposta' entre
       // maos: com a mesa repartindo sozinha a cada 2,6 segundos, um recuo por
@@ -2461,7 +2511,6 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         { id: 'pagar', txt: 'PAGAR', cls: 'verde grande', ao: () => acao('pagar') },
         { id: 'aumentar', txt: 'AUMENTAR', cls: 'ouro grande', ao: () => acao('aumentar') },
         { id: 'desistir', txt: 'DESISTIR', cls: 'bordo', ao: () => acao('desistir') },
-        { id: 'denovo', txt: 'PROXIMA MAO', cls: 'fantasma', ao: novaMao },
         // 'sair' e uma classe PROPRIA, e nao mais o 'bordo' emprestado do
         // DESISTIR. Bordo quer dizer "isto tira voce da mao" e vem com o
         // vermelho junto; sair da mesa nao e essa decisao, e a faixa tinha que
@@ -2484,7 +2533,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
 
     M.principal = () => {
       const est = jogo ? chamar(jogo, 'estado') : null
-      if (!est || est.fase === 'fim') return faixa.botao('denovo')
+      // Entre maos nao ha botao principal: a mesa esta repartindo sozinha e o
+      // Enter nao tem o que confirmar.
+      if (!est || est.fase === 'fim') return null
       // Com ficha no pano, o Enter confirma a APOSTA — que e a jogada que o
       // jogador acabou de montar com a mao. Sem ficha no pano ele faz o de
       // sempre: paga se ha o que pagar, passa se nao ha.

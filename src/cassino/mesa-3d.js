@@ -166,6 +166,11 @@ const QUIQUE = FICHA_H * 0.55
 
 const POOL_CARTAS = 16
 
+// Quanto a carta da mao vencedora sobe do feltro. 4,5 cm e mais que a espessura
+// de qualquer pilha da mesa e menos que a altura de uma carta escorada: ela sai
+// do plano sem descolar dos vizinhos e virar carta flutuando.
+const REALCE_ALTURA = 0.045
+
 // Quanto o clarao do feltro pode somar, no maximo. Ver acender().
 const BRILHO_PICO = 0.42
 
@@ -224,7 +229,11 @@ const LAYOUT = {
     // que sai toda aposta. Cinco casas espacadas de 16,5 cm — 6,3 cm de ficha
     // mais 10 de folga, o bastante pra o clique nao errar de pilha e pra as
     // pilhas nao encostarem uma na outra quando estao cheias.
-    caixote: { z: -1.06, passo: 0.115, altura: 8 },
+    // z=-1.01 e nao -1.06, pelo mesmo motivo do poker: com o rodape em 114 px
+    // a base das pilhas caia atras dele. Aqui a conta e pior porque a lente do
+    // blackjack e mais inclinada (43 graus), entao cada centimetro de pano
+    // vale mais tela: 5 cm sobem a base de ~86% pra ~81%.
+    caixote: { z: -1.01, passo: 0.115, altura: 8 },
     // pra onde a ficha vai quando alguem leva o dinheiro
     casa: { x: -0.10, z: 0.14 },
     eu: { x: 0.00, z: -1.30 },
@@ -340,7 +349,22 @@ const LAYOUT = {
     // beirada do oval do meu lado. Em z=-0.93 com x ate 0.35 a elipse do tampo
     // (rx 1.55, rz 1.05) ainda tem pano — a conta e (x/1.55)^2+(z/1.05)^2 < 1 —
     // e a pilha fica na frente das minhas cartas (z=-0.68) sem tapa-las.
-    caixote: { z: -0.90, passo: 0.115, altura: 8 },
+    // z=-0.83 e nao -0.90: o rodape cresceu (de 87 pra 114 px, topo em 84,1%
+    // da altura da tela) e a base das pilhas, que estava em 85,4%, passou a
+    // ficar ATRAS dele. Puxando 7 cm pro meio do pano a base sobe pra ~81% e
+    // volta a caber inteira acima da faixa. As minhas cartas ficam em z=-0.58,
+    // entao ainda sobram 17 cm de pano entre a pilha e a borda da carta.
+    caixote: { z: -0.83, passo: 0.115, altura: 8 },
+    // O CAIXOTE DO RICACO, do outro lado do pano, com as MESMAS cinco pilhas.
+    // Ele existe por pedido direto: "quero a quantidade de fichas que o npc tem
+    // igual eu tenho, quero elas na frente dele em monte e quando ele apostar as
+    // fichas vao reduzindo". Antes o dinheiro dele era um numero no rodape, e um
+    // numero nao da pra ver encolher.
+    //
+    // z=+0.86 e a beirada do lado dele, entre as cartas dele (z=0.62) e a
+    // cadeira. Mesmo passo do meu: as duas pilhas tem que ler como a mesma
+    // coisa vista dos dois lados da mesa.
+    caixoteDele: { z: 0.86, passo: 0.115, altura: 8 },
     casa: { x: 0.00, z: 0.90 },
     eu: { x: 0.00, z: -0.96 },
     brilho: { x: 0.00, z: 0.00, r: 0.85 },
@@ -443,6 +467,59 @@ function posicaoNaPilha(i) {
     dy: FICHA_H * (nivel + 0.5),
     ry: hash01(i * 31 + 7) * Math.PI * 2,
   }
+}
+
+/**
+ * A MOLDURA DE LUZ que envolve a carta da mao vencedora.
+ *
+ * E um retangulo arredondado desenhado com sombra propria (shadowBlur) e mais
+ * nada: o miolo fica transparente pra a carta continuar legivel por cima, e o
+ * brilho vaza pra fora da borda. Tres passadas da mesma forma com raios
+ * diferentes fazem o degrade sem gradiente — gradiente radial num retangulo
+ * sai como bola e denuncia a gambiarra nos cantos.
+ */
+let _texAura = null
+function texAura() {
+  if (_texAura) return _texAura
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 176
+  const g = c.getContext('2d')
+  // O retangulo interno e a CARTA (0.617 x 0.694 do quadro, que e o inverso do
+  // 1.62 x 1.44 com que a geometria e escalada). O brilho nasce na borda dela.
+  const w = 128 * 0.617
+  const h = 176 * 0.694
+  const x = (128 - w) / 2
+  const y = (176 - h) / 2
+  const r = 9
+  const forma = () => {
+    g.beginPath()
+    g.moveTo(x + r, y)
+    g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r)
+    g.lineTo(x + w, y + h - r); g.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+    g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r)
+    g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y)
+    g.closePath()
+  }
+  g.clearRect(0, 0, 128, 176)
+  // Tres passadas, do halo largo e fraco ate o fio forte colado na borda. Os
+  // alfas subiram de 0.30/0.55/0.95 depois da primeira foto: o pedido e que a
+  // moldura DIGA qual foi a jogada, e na mesa, a 1,9 m da lente, o desenho
+  // anterior lia como carta um pouco mais clara em vez de carta marcada.
+  const passadas = [[28, 0.42], [15, 0.72], [5, 1.00]]
+  for (const [blur, alfa] of passadas) {
+    g.save()
+    g.shadowColor = 'rgba(255,225,160,' + alfa + ')'
+    g.shadowBlur = blur
+    g.strokeStyle = 'rgba(255,236,190,' + alfa + ')'
+    g.lineWidth = 3.5
+    forma()
+    g.stroke()
+    g.restore()
+  }
+  _texAura = new THREE.CanvasTexture(c)
+  _texAura.colorSpace = THREE.SRGBColorSpace
+  return _texAura
 }
 
 /** Degrade radial preto: a sombra de tudo que voa nesta mesa. */
@@ -785,6 +862,26 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   })
   const geoSombra = new THREE.PlaneGeometry(1, 1)
 
+  // O CONTORNO DA MAO VENCEDORA.
+  //
+  // No showdown as CINCO cartas que formaram a mao sobem e ganham um halo. O
+  // pedido foi literal: "quem ganhar sobe as cartas com a mao que ganhou ... com
+  // uma borda em volta das cartas mostrando que fiz aquele jogo".
+  //
+  // UM material e UMA geometria pras sete auras possiveis (duas minhas, cinco
+  // do board), e a opacidade e do MATERIAL: elas acendem juntas, que e o que se
+  // quer — o realce e um evento so. Quem escolhe QUAIS aparecem e o `visible`
+  // de cada mesh, que nao custa nada.
+  //
+  // A aura e filha do PIVO da carta, entao ela herda a inclinacao: com a carta
+  // escorada a 50 graus, um halo desenhado no plano do feltro apareceria como
+  // uma elipse deitada atras dela em vez de uma moldura.
+  const matAura = new THREE.MeshBasicMaterial({
+    map: texAura(), color: 0xffe6a8, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+  })
+  const geoAura = new THREE.PlaneGeometry(CARTA_L * 1.62, CARTA_C * 1.44)
+
   const pool = []
   function pegarCarta() {
     for (let i = 0; i < pool.length; i++) if (!pool[i].usada) { pool[i].usada = true; return pool[i] }
@@ -798,8 +895,21 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     sombra.renderOrder = 1
     sombra.frustumCulled = false
     grupo.add(sombra)
+    // A aura nasce junto com a carta e vive apagada. Criar sob demanda no
+    // showdown custaria uma alocacao de geometria no quadro mais dramatico da
+    // mao — exatamente onde nao se pode engasgar.
+    const aura = new THREE.Mesh(geoAura, matAura)
+    // Nome so pra ferramenta de foto conseguir perguntar "o realce esta no ar?"
+    // sem ter que adivinhar por geometria. Custa uma string por carta.
+    aura.name = 'aura-realce'
+    aura.rotation.x = -Math.PI / 2
+    aura.position.y = -0.0015
+    aura.renderOrder = 3
+    aura.frustumCulled = false
+    aura.visible = false
+    pivo.add(aura)
     const c = {
-      pivo, mesh, sombra, usada: true,
+      pivo, mesh, sombra, aura, usada: true,
       chave: '~', virada: true, alvo: { x: 0, z: 0, ry: 0, y: 0 },
     }
     pool.push(c)
@@ -810,6 +920,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     c.usada = false
     c.pivo.visible = false
     c.sombra.visible = false
+    c.aura.visible = false
     c.chave = '~'
   }
 
@@ -868,6 +979,11 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     // aberta (mostrando face) ou tapada, porque sao dois gestos diferentes:
     // carta na mesa virada pra baixo fica deitada, carta com face fica de pe.
     const inc = (f.aberta ? cfg.inclina : cfg.inclinaVerso) || 0
+    // REALCE: a carta que entrou na mao vencedora sobe. O levante mora AQUI, no
+    // lugar onde a fila calcula posicao, e nao numa animacao a parte — senao o
+    // primeiro reacomodar() que a UI disparasse (e ela dispara a cada render)
+    // puxaria a carta de volta pro feltro no meio da comemoracao.
+    const acima = (f.realce && f.realce.indexOf(i) >= 0) ? REALCE_ALTURA : 0
     // Levantar a carta em torno do CENTRO enfia a borda da frente no feltro.
     // Subir metade do comprimento vezes o seno devolve a borda pro tampo — sem
     // isto a carta de pe atravessa a mesa e some pela metade.
@@ -878,7 +994,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     return {
       x: f.deslocX - (i - meio) * cfg.passo,
       z: cfg.z + Math.abs(i - meio) * 0.006,
-      y: Y_CARTA + i * 0.0018 + CARTA_E / 2 + sobe,
+      y: Y_CARTA + i * 0.0018 + CARTA_E / 2 + sobe + acima,
       ry: (i - meio) * cfg.leque,
       rx: inc,
     }
@@ -1172,8 +1288,81 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     if (itens.length) som.deslizar(atraso || 0, 0.30)
   }
 
-  /** Varre TUDO pro descarte: fim de mao, saida da mesa. */
+  /**
+   * REALCA A MAO VENCEDORA: as cartas de `indices` na fila `id` sobem e acendem.
+   *
+   * `destaque` vem pronto de cassino/poker.js, que sabe quais cinco cartas
+   * formaram a mao e em que indice de cada fila elas estao. Aqui so se aplica.
+   *
+   * Chamar sem indices (ou com lista vazia) apaga a fila — e o que acontece na
+   * mao seguinte, sem ninguem precisar lembrar de limpar.
+   */
+  function realcar(id, indices) {
+    const f = fila(id)
+    // Filtra pelo que a fila REALMENTE tem. Os indices vem da regra, que conta
+    // cartas logicas; se por qualquer motivo a mesa tiver menos cartas na tela
+    // do que a mao tem, e melhor realcar de menos do que derrubar o render.
+    const pedidos = Array.isArray(indices) ? indices : []
+    f.realce = pedidos.filter((i) => i >= 0 && i < f.itens.length)
+    for (let i = 0; i < f.itens.length; i++) {
+      f.itens[i].aura.visible = f.realce.indexOf(i) >= 0
+    }
+    // 0.42 s e mais lento que os 0.26 de um acerto de fila normal: aqui o
+    // movimento E a informacao, e a 0.26 ele passa como reposicionamento.
+    reacomodar(f, 0.42, 0)
+  }
+
+  /** Acende (ou apaga) o halo das cartas ja marcadas por realcar(). */
+  function acenderRealce(ligado, dur) {
+    const alvo = ligado ? 1 : 0
+    const de = matAura.opacity
+    if (de === alvo) return
+    anima({
+      dur: Math.max(0.08, dur || 0.5),
+      marca: 'aura',
+      passo(k) { matAura.opacity = de + (alvo - de) * k },
+      fim() { matAura.opacity = alvo },
+      cancelar() { matAura.opacity = alvo },
+    })
+  }
+
+  /**
+   * Tira o realce de todas as filas. Chamado no comeco de cada mao.
+   *
+   * O pararTarefas e o que faz isto funcionar de verdade: acenderRealce() deixa
+   * uma tarefa de 0,45 s escrevendo matAura.opacity, e sem mata-la ela continua
+   * subindo a opacidade DEPOIS da limpeza — o halo da mao anterior sobrevivia na
+   * mao nova, aceso em cima de cartas que ja eram outras.
+   */
+  function limparRealce() {
+    pararTarefas('aura')
+    for (const f of filas.values()) {
+      f.realce = []
+      for (const c of f.itens) c.aura.visible = false
+    }
+    for (const c of pool) c.aura.visible = false
+    matAura.opacity = 0
+  }
+
+  /**
+   * Varre TUDO pro descarte: fim de mao, saida da mesa.
+   *
+   * O pararTarefas('varre') NA PRIMEIRA LINHA e o conserto de um vazamento que
+   * so apareceu com o Hold'em. Cada mao agora usa NOVE cartas (duas minhas,
+   * duas dele, cinco no meio) contra as quatro do jogo antigo, e o descarte
+   * demora 0,30 s. Quando uma mao nova comeca antes de a varrida da anterior
+   * terminar — e comeca, porque a mesa reparte sozinha —, as cartas velhas
+   * continuam marcadas como EM USO e o pool cresce. Em algumas dezenas de maos
+   * ele batia no teto de 48, pegarCarta() passava a devolver null e a fila
+   * ficava com menos cartas do que a mao tem. O sintoma nao era carta faltando:
+   * era o realce do showdown estourando num indice que nao existia e derrubando
+   * o render inteiro no try/catch da UI.
+   *
+   * Cancelar a varrida pendente devolve aquelas cartas na hora (o `cancelar`
+   * de varrerCartas chama devolverCarta), e o pool volta a caber numa mao.
+   */
   function limparCartas(atraso) {
+    pararTarefas('varre')
     for (const f of filas.values()) {
       const itens = f.itens.splice(0)
       varrerCartas(itens, atraso || 0)
@@ -1429,6 +1618,11 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   // levar o dinheiro do jogador junto com o pote no fim da mao.
   // -------------------------------------------------------------------------
 
+  /** A configuracao do caixote de um lado da mesa. 'ele' so existe no poker. */
+  function confCaixote(quem) {
+    return (quem === 'ele' ? L.caixoteDele : L.caixote) || { z: -1.0, passo: 0.16, altura: 10 }
+  }
+
   /**
    * x da casa `i` de `n`, centrada em zero.
    *
@@ -1437,9 +1631,8 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
    * documenta). Sem ele o caixote aparecia com o 500 a esquerda e o 25 a
    * direita, ou seja, de tras pra frente pra quem le da esquerda pra direita.
    */
-  function casaCaixote(i, n) {
-    const cx = L.caixote || { z: -1.0, passo: 0.16, altura: 10 }
-    return -cx.passo * (i - (n - 1) / 2)
+  function casaCaixote(i, n, quem) {
+    return -confCaixote(quem).passo * (i - (n - 1) / 2)
   }
 
   /**
@@ -1450,18 +1643,19 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
    * porque quem tira ficha do caixote e o proprio jogador empurrando pra
    * aposta — a animacao daquele movimento e a pilha da aposta subindo.
    */
-  function caixote(lista) {
-    const cx = L.caixote
+  function caixote(lista, quem) {
+    const cx = quem === 'ele' ? L.caixoteDele : L.caixote
     if (!cx || !Array.isArray(lista)) return
     const teto = Math.max(1, Math.floor(cx.altura) || 10)
+    const pre = quem === 'ele' ? 'cxd:' : 'cx:'
     const n = lista.length
     let atraso = 0
     for (let i = 0; i < n; i++) {
       const v = Math.max(1, Math.floor(lista[i].v) || 1)
-      const p = pilha('cx:' + v)
+      const p = pilha(pre + v)
       p.caixote = true
       p.valorFicha = v
-      p.base.x = casaCaixote(i, n)
+      p.base.x = casaCaixote(i, n, quem)
       p.base.z = cx.z
       const d = DENOM.find((k) => k.v === v) || { v, cor: 0xe8e2d2 }
       // Quem conta e quem chama: a UI sabe quantas fichas ja sairam pro pano e
@@ -1478,10 +1672,11 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       }
       for (let k = tem; k < quer; k++) {
         if (fichasVivas.length >= POOL_FICHAS) break
-        // 'caixote' e nao 'casa': a ficha do meu proprio dinheiro entra RASANTE,
-        // do meu lado, deslizando pro lugar. Vindo do alto do outro lado do
-        // pano ela lia como a casa me pagando toda vez que o saldo mudava.
-        cairNaPilha(p, d, k, atraso, 'caixote')
+        // 'caixote' e nao 'casa': a ficha do proprio dinheiro entra RASANTE, do
+        // lado de quem e dono dela, deslizando pro lugar. Vindo do alto do
+        // outro lado do pano ela lia como a casa pagando toda vez que o saldo
+        // mudava; no lado do ricaco a origem espelha pelo mesmo motivo.
+        cairNaPilha(p, d, k, atraso, quem === 'ele' ? 'casa' : 'caixote')
         atraso += 0.045
       }
     }
@@ -1539,6 +1734,21 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       m.scale.set(1.7, 1.4, 1.7)
       m.position.set(ap.x, Y_CHAO + 0.09, ap.z)
       m.userData.alvo = { tipo: 'aposta', pilha: L.pilhas.aposta ? 'aposta' : 'minha' }
+      grupo.add(m)
+      alvos.push(m)
+    }
+    // O CAIXOTE DO RICACO E UM ALVO SO, LARGO. Ele nao e clicavel — ninguem
+    // aposta as fichas do adversario — e existe pra o ponteiro poder perguntar
+    // "quanto ele tem". O dono pediu que esse numero SO apareca no hover: uma
+    // etiqueta permanente em cima do dinheiro dele viraria mais um numero
+    // competindo com o pote, e a graca de perguntar some.
+    const cd = L.caixoteDele
+    if (cd) {
+      const largura = cd.passo * Math.max(1, n) + 0.10
+      const m = new THREE.Mesh(geoAlvo, matAlvo)
+      m.scale.set(largura / 0.102, 1, 1.6)
+      m.position.set(0, Y_CHAO + 0.06, cd.z)
+      m.userData.alvo = { tipo: 'dele', pilha: 'cxd:' + valores[valores.length - 1] }
       grupo.add(m)
       alvos.push(m)
     }
@@ -1696,6 +1906,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     anel.visible = false
     matAnel.opacity = 0
     limparCaixote()
+    limparRealce()
     tremor = 0
     grupo.visible = false
     if (ancora && ancora.enfeite) ancora.enfeite.visible = true
@@ -1722,6 +1933,8 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     matAnel.dispose()
     matSombraBase.dispose()
     geoSombra.dispose()
+    matAura.dispose()
+    geoAura.dispose()
     anel.geometry.dispose()
     brilho.geometry.dispose()
     for (const a of alvos) grupo.remove(a)
@@ -1743,6 +1956,9 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     caixote,
     limparCaixote,
     alturaCaixote,
+    realcar,
+    acenderRealce,
+    limparRealce,
     montarAlvos,
     apontar,
     marcadores,

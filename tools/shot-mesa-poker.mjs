@@ -66,7 +66,7 @@ try {
     const t = m.type()
     if (t === 'error' || t === 'warning' || t === 'warn') console.log('  [browser ' + t + ']', m.text())
   })
-  page.on('pageerror', (e) => console.log('  [pageerror]', e.message))
+  page.on('pageerror', (e) => console.log('  [pageerror]', String(e.stack || e.message).slice(0, 600)))
   await page.setViewport({ width: 1280, height: 720 })
   // CORTA O HMR. Com varias sessoes editando o mesmo repositorio, todo save
   // manda um full-reload pelo /@vite/client e a pagina troca de baixo da
@@ -287,7 +287,7 @@ try {
     // que a repartida assentou. Em headless a mesa anda a um quinto do tempo de
     // relogio, entao o numero grande de espera aqui vale uns 1,5 s no jogo.
     const vistas = []
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 16; i++) {
       const txt = await lerFaixa()
       const rua = txt && /POTE NO ([A-Z-]+)/i.exec(txt)
       const nome = rua ? rua[1].toLowerCase() : 'x'
@@ -295,8 +295,83 @@ try {
       vistas.push(nome + ':' + n)
       if (n >= 3) await shot('1' + n + '-' + nome)
       const fez = await agir()
-      if (!fez) break
-      await espera(8000)
+      // ESPERA O DESFECHO DA ACAO. Ou a vez volta pra mim (proxima rua), ou a
+      // mao acaba — e o fim se reconhece pelo cartaz do meio, que a faixa so
+      // acende em resultado. E a unica janela em que o realce da mao vencedora
+      // esta na tela.
+      let pegouFim = false
+      // A PRIMEIRA ESPERA E LONGA de proposito: logo depois do clique a faixa
+      // ainda mostra os botoes de antes (o render sai no proximo quadro, e aqui
+      // o quadro leva meio segundo), entao um poll imediato le sempre 'vez' e
+      // sai do laco antes de a rua virar.
+      if (fez) await espera(2600)
+      for (let t = 0; t < 80 && fez; t++) {
+        // 250 ms e nao 700: a janela do showdown dura T_PROXIMA_MAO = 2,6 s de
+        // RELOGIO (e um setTimeout, nao tempo de jogo), e em headless a foto
+        // sozinha come metade disso. Poll grosso perdia a janela toda vez.
+        await espera(250)
+        const cena = await page.evaluate(() => {
+          // O REALCE e o sinal mais confiavel de showdown: ele fica no ar a mao
+          // inteira ate a proxima repartida, enquanto o cartaz do meio dura so
+          // 1,7 s de animacao CSS e escapa entre dois polls.
+          const G = window.__game
+          let aceso = 0
+          G.scene.traverse((o) => {
+            if (o.name === 'aura-realce' && o.visible && o.material && o.material.opacity > 0.15) aceso++
+          })
+          // SEGURA A MESA NO SHOWDOWN ZERANDO A CARTEIRA.
+          //
+          // Congelar o rAF nao bastava: a janela do showdown e de 2,6 s de
+          // RELOGIO e a mesa reparte sozinha, entao a foto saia sempre do
+          // pre-flop seguinte. Sem ficha pra pagar a entrada, o comecar()
+          // agendado desiste na primeira linha e a mesa fica parada no fim da
+          // mao — com as cartas vencedoras levantadas — pelo tempo que a foto
+          // precisar. E o mesmo caminho que o jogador quebrado percorre.
+          if (aceso > 0) {
+            G.carteira.gastarFichas(G.carteira.fichas)
+            return 'fim'
+          }
+          const bs = [...document.querySelectorAll('.mcrp-mesa-btn')]
+          return bs.some((x) => x.offsetParent && !x.disabled &&
+            /^(PAGAR|PASSAR)/.test(x.textContent.trim().toUpperCase())) ? 'vez' : 'espera'
+        })
+        if (cena === 'fim') {
+          // CONGELA O QUADRO ANTES DE FOTOGRAFAR. Sem isto a mesa reparte a mao
+          // seguinte enquanto o captureScreenshot roda, e a foto do showdown sai
+          // com o pre-flop novo em cima. Matar o rAF para o laco de desenho e o
+          // compositor guarda o ultimo quadro desenhado — que e o que se quer.
+          // 9 s e nao 2,5: o halo sobe em 0,45 s de tempo de ANIMACAO, e com o
+          // dt travado em 0,1 a 2 fps isso vira ~2 s de relogio — a foto
+          // anterior pegou ele em 0,58 de opacidade, no meio da subida.
+          await espera(9000)
+          console.log('  realce no instante da foto:', JSON.stringify(await page.evaluate(() => {
+            const G = window.__game
+            let vis = 0, tot = 0, op = null, altura = []
+            G.scene.traverse((o) => {
+              if (o.name !== 'aura-realce') return
+              tot++
+              op = o.material.opacity
+              if (o.visible) { vis++; altura.push(+o.parent.position.y.toFixed(3)) }
+            })
+            return { auras: tot, visiveis: vis, opacidade: op, yDasCartasRealcadas: altura }
+          })))
+          await shot('21-showdown')
+          console.log('  showdown fotografado:', JSON.stringify(await lerFaixa()))
+          pegouFim = true
+          break
+        }
+        if (cena === 'vez') break
+      }
+      if (pegouFim) break
+      if (!fez) {
+        // Acabou a mao. O SHOWDOWN e o quadro que interessa aqui: as cinco
+        // cartas da mao vencedora sobem e acendem. Ele dura ate a mesa repartir
+        // de novo (2,6 s de relogio do jogo = uns 13 s em headless), entao ha
+        // janela de sobra pra fotografar.
+        await espera(4000)
+        await shot('22-fim')
+        break
+      }
     }
     // A FOTO QUE VALE. As de dentro do laco pegam a mesa repartindo; esta
     // espera a ultima carta assentar de verdade — em headless a repartida do

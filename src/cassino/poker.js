@@ -164,7 +164,16 @@ export function melhorMao(cartas) {
             const r = avaliar5(cinco)
             const chave = chaveDe(r.categoria, r.ordem)
             if (!melhor || chave > melhor.chave) {
-              melhor = { categoria: r.categoria, chave, nome: nomeDe(r.categoria, r.ordem) }
+              // 'cartas' sao as CINCO que formaram a mao, por referencia. E o que
+              // permite a mesa levantar exatamente elas no showdown em vez de
+              // levantar a mao inteira: com um par de reis e tres cartas soltas
+              // no board, so as cinco que jogam sobem.
+              melhor = {
+                categoria: r.categoria,
+                chave,
+                nome: nomeDe(r.categoria, r.ordem),
+                cartas: [c[a], c[b], c[d], c[e], c[f]],
+              }
             }
           }
         }
@@ -329,7 +338,11 @@ export function criarPoker(opts = {}) {
     aumentos = 0
     fala = frase('vira')
     fase = 'jogador'
-    mensagem = RUAS[rua].toUpperCase() + ' na mesa. Sua vez'
+    // A MENSAGEM FICA VAZIA. O dono mandou tirar o "PRE-FLOP. Sua vez" e o
+    // "EMPURRE FICHAS OU PASSE" do rodape: sao dois lugares dizendo o que a
+    // mesa ja mostra. A rua continua na tela, no rotulo do pote ("POTE NO
+    // FLOP"), e de quem e a vez se ve pelos botoes que acendem.
+    mensagem = ''
   }
 
   /** Uma acao terminou: ou a rua fecha e a proxima carta vem, ou a vez passa. */
@@ -342,6 +355,29 @@ export function criarPoker(opts = {}) {
     } else {
       fase = 'jogador'
     }
+  }
+
+  /**
+   * Onde cada carta de uma combinacao esta, em INDICE DE FILA.
+   *
+   * A mesa 3D nao conhece carta, conhece "a terceira da fila do meio". Traduzir
+   * aqui e o que deixa o destaque do showdown ser uma chamada boba la
+   * (realcar('mesa', [0,2,4])) em vez de a UI ter que casar carta com carta.
+   * A comparacao e por valor+naipe porque o baralho e de UM deck: nao existe
+   * carta repetida numa mao, entao valor+naipe e identidade.
+   */
+  function ondeEstao(combo) {
+    const ache = (lista) => {
+      const out = []
+      for (let i = 0; i < lista.length; i++) {
+        for (let k = 0; k < combo.length; k++) {
+          const c = combo[k]
+          if (c && lista[i] && c.r === lista[i].r && c.n === lista[i].n) { out.push(i); break }
+        }
+      }
+      return out
+    }
+    return { eu: ache(minhas), mesa: ache(mesa), ele: ache(dele) }
   }
 
   function showdown() {
@@ -371,7 +407,15 @@ export function criarPoker(opts = {}) {
       npcFichas += pote - minhaEntrada
     }
 
-    resultado = { tipo, retorno, minhaMao: minha, maoDele: dela }
+    // O DESTAQUE E SEMPRE DA MAO QUE GANHOU. No empate as duas ganharam, entao
+    // as duas sobem — e o board, que e comum, sobe uma vez so (a uniao).
+    const destaque = ondeEstao(tipo === 'perdeu' ? dela.cartas : minha.cartas)
+    if (tipo === 'empate') {
+      const outro = ondeEstao(dela.cartas)
+      destaque.ele = outro.ele
+      destaque.mesa = [...new Set(destaque.mesa.concat(outro.mesa))].sort((x, y) => x - y)
+    }
+    resultado = { tipo, retorno, minhaMao: minha, maoDele: dela, destaque }
     fala = frase(tipo === 'ganhou' ? 'perdi' : tipo === 'perdeu' ? 'ganhei' : 'empate')
     mensagem = tipo === 'ganhou' ? 'Voce leva ' + retorno + ' — ' + minha.nome
       : tipo === 'perdeu' ? 'Ele leva o pote — ' + dela.nome
@@ -583,7 +627,7 @@ export function criarPoker(opts = {}) {
       resultado = null
       fala = frase('inicio')
       fase = 'jogador'
-      mensagem = 'PRE-FLOP. Sua vez'
+      mensagem = ''
       return true
     },
 

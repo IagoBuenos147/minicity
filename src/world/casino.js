@@ -1934,16 +1934,37 @@ function buildBlackjack(g, colliders) {
   // cheia (9 fichas de 7,5 mm sobre a base de 7 cm) para em 13,75: ela encosta
   // no topo da divisoria e nao passa dela, que e o que faz o rack ler como rack
   // em vez de cinco torres soltas em cima de uma tabua.
+  //
+  // ELE ERA FUNDO DEMAIS E A MAO DA CASA CAIA DENTRO DELE.
+  //
+  // A bandeja tinha 26 cm de fundo em z=-0.20, ou seja, ocupava de -0.33 a
+  // -0.07. A carta da casa pousa em z=-0.28 (LAYOUT.blackjack.filas.dealer, em
+  // cassino/mesa-3d.js) e mede 14,8 cm: ela ia de -0.351 a -0.203 — 12,7 cm dela
+  // DENTRO da tabua da bandeja. Medido na cena, nao no olho. O que a foto
+  // mostrava (shots/hud-06-bj-mao.png) era carta atravessando a divisoria e
+  // escondendo a pilha de 25: a mao da casa e a caixa registradora da casa
+  // dividindo o mesmo palmo de pano, que e a unica coisa que nao acontece em
+  // mesa de blackjack nenhuma.
+  //
+  // A bandeja e que anda, porque a fila da carta e de outro arquivo — e porque
+  // andar e o certo: em mesa de verdade a bandeja fica COLADA na beirada do
+  // dealer e a carta cai na frente dela. Sobra pouca folga e essa e a conta:
+  //   corda        travessa de couro, face interna em z=-0.10
+  //   bandeja      de -0.19 a -0.09 (10 cm de fundo pra ficha de 6,3)
+  //   carta        de -0.203 a -0.351
+  // 1,3 cm de pano entre a bandeja e a carta, 1 cm entre a bandeja e o couro.
+  // As ALTURAS nao mudaram: a conta da divisoria contra a pilha continua valendo
+  // palavra por palavra.
   const rack = new THREE.Group()
-  rack.position.set(0, yT, -0.20)
-  rack.add(box(0.86, 0.07, 0.26, M.madeira, 0, 0.035, 0))
+  rack.position.set(0, yT, -0.14)
+  rack.add(box(0.86, 0.07, 0.10, M.madeira, 0, 0.035, 0))
   const casaRack = [[D1, 9], [D5, 8], [D25, 8], [D100, 7], [D500, 6]]
   for (let i = 0; i < 5; i++) {
     const x = -0.32 + i * 0.16
-    rack.add(box(0.02, 0.09, 0.24, M.ouroEscuro, x + 0.08, 0.09, 0))
+    rack.add(box(0.02, 0.09, 0.09, M.ouroEscuro, x + 0.08, 0.09, 0))
     pilhaFichas(rack, x, 0.07, 0, casaRack[i][1], casaRack[i][0])
   }
-  rack.add(box(0.02, 0.09, 0.24, M.ouroEscuro, -0.40, 0.09, 0))
+  rack.add(box(0.02, 0.09, 0.09, M.ouroEscuro, -0.40, 0.09, 0))
   sombras(rack)
   u.add(rack)
 
@@ -2168,26 +2189,29 @@ function buildPoker(g, colliders) {
   const esquecidas = [[-0.74, -0.62, 6, D25], [-0.84, -0.72, 3, D100], [-0.64, -0.74, 3, D5]]
   for (const p of esquecidas) pilhaFichas(enfeite, p[0], yT + 0.010, p[1], p[2], p[3])
 
-  // copo de uisque e charuto apagado no cinzeiro, do lado do ricaco
-  const copo = new THREE.Group()
-  copo.position.set(0.92, yT, 0.52)
-  const vidroCopo = glass(0xdfeef5, 0.30)
-  copo.add(cyl(0.042, 0.038, 0.10, vidroCopo, 14).translateY(0.05))
-  copo.add(cyl(0.038, 0.034, 0.045, solid(0xb5761f, 0.25), 14).translateY(0.032))
-  copo.add(cyl(0.042, 0.042, 0.012, vidroCopo, 14).translateY(0.006))
-  sombras(copo)
-  u.add(copo)
-  const cinz = new THREE.Group()
-  cinz.position.set(-0.95, yT, 0.50)
-  cinz.add(cyl(0.085, 0.075, 0.030, solid(0x2a2b30, 0.35, 0.4), 16).translateY(0.015))
-  const charuto = cyl(0.011, 0.013, 0.13, solid(0x6b4425, 0.85), 8)
-  charuto.rotation.z = Math.PI / 2
-  charuto.rotation.y = 0.4
-  charuto.position.set(0.02, 0.036, 0)
-  cinz.add(charuto)
-  cinz.add(box(0.018, 0.008, 0.014, solid(0x1a1a1a, 0.95), -0.055, 0.036, -0.026))
-  sombras(cinz)
-  u.add(cinz)
+  // OS DOIS CANTOS DO FUNDO FICAM VAZIOS, E ISSO E DE PROPOSITO.
+  //
+  // Aqui moravam um copo de uisque em (0.92, 0.52) e um cinzeiro com charuto em
+  // (-0.95, 0.50) — os dois assados no cenario, portanto no pano TAMBEM com a
+  // mesa aberta. O dono pediu os dois fora ("tira o cigarro e o copo de bebida
+  // da mesa"), e a razao de eles pesarem agora e que este tampo deixou de ser
+  // cenario: com Texas Hold'em ele virou area de LEITURA de ponta a ponta.
+  //
+  // Mas o motivo que fecha a questao nao e o pano, e o AR EM CIMA DELE. Com a
+  // mesa aberta, cassino/mesa-3d.js faz a carta SAIR do sapato em (1.02, 0.30) e
+  // VARRE a mao velha pro descarte em (-1.02, 0.26) (LAYOUT.poker). O copo
+  // estava a 22 cm da boca do sapato e o cinzeiro a 25 cm do descarte: as duas
+  // pecas ficavam bem debaixo do arco que toda carta desenha, toda mao. Isso
+  // torna estes dois cantos os PIORES lugares livres do feltro, e nao os
+  // melhores — e a resposta pra "o que entra no lugar" e NADA.
+  //
+  // Sobra ainda: um copo de vidro palido e do diametro de uma ficha e, visto da
+  // lente do jogo (52 graus, a 1,74 m), le como pilha branca baixa — a mesma
+  // confusao "quanto disto e dinheiro?" que ja tirou o pote e a muralha do pano.
+  //
+  // O que MANTEM o clima de salao continua de pe e nao encosta em pano de jogo:
+  // as duas mesinhas de canto com ficha e baralho (buildJuice), o balcao do bar
+  // com copo e garrafa, e o carpete. Bebida e fumo pertencem ao bar, nao a mesa.
 
   fecharEnfeite(enfeite)
   g.add(u)
@@ -2607,6 +2631,15 @@ function buildJuice(g, colliders) {
 
   // mesinhas de canto com fichas e um baralho esquecido
   const dorso = solid(0x8c1224, 0.55)
+  // O CORTE DE PAPEL DO MACO, e ele e de graca.
+  //
+  // 0x9e9068 nao foi escolhido por ser bonito: e a MESMA tinta creme do arco
+  // impresso do blackjack (a constante `linha` de buildBlackjack). solid()
+  // guarda material por cor+aspereza, entao isto devolve o MESMO material, e o
+  // forno junta por material — o bloco novo entra num desenho que ja existia e
+  // nao custa draw call nenhum. Pelo mesmo motivo ele nao faz nem recebe
+  // sombra: a chave do forno inclui os dois flags, e os do arco sao falsos.
+  const papelMaco = solid(0x9e9068, 0.92)
   for (const m of [[17.2, 21.4], [31.6, 20.4]]) {
     const t = new THREE.Group()
     t.position.set(m[0], 0, m[1])
@@ -2617,7 +2650,18 @@ function buildJuice(g, colliders) {
     g.add(t)
     pilhaFichas(g, m[0] - 0.12, 0.70, m[1] + 0.06, 6, D250)
     pilhaFichas(g, m[0] + 0.10, 0.70, m[1] - 0.08, 4, D25)
-    const bar2 = box(0.065, 0.022, 0.092, dorso, m[0] + 0.16, 0.711, m[1] + 0.14)
+    // O baralho era UM bloco vermelho macico de 2,2 cm, e o jogador passa a um
+    // metro destas mesinhas: de perto ele nao lia como baralho, lia como
+    // tijolinho. Baralho visto de cima e duas coisas — a carta de CIMA, virada,
+    // e o corte de papel do maco embaixo dela. Dois blocos resolvem: o maco em
+    // creme, um milimetro menor em cada borda, e a carta por cima com a MESMA
+    // medida de antes. A altura total nao mudou (0.700 a 0.723).
+    const maco = box(0.063, 0.019, 0.089, papelMaco, m[0] + 0.16, 0.7095, m[1] + 0.14)
+    maco.rotation.y = 0.6
+    maco.castShadow = false
+    maco.receiveShadow = false
+    g.add(maco)
+    const bar2 = box(0.065, 0.004, 0.092, dorso, m[0] + 0.16, 0.721, m[1] + 0.14)
     bar2.rotation.y = 0.6
     g.add(bar2)
     colliders.push({ minX: m[0] - 0.3, maxX: m[0] + 0.3, minZ: m[1] - 0.3, maxZ: m[1] + 0.3, tag: 'cassino-mesinha' })

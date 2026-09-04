@@ -12,9 +12,10 @@
 //
 //   1. O TETO DE ALTURA. O meio da tela nao e do rodape: as cartas vao ate 78%
 //      da altura, a base das pilhas de ficha do jogador fica em 86% e o numero
-//      flutuante da aposta vive entre 45% e 65%. O rodape tem que comecar
-//      DEPOIS de 87%. Isso e um pixel, nao um gosto — entao a gente le o
-//      getBoundingClientRect().top e reprova sozinho.
+//      flutuante da aposta vive entre 45% e 65%. O TETO DESCEU DE 87% PRA 83%
+//      — o dono liberou a faixa a crescer ate encostar nas pilhas de ficha, e
+//      83% e onde ela encosta. Isso e um pixel, nao um gosto — entao a gente le
+//      o getBoundingClientRect().top e reprova sozinho.
 //   2. O EIXO. O pedido era "botoes centralizados". "Parece centralizado" numa
 //      foto de 1280 px erra por 30 px sem ninguem ver. Aqui a gente mede o meio
 //      do BLOCO de botoes contra o meio da tela e reprova acima de 2 px.
@@ -32,6 +33,14 @@
 //   06  blackjack, meio da mao               (PEDIR / PARAR / DOBRAR / DIVIDIR)
 //   07  blackjack em 760 px de largura       (o celular)
 //   08  poker em 760 px de largura
+//
+// E, no fim da cena do poker, duas conferencias que nao viram foto:
+//   — a VARREDURA DE LARGURA, que acha o pixel exato em que a ancora do SAIR
+//     para de caber e a fila quebra em duas linhas (e por isso que a media
+//     query existe, e o numero dela tem que sair de medida, nao de chute);
+//   — o TESTE DA FILA VAZIA, que simula o rodape depois que o botao PROXIMA MAO
+//     deixar de existir e a chamada do poker ficar vazia: a faixa nao pode
+//     encolher de altura, senao ela pulsa a cada mao.
 
 import puppeteer from 'puppeteer-core'
 import fs from 'node:fs'
@@ -147,8 +156,17 @@ window.__hud = {
       linhaBotoes: linha
         ? [+(100 * linha.y0 / h).toFixed(1) + '%', +(100 * linha.y1 / h).toFixed(1) + '%']
         : null,
+      // A FILA QUEBROU EM DUAS LINHAS? So a altura da linha de botoes responde:
+      // com todos numa linha so, a altura do bloco e a do botao mais alto.
+      duasLinhas: linha ? (linha.y1 - linha.y0) > 66 : false,
       botoes: (sair ? vis.concat([sair]) : vis).map((b) => ({
-        t: b.textContent.trim().slice(0, 22),
+        // innerText e nao textContent: o rotulo do all-in virou dois elementos
+        // (a palavra em cima, o numero embaixo) e textContent grudaria os dois
+        // num "TUDO4.950" que nao se le no log. A barra dupla no \\s nao e
+        // engano: esta regua inteira mora dentro de um template literal, e um
+        // \\s simples chegaria na pagina como um "s" e trocaria as letras s do
+        // rotulo por espaco em vez de juntar as duas linhas.
+        t: (b.innerText || b.textContent).trim().replace(/\\s+/g, ' ').slice(0, 22),
         cls: b.className.replace(/mcrp-mesa-/g, ''),
         px: +cx(b).toFixed(0), h: alt(b), w: +b.getBoundingClientRect().width.toFixed(0),
         off: b.disabled ? 1 : 0,
@@ -174,6 +192,33 @@ window.__hud = {
     return { x: Math.round(r.left + r.width * 0.34), y: Math.round(r.top + r.height / 2), t: b.textContent.trim() }
   },
 
+  /**
+   * O RODAPE SEM NADA PRA APERTAR.
+   *
+   * Duas mudancas do dono chegam junto: o botao PROXIMA MAO deixa de existir (a
+   * mao seguinte vem sozinha) e a chamada do poker fica vazia. Entre uma mao e
+   * outra sobra so o SAIR no canto — e se a fileira colapsar pra a altura dele,
+   * o rodape inteiro encolhe e volta a crescer a cada mao.
+   *
+   * A simulacao esconde a fila e apaga a pastilha, le a altura e desfaz tudo na
+   * MESMA chamada: getBoundingClientRect forca o layout na hora, entao nao ha
+   * quadro nenhum em que o jogador veja o rodape mutilado.
+   */
+  filaVazia() {
+    const f = document.querySelector('.mcrp-mesa-faixa')
+    const fila = document.querySelector('.mcrp-mesa-fila')
+    const cham = document.querySelector('.mcrp-mesa-chamada')
+    if (!f || !fila || !cham) return null
+    const antes = f.getBoundingClientRect().height
+    const vis = fila.style.display, txt = cham.textContent
+    fila.style.display = 'none'
+    cham.textContent = ''
+    const depois = f.getBoundingClientRect().height
+    fila.style.display = vis
+    cham.textContent = txt
+    return { antes: +antes.toFixed(0), depois: +depois.toFixed(0) }
+  },
+
   /** Aperta o botao visivel cujo rotulo casa com a expressao. */
   apertar(re) {
     const rx = new RegExp(re, 'i')
@@ -190,8 +235,9 @@ window.__hud = {
 const espera = (ms) => new Promise((r) => setTimeout(r, ms))
 const laudo = []
 
-/** O teto duro: o rodape nao pode comecar antes de 87% da altura da tela. */
-const TETO_TOPO = 87
+/** O teto duro: o rodape nao pode comecar antes de 83% da altura da tela.
+ *  Era 87%; o dono liberou os 4 pontos que faltavam ate as pilhas de ficha. */
+const TETO_TOPO = 83
 
 /**
  * O que reprova e o EIXO DO BLOCO, nao o do botao principal.
@@ -234,6 +280,16 @@ async function sessao(rotulo, largura, corpo) {
   page.on('pageerror', (e) => console.log('  [erro pagina]', e.message))
   page.on('console', (m) => { if (m.type() === 'error') console.log('  [browser]', m.text()) })
   console.log('cena: ' + rotulo + ' (' + largura + 'px)')
+  // O HMR DO VITE FICA DE FORA. Com quatro sessoes salvando arquivo, qualquer
+  // save manda full-reload pelo /@vite/client e a pagina troca de baixo da
+  // medida: a foto sai com o menu por cima da mesa e o laudo mede o rodape que
+  // nao existe mais. Abortar so o cliente de HMR nao muda nada do que se ve —
+  // a pagina ja carregou o codigo do disco na hora do goto.
+  await page.setRequestInterception(true)
+  page.on('request', (r) => {
+    if (r.url().indexOf('/@vite/client') >= 0) r.abort().catch(() => {})
+    else r.continue().catch(() => {})
+  })
   try {
     await page.setViewport({ width: largura, height: 720 })
     await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 90000 })
@@ -255,9 +311,11 @@ async function sessao(rotulo, largura, corpo) {
     const shot = async (name, perto) => {
       const f = path.join(dir, 'hud-' + name + '.png')
       // 'perto' recorta so a faixa: o juice mora em 2-3 px de deslocamento e
-      // some numa foto de 1280x720 inteira.
+      // some numa foto de 1280x720 inteira. 175 px e a faixa nova (114) mais um
+      // dedo de feltro em cima — e nessa faixa de sobra que se ve se o topo do
+      // rodape esta cortando as pilhas de ficha do jogador.
       await page.screenshot(perto
-        ? { path: f, clip: { x: 0, y: 720 - 130, width: largura, height: 130 } }
+        ? { path: f, clip: { x: 0, y: 720 - 175, width: largura, height: 175 } }
         : { path: f })
       console.log('  foto: ' + f)
     }
@@ -330,6 +388,32 @@ async function esperarCamera(ev, alvo, max = 60) {
   const c = ant || [0, 0, 0]
   const dist = alvo ? Math.hypot(c[0] - alvo[0], c[2] - alvo[1]) : null
   return { pos: [+c[0].toFixed(2), +c[1].toFixed(2), +c[2].toFixed(2)], dist: dist && +dist.toFixed(2) }
+}
+
+/**
+ * A VARREDURA DE LARGURA.
+ *
+ * A ancora do SAIR custa DUAS larguras dele (a dele e a do espelho invisivel do
+ * outro lado), e essa conta muda toda vez que um botao engorda. Em vez de
+ * chutar onde a media query tem que cortar, a gente estreita a janela de
+ * verdade e olha tres coisas por largura: o topo em %, se a fila quebrou em
+ * duas linhas e se a ancora ainda esta de pe. Nao tira foto — o que interessa
+ * aqui e a tabela.
+ */
+async function varrer(ev, page, larguras) {
+  console.log('  varredura de largura (fila numa linha so?):')
+  for (const w of larguras) {
+    await page.setViewport({ width: w, height: 720 })
+    await espera(450)
+    const m = await ev(() => window.__hud.medir())
+    if (!m || m.erro) { console.log('    ' + w + 'px  ?'); continue }
+    console.log('    ' + String(w).padStart(4) + 'px  topo=' + String(m.topoPct).padStart(6) + '%'
+      + '  alt=' + String(m.alturaPx).padStart(3) + 'px'
+      + '  ' + (m.duasLinhas ? 'DUAS LINHAS' : 'uma linha  ')
+      + '  ancora=' + (m.sairDaBorda === null ? 'devolvida' : m.sairDaBorda + 'px')
+      + '  eixo=' + m.eixoBloco + 'px'
+      + (m.topoPct >= TETO_TOPO ? '' : '   <== ESTOUROU O TETO'))
+  }
 }
 
 async function sentar(ev, page, mesa, abrir, alvo, raioOk) {
@@ -416,6 +500,12 @@ try {
 
     await juice('03b-poker-apostando')
 
+    // A FILEIRA VAZIA: o rodape depois que o PROXIMA MAO sumir e a chamada do
+    // poker ficar vazia. A altura tem que ser a MESMA — ver filaVazia().
+    const fv = await ev(() => window.__hud.filaVazia())
+    console.log('  fila vazia: faixa ' + (fv ? fv.antes + 'px -> ' + fv.depois + 'px'
+      + (fv.antes === fv.depois ? ' ok (nao encolhe)' : ' ENCOLHEU') : '?'))
+
     // FIM DA MAO: correr resolve a mao na hora e traz o cartaz + PROXIMA MAO.
     await garantirMesa(ev, page, 'poker', 'abrirPoker', [28.8, 23.2], 3.2)
     console.log('  ' + await ev(() => window.__hud.apertar('DESISTIR')))
@@ -438,6 +528,12 @@ try {
     await espera(9000)
     await shot('06-bj-mao')
     await medir('blackjack / meio da mao')
+
+    // O ESTADO MAIS LARGO DAS DUAS MESAS e este: PEDIR + PARAR + DOBRAR (n) +
+    // DIVIDIR (n) na fila, mais a ancora. E o unico que fica PARADO esperando o
+    // jogador, entao e nele que a varredura vale — no poker a mao anda sozinha
+    // e a fila troca de largura no meio da medida.
+    await varrer(ev, page, [1440, 1280, 1160, 1080, 1010, 1000, 940, 860, 780])
   })
 
   // 3) CELULAR. 760 px e a largura exata da media query — o pior caso dela.
