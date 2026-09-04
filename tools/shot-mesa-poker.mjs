@@ -31,7 +31,12 @@ function findBrowser() {
   throw new Error('nenhum Chrome/Edge encontrado')
 }
 
-const PORT = 9400 + (process.pid % 400)
+// A porta e o perfil saem do PID. As outras ferramentas de foto deste repo
+// fazem igual, e com quatro sessoes rodando ao mesmo tempo duas ja colidiram:
+// o segundo navegador achava o perfil do primeiro em uso e a pagina descolava
+// no meio ('Not attached to an active page'). O deslocamento por arquivo
+// separa as faixas.
+const PORT = 9700 + (process.pid % 250)
 const child = spawn(findBrowser(), [
   '--headless=new', '--remote-debugging-port=' + PORT,
   '--user-data-dir=' + path.join(os.tmpdir(), 'minicity-pk-' + PORT),
@@ -63,6 +68,17 @@ try {
   })
   page.on('pageerror', (e) => console.log('  [pageerror]', e.message))
   await page.setViewport({ width: 1280, height: 720 })
+  // CORTA O HMR. Com varias sessoes editando o mesmo repositorio, todo save
+  // manda um full-reload pelo /@vite/client e a pagina troca de baixo da
+  // medida: no melhor caso a foto sai com o menu por cima da mesa, no pior o
+  // puppeteer perde o alvo ('Not attached to an active page'). Abortar so esse
+  // pedido congela o bundle que ja carregou, que e exatamente o que se quer
+  // medir. O modulo do jogo em si continua vindo do dev server.
+  await page.setRequestInterception(true)
+  page.on('request', (r) => {
+    if (r.url().indexOf('/@vite/client') >= 0) r.abort().catch(() => {})
+    else r.continue().catch(() => {})
+  })
   await garantirServidor(URL_BASE)
   await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await page.waitForFunction('window.__game && window.__game.scene', { timeout: 60000 })
@@ -222,10 +238,75 @@ try {
   }
   await espera(3500)
   await shot('07-apostando')
-  console.log('  faixa apostando:', JSON.stringify(await page.evaluate(() => {
+  const lerFaixa = () => page.evaluate(() => {
     const f = document.querySelector('.mcrp-mesa-faixa')
     return f ? f.innerText.split(String.fromCharCode(10)).join(' | ') : null
-  })))
+  })
+  console.log('  faixa apostando:', JSON.stringify(await lerFaixa()))
+
+  // 2b) LEVA A MAO ATE O RIVER so pagando/passando, fotografando cada rua. E o
+  //     unico jeito de ver o flop, o turn e o river aparecerem na mesa.
+  if (QUAL === 'poker') {
+    const cartasNaMesa = () => page.evaluate(() => {
+      const G = window.__game
+      let g = null
+      G.scene.traverse((o) => { if (o.name === 'mesa3d-poker') g = o })
+      if (!g) return -1
+      let n = 0
+      const zs = []
+      g.traverse((o) => {
+        if (!o.isMesh || !o.geometry) return
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+        const bb = o.geometry.boundingBox
+        const dx = bb.max.x - bb.min.x
+        const dz = bb.max.z - bb.min.z
+        if (dx < 0.06 || dx > 0.2 || dz < 0.09 || dz > 0.25) return
+        // a fila comunitaria vive em z ~0.02, com espalhamento de 3 cm
+        if (Math.abs(o.parent.position.z - 0.02) < 0.09) n++
+        zs.push(o.parent.position.z.toFixed(2))
+      })
+      window.__zs = zs.join(' ')
+      return n
+    })
+    const agir = () => page.evaluate(() => {
+      const bs = [...document.querySelectorAll('.mcrp-mesa-btn')]
+      const b = bs.find((x) => x.offsetParent && !x.disabled &&
+        /^(PAGAR|PASSAR)/.test(x.textContent.trim().toUpperCase()))
+      if (b) { b.click(); return b.textContent.trim() }
+      return null
+    })
+    // Devolve o que ficou no pano: com ficha empurrada o PASSAR some (empurrar
+    // e passar sao contraditorios), e o laco abaixo nao teria o que clicar.
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.mcrp-mesa-btn')]
+        .find((x) => x.offsetParent && /^TIRAR/.test(x.textContent.trim().toUpperCase()))
+      if (b) b.click()
+    })
+    await espera(900)
+    // ANDA UMA RUA POR VEZ, sempre pela acao mais barata, e fotografa DEPOIS
+    // que a repartida assentou. Em headless a mesa anda a um quinto do tempo de
+    // relogio, entao o numero grande de espera aqui vale uns 1,5 s no jogo.
+    const vistas = []
+    for (let i = 0; i < 6; i++) {
+      const txt = await lerFaixa()
+      const rua = txt && /POTE NO ([A-Z-]+)/i.exec(txt)
+      const nome = rua ? rua[1].toLowerCase() : 'x'
+      const n = await cartasNaMesa()
+      vistas.push(nome + ':' + n)
+      if (n >= 3) await shot('1' + n + '-' + nome)
+      const fez = await agir()
+      if (!fez) break
+      await espera(8000)
+    }
+    // A FOTO QUE VALE. As de dentro do laco pegam a mesa repartindo; esta
+    // espera a ultima carta assentar de verdade — em headless a repartida do
+    // river leva uns 12 s de relogio.
+    await espera(14000)
+    await shot('20-mesa-completa')
+    console.log('  cartas na mesa na foto final:', await cartasNaMesa())
+    console.log('  ruas vistas (rua:cartas na mesa):', vistas.join(' -> '))
+    console.log('  faixa no river:', JSON.stringify(await lerFaixa()))
+  }
   await shot('03-assentado')
 
   // 3) mede onde as cartas caem na tela: projeta as quinas de cada carta viva

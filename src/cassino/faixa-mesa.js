@@ -8,7 +8,7 @@
 // resta pra tela e o que a MAO precisa saber e os botoes que ela precisa
 // apertar. Nada mais.
 //
-// AS TRES REGRAS DE DESENHO DELA:
+// AS REGRAS DE DESENHO DELA:
 //
 //   1. NADA COBRE O FELTRO. Tudo mora no rodape e num cabecalho fininho no
 //      topo; o meio da tela — que e onde as cartas estao — fica limpo. O unico
@@ -32,6 +32,12 @@
 //      fileira de botoes bate com o meio da tela em 0 px, medido em toda mao
 //      das duas mesas por tools/shot-hud.mjs; o que faz a acao principal
 //      saltar dentro dela e o TAMANHO dela, nao a coordenada (ver `.acao`).
+//   5. O UNICO BOTAO QUE NAO ANDA COM A FILEIRA E O SAIR DA MESA. Ele fica
+//      preso na beirada direita do rodape, com uma portinha desenhada do lado
+//      do rotulo. Porta e parte da SALA, nao da mao: ela nao muda de parede
+//      quando os moveis mudam de lugar, e com o Hold'em os moveis vao mudar a
+//      cada rua. Como ele se solta pra direita sem levar a fileira de acao
+//      junto — nem um pixel — esta no bloco do CANTO, no CSS.
 //
 // Este arquivo NAO conhece regra de jogo nem carteira: recebe rotulos, valores
 // e funcoes de clique. Quem sabe o que "DOBRAR" custa e ui/cassino-ui.js.
@@ -254,6 +260,19 @@ const CSS = `
   box-shadow:0 2px 10px rgba(226,168,60,.30);
 }
 .${P}chamada:empty{ display:none; }
+/* O ESTALO DA VIRADA. A chamada e uma pastilha de 10 px parada num rodape que
+   nao para: trocada em silencio, FLOP virando TURN nao chama o olho de
+   ninguem. Com o estalo, o texto NOVO se apresenta e o jogador entende que a
+   rodada virou sem precisar ler duas vezes. Ele so dispara quando o texto MUDA
+   de verdade (ver setChamada) — a UI reescreve a mesma chamada a cada render, e
+   um pulo por quadro seria um tique nervoso. 380 ms: dura o suficiente pra ser
+   visto de canto de olho e acaba antes de a proxima carta cair. */
+.${P}chamada.${P}vira{ animation:${P}vira .38s cubic-bezier(.2,.9,.3,1.5); }
+@keyframes ${P}vira{
+  0%{ transform:scale(.80); filter:brightness(1.65); }
+  52%{ transform:scale(1.07); filter:brightness(1.12); }
+  100%{ transform:none; filter:none; }
+}
 .${P}recado{
   font-size:13.5px; font-weight:600; color:#ded3bc; min-height:19px; line-height:1.35;
   text-shadow:0 2px 8px rgba(0,0,0,.9); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -286,12 +305,12 @@ const CSS = `
 /* --- andar de baixo: a fileira de acao ------------------------------------
    TRES GRUPOS NUMA FILA CENTRADA. O pedido era literal — "quero eles
    centralizado e abaixo" — e quem centraliza o BLOCO INTEIRO e o
-   justify-content:center daqui: seja qual for a combinacao de botoes da vez,
-   o meio da fileira cai no meio da tela (o shot-hud.mjs mede isso e reprova
-   acima de 2 px de desvio).
+   justify-content:center da FILA, dentro do trilho do meio da grade: seja qual
+   for a combinacao de botoes da vez, o meio da fileira cai no meio da tela (o
+   shot-hud.mjs mede isso e reprova acima de 2 px de desvio).
 
-   Ja tentei a outra leitura — uma grade minmax(0,1fr)/auto/minmax(0,1fr) que
-   prende o botao PRINCIPAL no pixel central. Prende mesmo, mas o preco e o
+   Ja tentei a outra leitura — prender o botao PRINCIPAL no pixel central, com
+   o resto se arrumando em volta. Prende mesmo, mas o preco e o
    bloco todo escorregar: na vez do poker sem ficha no pano ele ficava 66 px a
    direita do centro (medido), porque DESISTIR e SAIR pesam mais que o TUDO
    sozinho do outro lado. E, no blackjack, forcar PEDIR pro centro obrigaria
@@ -300,21 +319,55 @@ const CSS = `
    principal saltar aqui e o TAMANHO dele, nao a coordenada.
 
    A ORDEM dentro da fila e a hierarquia:
-     ajustes da aposta  |  ACAO (o principal e os irmaos dele)  |  sair da mao */
+     ajustes da aposta  |  ACAO (o principal e os irmaos dele)  |  correr da mao
+
+   O SAIR DA MESA NAO ESTA MAIS NESSA FILA — ver o CANTO, logo abaixo. */
 .${P}acao{
+  display:grid; grid-template-columns:1fr auto 1fr;
+  align-items:center; column-gap:10px;
+}
+/* A fila e o trilho do meio da grade: e ELA que fica centrada na tela, e e ela
+   que quebra em duas linhas quando a largura aperta (o trilho encolhe, o
+   flex-wrap resolve) em vez de empurrar botao pra fora da tela. */
+.${P}fila{
   display:flex; align-items:center; justify-content:center;
-  gap:10px; flex-wrap:wrap;
+  gap:10px; flex-wrap:wrap; min-width:0;
 }
 .${P}grupo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
 .${P}grupo.${P}esq{ justify-content:flex-end; }
 .${P}grupo.${P}meio{ justify-content:center; gap:9px; }
-/* SAIR e DESISTIR ficam depois de um vao maior que o resto: acao que tira o
-   jogador da mao nao pode encostar na que o mantem nela — 20 px de vao e o que
-   separa "apertei sem querer" de "apertei de proposito". */
+/* DESISTIR fica depois de um vao maior que o resto: acao que tira o jogador da
+   mao nao pode encostar na que o mantem nela — 18 px de vao (10 daqui + 8 do
+   gap) e o que separa "apertei sem querer" de "apertei de proposito". */
 .${P}grupo.${P}dir{ justify-content:flex-start; padding-left:10px; }
 /* Grupo sem botao visivel sai da fila: senao o gap e o padding-left dele
    continuariam contando e o bloco ficaria torto justo nas maos mais vazias. */
 .${P}grupo.${P}vazio{ display:none; }
+
+/* --- o canto: SAIR DA MESA colado na beirada direita ------------------------
+   O pedido foi literal — "o sair da mesa localizado a direita". Ele ja caia no
+   grupo da direita, mas o grupo da direita ANDA JUNTO com o bloco centralizado:
+   a cada rodada os botoes do meio mudam de largura e o SAIR passeava dezenas de
+   pixels pra um lado e pro outro. Botao de sair que muda de lugar e botao que
+   se procura — e com o Texas Hold'em o rodape troca de botao mais vezes por
+   mao, entao esse passeio so ia piorar.
+
+   COMO ELE VAI PRA DIREITA SEM TIRAR A ACAO DO CENTRO. A fileira virou uma
+   grade de tres trilhos, 1fr | auto | 1fr. O trilho do meio carrega a fila de
+   acao; os dois 1fr dividem em partes IGUAIS o que sobra — e trilho igual dos
+   dois lados quer dizer, por construcao, meio da fila no meio da tela (a medida
+   que tools/shot-hud.mjs reprova acima de 2 px de desvio). O SAIR mora no
+   trilho da direita, encostado no fim dele; e o fim desse trilho e exatamente a
+   beirada do rodape.
+
+   O ESPELHO DA ESQUERDA. Dois 1fr so ficam iguais enquanto sobra espaco: no
+   aperto, o da direita para de encolher no tamanho do SAIR e o da esquerda
+   continua ate zero — e o bloco do meio escorrega pra esquerda meio SAIR. Por
+   isso o trilho da esquerda carrega um SAIR INVISIVEL (espelhar(), no JS): a
+   mesma caixa, a mesma largura, visibility:hidden. Com o mesmo minimo dos dois
+   lados, a fila fica no centro em QUALQUER largura — nao por sorte de caber. */
+.${P}canto{ justify-content:flex-end; flex-wrap:nowrap; min-width:auto; }
+.${P}canto.${P}espelho{ visibility:hidden; pointer-events:none; justify-content:flex-start; }
 
 /* --- botoes ---------------------------------------------------------------
    TRES PESOS, e a diferenca entre eles e de TAMANHO antes de ser de cor:
@@ -411,6 +464,62 @@ const CSS = `
   box-shadow:0 3px 9px rgba(0,0,0,.36);
 }
 .${P}btn.${P}fantasma:hover{ color:#e6ecf4; background:rgba(255,255,255,.12); }
+
+/* --- SAIR DA MESA: a portinha ---------------------------------------------
+   SAIR NAO E DESISTIR, e o rodape estava dizendo que era. A UI manda o sair
+   com 'bordo fantasma': o fantasma (declarado depois) reescreve cor, fundo e
+   borda e o botao nasce cinza, certo — mas no HOVER o .bordo:hover pinta a
+   BORDA de vermelho e ninguem sobrescreve, entao encostar o mouse no sair
+   fazia dele um segundo DESISTIR. Aqui a borda do hover vira ouro fosco: sair
+   da mesa e uma porta, correr de uma mao e sangue. Estas regras vem depois de
+   .bordo:hover no arquivo de proposito — mesma especificidade, quem vem depois
+   ganha.
+
+   O ICONE E ::after, e nao um filho de verdade, pela mesma razao do selo de
+   Enter: ajustar({txt}) troca o textContent do botao e apagaria qualquer
+   elemento dentro dele.
+
+   POR QUE 15 px. O rotulo tem 11,5 px de letra (caixa alta, ~8 px de altura de
+   traco) num botao de 34. Icone do tamanho da letra vira outra letra; acima de
+   16 vira ilustracao e engorda um botao que e secundario. 15 px e o ponto em
+   que a folha, o vao e a macaneta ainda se separam.
+
+   A PORTA E UMA MASCARA, nao um desenho colorido: a tinta e currentColor, o
+   SVG so diz ONDE tem tinta e com QUANTO alfa. Assim o icone acompanha sozinho
+   os dois estados do botao (cinza parado, quase branco no hover) e qualquer cor
+   que ele venha a ter.
+
+   Os tres pedacos e o alfa de cada um — e o alfa aqui e o desenho: a folha e um
+   contorno a 66% com o miolo a 15% (a madeira, que e a parte escura), o VAO e
+   cheio a 95%, e a macaneta fica a 80% pra pertencer a folha e nao ao vao. A primeira
+   versao tinha contorno a 85% contra vao a 92%: com os dois no mesmo tom o
+   olho lia um retangulo com um apendice, e nao uma porta aberta. Quem diz
+   "aberta" e a diferenca de luz, nao a forma. O vao abre pra FORA (mais alto na
+   beirada de fora) porque o botao mora na beirada direita da tela: a luz aponta
+   pra onde o jogador vai.
+
+   O TAMANHO DO BOTAO E DAQUI TAMBEM (as quatro linhas de min-height/padding/
+   font-size). Hoje ele chega da UI com 'fantasma' junto e herdaria isso de
+   graca, mas se um dia a classe da UI virar so 'sair' o botao pularia pros 38
+   px do padrao e ficaria mais pesado que o DESISTIR — repetir o tamanho aqui
+   deixa a saida certa com qualquer roupa que a UI mandar. */
+.${P}btn.${P}saida:hover{
+  color:#f2f6fb; border-color:rgba(233,196,106,.42);
+  background:rgba(255,255,255,.13);
+}
+@supports ((-webkit-mask-image:url('')) or (mask-image:url(''))){
+  .${P}btn.${P}saida::after{
+    content:''; flex:0 0 auto; width:15px; height:15px; opacity:.92;
+    background:currentColor;
+    -webkit-mask:var(--porta) center/contain no-repeat;
+            mask:var(--porta) center/contain no-repeat;
+  }
+  .${P}btn.${P}saida:hover::after{ opacity:1; }
+}
+.${P}btn.${P}saida{
+  min-height:34px; padding:0 13px; font-size:11.5px; letter-spacing:.05em;
+  --porta:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M10.9 2.9 L15.3 1 V15 L10.9 13.1 Z' fill='white' opacity='.95'/%3E%3Crect x='1.5' y='1.6' width='8.2' height='12.8' rx='1.1' fill='white' fill-opacity='.15' stroke='white' stroke-opacity='.66' stroke-width='1.5'/%3E%3Ccircle cx='7.8' cy='8' r='1' fill='white' fill-opacity='.8'/%3E%3C/svg%3E");
+}
 /* O PRINCIPAL. Ele nao e "o mesmo botao pintado de ouro": e mais alto, MUITO
    mais largo (min-width) e com a letra mais espacada. Largura e o unico eixo
    de peso que sobra depois do teto de altura — por isso ela e que carrega a
@@ -489,13 +598,38 @@ const CSS = `
   min-width:0; padding:0 18px; font-size:13px; letter-spacing:.07em;
 }
 
+/* --- janela estreita: a ancora e devolvida ---------------------------------
+   ATE ONDE DA PRA ANCORAR. Prender o SAIR na beirada E manter a fila no eixo
+   da tela custa DUAS larguras de SAIR: a dele na direita e a do espelho na
+   esquerda. Sao 262 px de largura que a fila deixa de ter — nao e escolha de
+   CSS, e geometria: bloco no centro com objeto encostado numa das bordas so
+   fecha se a outra borda reservar o mesmo tanto.
+
+   Medido: na vez do poker (TUDO + PAGAR + AUMENTAR + DESISTIR = 526 px de
+   botao), com os 262 da ancora e os vaos, a fila para de caber numa linha por
+   volta de 900 px de janela. E quebrar em duas linhas custa 48 px de ALTURA —
+   em 820 px a faixa media 135 px e comecava em 81,3% da tela, dentro da regiao
+   das pilhas de ficha do jogador. Altura e o orcamento duro deste rodape;
+   ancora e conforto. Entao abaixo de 960 (com 110 px de folga pro estado mais
+   largo) a grade vira flex de novo, o espelho some e o SAIR fecha a fila — onde
+   ele continua sendo o botao mais a direita, so que sem colar na moldura. */
+@media (max-width:960px){
+  .${P}acao{ display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
+  .${P}canto{ justify-content:flex-start; }
+  .${P}canto.${P}espelho{ display:none; }
+}
+
 /* --- celular ---------------------------------------------------------------
    Em 760 px nao ha beirada pra tres: a linha de cima vira duas colunas
    (numero na esquerda, estado na direita) e a dica sai de cena inteira — ela e
    regra impressa, a regra nao decide jogada, e metade dela fala de tecla, que
    num telefone nao existe. Embaixo, os grupos deixam de ter coluna propria e
    viram uma fila que quebra sozinha, ainda centrada. O que sobra e exatamente
-   o que o dedo precisa: numero, estado e a fileira de acao. */
+   o que o dedo precisa: numero, estado e a fileira de acao.
+
+   O SAIR ja voltou pra fila no bloco de cima (960 px); aqui ele so acompanha o
+   aperto do resto — que num telefone e o canto direito da ultima linha de
+   qualquer jeito. */
 @media (max-width:760px){
   .${P}faixa{ gap:3px; padding:5px 10px 9px; }
   .${P}linha{ grid-template-columns:auto minmax(0,1fr); gap:10px; min-height:0; }
@@ -503,10 +637,14 @@ const CSS = `
   .${P}aviso{ justify-content:flex-end; }
   .${P}valor{ font-size:18px; }
   .${P}recado{ font-size:12px; }
-  .${P}acao{ display:flex; flex-wrap:wrap; justify-content:center; gap:6px; }
+  .${P}acao{ gap:6px; }
+  .${P}fila{ gap:6px; }
   .${P}grupo{ justify-content:center !important; padding-left:0; gap:6px; }
   .${P}btn{ min-height:34px; padding:0 13px; font-size:11.5px; }
-  .${P}btn.${P}fantasma{ min-height:30px; padding:0 10px; font-size:10.5px; }
+  .${P}btn.${P}fantasma, .${P}btn.${P}saida{ min-height:30px; padding:0 10px; font-size:10.5px; }
+  /* 13 px acompanha a letra de 10,5 px do botao fantasma: mantida em 15, a
+     porta ficaria maior que o rotulo que ela ilustra. */
+  .${P}btn.${P}saida::after{ width:13px; height:13px; }
   .${P}btn.${P}grande, .${P}btn.${P}promovido{
     min-height:38px; min-width:132px; padding:0 18px; font-size:13.5px;
   }
@@ -573,17 +711,27 @@ export function criarFaixaMesa() {
   const dica = el('div', 'dica', '')
   linha.append(ladoValor, aviso, dica)
 
-  // andar de baixo: os tres grupos da fileira. Eles sao PERMANENTES — quem
-  // troca e o conteudo dentro deles — porque e a ORDEM deles (ajuste, acao,
-  // sair) que da a hierarquia, e recriar os tres a cada definirBotoes deixaria
-  // essa ordem na mao de quem chama.
+  // andar de baixo: os grupos da fileira. Eles sao PERMANENTES — quem troca e
+  // o conteudo dentro deles — porque e a ORDEM deles (ajuste, acao, correr)
+  // que da a hierarquia, e recria-los a cada definirBotoes deixaria essa ordem
+  // na mao de quem chama.
+  //
+  // Tres deles vivem dentro da FILA, que e o trilho centralizado da grade. O
+  // quarto, o CANTO, e um trilho proprio colado na beirada direita: e ali que
+  // mora o SAIR DA MESA. O espelho e o trilho gemeo da esquerda, invisivel, que
+  // devolve a fila o pixel que o canto tirou da direita (ver espelhar()).
   const acao = el('div', 'acao')
+  const fila = el('div', 'fila')
+  const espelho = el('div', 'grupo canto espelho')
+  espelho.setAttribute('aria-hidden', 'true')
   const grupos = {
     esq: el('div', 'grupo esq'),
     meio: el('div', 'grupo meio'),
     dir: el('div', 'grupo dir'),
+    canto: el('div', 'grupo canto'),
   }
-  acao.append(grupos.esq, grupos.meio, grupos.dir)
+  fila.append(grupos.esq, grupos.meio, grupos.dir)
+  acao.append(espelho, fila, grupos.canto)
 
   faixa.append(linha, acao)
   raiz.append(vinheta, flash, topo, cartaz, faixa)
@@ -646,13 +794,24 @@ export function criarFaixaMesa() {
   }
 
   /**
-   * A CHAMADA: a etiqueta dourada que nomeia a vez ("SUA VEZ", "APOSTE").
+   * A CHAMADA: a etiqueta dourada que nomeia a vez ("SUA VEZ", "FLOP", "RIVER").
    *
-   * Nasceu opcional e comeca vazia porque cassino-ui.js nao a chama hoje — sem
-   * ninguem chamando, o rodape fica exatamente como esta. Ela nao repete o
-   * recado: recado e o que ACONTECEU, chamada e o que se ESPERA do jogador.
+   * Ela nao repete o recado: recado e o que ACONTECEU, chamada e o que se
+   * ESPERA do jogador — ou que rua da mao acabou de entrar no feltro.
+   *
+   * A ASSINATURA E A MESMA (um texto, ou nada pra apagar). O que mudou por
+   * dentro: ela so escreve quando o texto e OUTRO, e nesse caso da o estalo.
+   * A guarda nao e economia de DOM, e o proprio efeito — a UI reescreve a mesma
+   * chamada a cada render, e sem ela a pastilha pularia uma vez por quadro.
    */
-  function setChamada(txt) { chamada.textContent = txt ? String(txt).toUpperCase() : '' }
+  function setChamada(txt) {
+    const novo = txt ? String(txt).toUpperCase() : ''
+    if (novo === chamada.textContent) return
+    chamada.textContent = novo
+    marca(chamada, 'vira', false)
+    void chamada.offsetWidth
+    marca(chamada, 'vira', !!novo)
+  }
 
   /**
    * A dica com as TECLAS EM RELEVO.
@@ -684,16 +843,53 @@ export function criarFaixaMesa() {
    * MAO tratado como ajuste ficaria na ponta da fila, do tamanho de um TUDO,
    * na unica hora em que ele e a unica coisa a fazer na tela. Estes tres ids
    * sao a lista inteira; qualquer id novo cai no meio, que e o padrao seguro.
+   *
+   * A SAIDA SAI PELO ID, e nao pela classe, porque hoje nao existe classe pra
+   * ela: as duas mesas mandam o sair como 'bordo fantasma' — a mesma roupa do
+   * DESISTIR. 'sair' e o unico id de saida das duas listas (poker e blackjack)
+   * e ele nunca e outra coisa. A classe 'sair' ja fica aceita pro dia em que a
+   * UI quiser dizer isso por classe, que e o contrato do resto do arquivo.
    */
   const AJUSTE = { tudo: 1, devolver: 1, limpar: 1 }
   function ladoDe(d) {
-    if ((' ' + (d.cls || '') + ' ').indexOf(' bordo ') >= 0) return 'dir'
+    const cls = ' ' + (d.cls || '') + ' '
+    if (d.id === 'sair' || cls.indexOf(' sair ') >= 0) return 'canto'
+    if (cls.indexOf(' bordo ') >= 0) return 'dir'
     if (AJUSTE[d.id]) return 'esq'
     return 'meio'
   }
 
   /**
-   * Duas contas que so podem ser feitas depois de todo `ver` do render:
+   * A COPIA INVISIVEL DO CANTO, no trilho da esquerda da grade.
+   *
+   * O trilho da direita (o SAIR) nunca encolhe abaixo da largura do botao; o da
+   * esquerda, vazio, encolhe ate zero. Quando a largura aperta e os dois param
+   * de ser iguais, a fila de acao escorrega meio SAIR pra esquerda — e o centro
+   * do rodape passa a depender de quanto espaco sobrou, que e exatamente o que
+   * a versao anterior conquistou nao depender. Com o clone, o minimo dos dois
+   * trilhos e o mesmo e a fila fica no eixo por construcao.
+   *
+   * O clone e do botao pronto, e nao um espacador de largura fixa, porque ele
+   * acompanha sozinho o que mudar no original: rotulo, icone, media query.
+   */
+  function espelhar() {
+    espelho.textContent = ''
+    const g = grupos.canto
+    for (let i = 0; i < g.children.length; i++) {
+      const b = g.children[i]
+      if (b.style.display === 'none') continue
+      const c = b.cloneNode(true)
+      // O style inline do original guarda --px/--py do ultimo clique; num
+      // fantasma nao ha o que animar, e display:'' viria junto sem precisar.
+      c.removeAttribute('style')
+      c.tabIndex = -1
+      c.setAttribute('aria-hidden', 'true')
+      espelho.appendChild(c)
+    }
+  }
+
+  /**
+   * Tres contas que so podem ser feitas depois de todo `ver` do render:
    *
    *   1. GRUPO VAZIO SAI DA FILA. Um grupo sem botao visivel continuaria
    *      cobrando o gap e o padding-left dele, e o bloco centralizado sairia
@@ -704,11 +900,14 @@ export function criarFaixaMesa() {
    *      vestido de 'fantasma' sendo a unica coisa a fazer na tela. So o meio
    *      concorre: promover um ajuste de aposta (TUDO) a acao principal seria
    *      apontar pro botao errado.
+   *   3. O ESPELHO ACOMPANHA O CANTO. Ele e refeito aqui, e nao no
+   *      definirBotoes, porque o canto tambem muda quando um botao some ou
+   *      volta no meio da mao.
    */
   function revisarGrupos() {
     let temGrande = false
     let primeiro = null
-    for (const k of ['esq', 'meio', 'dir']) {
+    for (const k of ['esq', 'meio', 'dir', 'canto']) {
       const g = grupos[k]
       let vivo = false
       for (let i = 0; i < g.children.length; i++) {
@@ -722,6 +921,7 @@ export function criarFaixaMesa() {
       marca(g, 'vazio', !vivo)
     }
     for (const b of mapaBotoes.values()) marca(b, 'promovido', !temGrande && b === primeiro)
+    espelhar()
   }
 
   /** defs = [{ id, txt, cls, ao }]. Devolve nada; use botao(id) pra mexer. */
@@ -730,7 +930,11 @@ export function criarFaixaMesa() {
     mapaBotoes.clear()
     for (let i = 0; i < defs.length; i++) {
       const d = defs[i]
-      const b = el('button', 'btn' + (d.cls ? ' ' + d.cls : ''), d.txt)
+      // Quem cai no canto ganha a classe 'saida' AQUI DENTRO: e ela que veste a
+      // portinha e desfaz a borda vermelha que o 'bordo' da UI acende no hover.
+      // A UI nao manda essa classe hoje e este arquivo nao depende de ela mandar.
+      const onde = ladoDe(d)
+      const b = el('button', 'btn' + (d.cls ? ' ' + d.cls : '') + (onde === 'canto' ? ' saida' : ''), d.txt)
       b.type = 'button'
       if (d.ao) b.addEventListener('click', d.ao)
       // A onda do clique precisa saber ONDE o dedo encostou; o CSS le isso em
@@ -750,7 +954,7 @@ export function criarFaixaMesa() {
         if (ev.animationName === P + 'onda') marca(b, 'onda', false)
         if (ev.animationName === P + 'acende') marca(b, 'acende', false)
       })
-      grupos[ladoDe(d)].appendChild(b)
+      grupos[onde].appendChild(b)
       mapaBotoes.set(d.id, b)
     }
     revisarGrupos()
@@ -772,7 +976,12 @@ export function criarFaixaMesa() {
     // comparar, o 'acende' dispararia sem parar e viraria ruido em vez de aviso.
     const eraOff = b.disabled
     const eraTxt = b.textContent
-    if (cfg.txt !== undefined && String(cfg.txt) !== eraTxt) b.textContent = cfg.txt
+    if (cfg.txt !== undefined && String(cfg.txt) !== eraTxt) {
+      b.textContent = cfg.txt
+      // Rotulo do canto que muda tem que mudar no espelho junto, senao o trilho
+      // da esquerda passa a reservar a largura errada e a fila sai do eixo.
+      if (b.parentNode === grupos.canto) espelhar()
+    }
     if (cfg.ver !== undefined) {
       const ver = cfg.ver ? '' : 'none'
       if (b.style.display !== ver) { b.style.display = ver; revisarGrupos() }

@@ -6,6 +6,7 @@ import {
   concreteTex, plasterTex, textPlaneMat, tex,
 } from './materials.js'
 import * as Props from './props.js'
+import { bakeStatic } from './bake.js'
 import { createNPC, POSES } from '../npc/npc.js'
 import { HIPS_Y } from '../player/character.js'
 import { congelarPersonagem } from '../player/congelar.js'
@@ -1611,6 +1612,34 @@ function carta(g, x, y, z, ry, dorso) {
   return c
 }
 
+/**
+ * Fecha um grupo de ENFEITE DE FELTRO: funde o que tem dentro e blinda o grupo
+ * contra o forno grande.
+ *
+ * O que e um grupo de enfeite: a mao de mentira que cada mesa desenha no pano
+ * pra quem PASSA ANDANDO pelo salao — cartas viradas, o pote, as apostas dos
+ * lugares vazios. Quem senta na mesa apaga o grupo inteiro (cassino/mesa-3d.js,
+ * em entrar()) e acende de volta ao sair. Com a mesa aberta so pode haver no
+ * pano dinheiro que alguem apostou de verdade.
+ *
+ * A ORDEM AQUI E O CONTRARIO DA INTUICAO. bakeStatic() PULA toda subarvore
+ * marcada com noBake, entao marcar antes e assar depois nao assa nada: o grupo
+ * passa pelo forno pequeno (ele proprio como raiz, ainda sem marca) e SO ENTAO
+ * ganha o noBake, que e o que faz o forno grande de main.js deixar o grupo de
+ * pe inteiro — com a referencia que mesa-3d.js precisa pra apaga-lo de uma vez.
+ *
+ * Sem o forno pequeno o enfeite sairia do grande como uma mesh POR FICHA: as
+ * 84 fichas do poker e as 12 do blackjack somavam ~100 draw calls num orcamento
+ * onde o pior ponto do mapa ja gasta 1156 de 1200. Fundido, o enfeite do poker
+ * inteiro cabe em 4 desenhos (as fichas, o corpo das cartas e os dois dorsos) e
+ * o do blackjack em 3 — menos que os 8 que so as cartas do poker custavam.
+ */
+function fecharEnfeite(grupo) {
+  bakeStatic(grupo)
+  grupo.userData.noBake = true
+  return grupo
+}
+
 /** Cadeira estofada de mesa de jogo (encosto alto, pes dourados). */
 function fazCadeira() {
   const g = new THREE.Group()
@@ -1767,6 +1796,7 @@ function buildCaixa(g, colliders) {
 // ===========================================================================
 // BLACKJACK — mesa semicircular, atendente do lado reto
 // ===========================================================================
+/** @returns {THREE.Group} o enfeite do feltro — as duas maos de mentira. */
 function buildBlackjack(g, colliders) {
   const r = BJ.r
   const yT = 0.92                       // altura do feltro
@@ -1809,6 +1839,25 @@ function buildBlackjack(g, colliders) {
   arco.position.y = yT + 0.006
   arco.castShadow = false
   u.add(arco)
+  // AS DUAS MAOS DE MENTIRA MORAM NUM GRUPO QUE SOME (ver fecharEnfeite).
+  //
+  // O arco e os cinco aneis impressos FICAM: sao tinta no pano, ninguem confunde
+  // um circulo desenhado com dinheiro. O que some e o que esta DENTRO de dois
+  // deles — as cartas viradas e a pilha de aposta dos lugares 2 e 4.
+  //
+  // Por que estas, se o pedido do dono foi sobre o pote do poker: e o mesmo
+  // defeito com outro nome. Estas fichas estao, por construcao, no unico lugar
+  // do feltro que significa "aposta" — dentro do anel impresso. Com a mesa
+  // aberta o pano mostra tres apostas e so uma e minha, e as outras duas nunca
+  // ganham carta nem sao pagas porque nao existe jogador nelas. A mais proxima
+  // ainda cai a 28 cm do meu 'pago1' (LAYOUT.blackjack.pilhas: -0.445/-0.82) e
+  // a 31 cm da ponta do meu caixote quando ele abre as oito casas.
+  //
+  // O RACK DA CASA CONTINUA ASSADO NO CENARIO, porque a bandeja do dealer nao e
+  // aposta de ninguem: ela e movel, e a casa paga DELA. Mesmo motivo da vitrine
+  // do caixa e das fichas caidas no carpete.
+  const enfeite = new THREE.Group()
+  enfeite.name = 'blackjack-enfeite'
   for (let i = 0; i < 5; i++) {
     const a = Math.PI / 2 + Math.PI * ((i + 0.5) / 5)
     const px = Math.sin(a) * 1.18, pz = Math.cos(a) * 1.18
@@ -1820,14 +1869,16 @@ function buildBlackjack(g, colliders) {
     // duas cartas viradas em duas das posicoes: mesa em jogo, nao mesa de loja
     if (i === 1 || i === 3) {
       const dorso = solid(0x8c1224, 0.55)
-      carta(u, px - 0.05, yT + 0.010, pz + 0.03, 0.2 + i, dorso)
-      carta(u, px + 0.04, yT + 0.010, pz - 0.02, -0.4 + i, dorso)
+      carta(enfeite, px - 0.05, yT + 0.010, pz + 0.03, 0.2 + i, dorso)
+      carta(enfeite, px + 0.04, yT + 0.010, pz - 0.02, -0.4 + i, dorso)
       // A aposta desses dois lugares fica DENTRO do anel impresso (raio 0.15),
       // que e onde a ficha vai numa mesa de verdade — antes ela caia 16 cm
       // adiante dele, no meio do pano, e lia como ficha esquecida.
-      pilhaFichas(u, px, yT + 0.010, pz, i === 1 ? 5 : 7, i === 1 ? D25 : D100)
+      pilhaFichas(enfeite, px, yT + 0.010, pz, i === 1 ? 5 : 7, i === 1 ? D25 : D100)
     }
   }
+  fecharEnfeite(enfeite)
+  u.add(enfeite)
   // As duas linhas impressas no feltro. As DUAS saem de regras que
   // cassino/blackjack.js cumpre de verdade: o natural devolve aposta * 2.5
   // (3:2) e o laco do dealer e `while (v.valor < 17) comprar()`, que para em
@@ -1914,12 +1965,13 @@ function buildBlackjack(g, colliders) {
     minX: BJ.x - r, maxX: BJ.x + r,
     minZ: BJ.z - r, maxZ: BJ.z + 0.24, tag: 'cassino-blackjack',
   })
+  return enfeite
 }
 
 // ===========================================================================
 // POKER — mesa oval de heads-up, so duas cadeiras
 // ===========================================================================
-/** @returns {THREE.Group} o par de cartas de enfeite do feltro (ver abaixo). */
+/** @returns {THREE.Group} o enfeite do feltro — cartas e fichas (ver abaixo). */
 function buildPoker(g, colliders) {
   const yT = 0.78                       // mesa de poker e mais baixa: joga-se sentado
   const u = new THREE.Group()
@@ -1962,25 +2014,60 @@ function buildPoker(g, colliders) {
   linha.position.y = yT + 0.006
   linha.castShadow = false
   u.add(linha)
-  const marca = decalChao(1.6, 0.20, textPlaneMat('MAO A MAO - DUAS CARTAS', {
+  // A REGRA IMPRESSA, E ELA MUDOU DE TEXTO E DE LADO.
+  //
+  // O texto: dizia "MAO A MAO - DUAS CARTAS", que era a regra antiga. A mesa
+  // agora e Texas Hold'em (cassino/poker.js) — duas na mao, cinco comunitarias,
+  // quatro rodadas de aposta — entao a linha impressa estava MENTINDO, que e a
+  // unica coisa que uma regra pintada no pano nao pode fazer. 'MAO A MAO'
+  // continua verdade: a mesa tem duas cadeiras e so.
+  //
+  // O LADO, que e o que importa mais. Ela morava em z=-0.42, e dali ate a lente
+  // so ha coisa minha: as minhas cartas ficam DE PE em z=-0.58 (LAYOUT.poker.
+  // filas.eu) e uma carta em pe tapa o pano ATRAS dela — com a camera em
+  // z=-1.74 e 78 cm acima do feltro, os 8,5 cm de carta escondem dali ate
+  // z=-0.25. A frase era cortada ao meio pelas minhas duas cartas, sempre, e
+  // sobrava "MAO A MA... AS CARTAS" (ver shots/pk-16-river.png).
+  //
+  // Em z=+0.44 ela cai no unico pedaco de pano que ninguem usa: o board
+  // comunitario (z=0.02, 8,5 cm de pe) esconde ate z=0.27 pela mesma conta, e
+  // as cartas do ricaco so comecam em z=0.62. Sobram 15 cm de folga de cada
+  // lado. O que ainda passa por cima e a pilha viva DELE (x=0.28, z=0.26), uma
+  // coluna fina numa letra so — e ficha em cima de regra impressa e o que se ve
+  // numa mesa de verdade. De quebra e onde um cassino de verdade imprime a
+  // regra: no lado de la, virada pra quem joga.
+  const marca = decalChao(1.6, 0.20, textPlaneMat("TEXAS HOLD'EM - MAO A MAO", {
     w: 1024, h: 128, color: TINTA_AZUL, font: 'bold 66px "Trebuchet MS", sans-serif',
     emissiveIntensity: TINTA_EMI,
-  }), 0, yT + 0.008, -0.42)
+  }), 0, yT + 0.008, 0.44)
   marca.material.name = 'feltro-regra-pk'
   u.add(tintaNoPano(marca))
 
-  // Duas cartas viradas na frente de cada lugar: e "heads up de duas cartas".
+  // A MAO DE MENTIRA DO FELTRO — cartas E fichas, num grupo so.
   //
-  // ELAS VIVEM NUM GRUPO PROPRIO, e nao e organizacao: e o unico jeito de a
-  // mesa 3D poder APAGA-LAS enquanto alguem esta jogando. Antes as cartas vivas
-  // pousavam exatamente em cima deste par e o escondiam por serem maiores em
-  // toda borda; agora elas ficam de pe e mais pra frente (ver LAYOUT.poker em
-  // cassino/mesa-3d.js), e o que sobrava embaixo era um TERCEIRO par fantasma
-  // no feltro. 'noBake' porque bakeStatic funde mesh estatica e levaria junto a
-  // referencia que o grupo precisa ter pra sumir.
+  // Tudo que esta aqui dentro existe pra QUEM PASSA ANDANDO: de longe a mesa
+  // vazia tem que parecer mesa em jogo, e nao mesa de loja. E tudo isto SOME
+  // no instante em que alguem senta (cassino/mesa-3d.js apaga o grupo em
+  // entrar() e acende de volta em sair(), lendo `mesas.poker.enfeite` da
+  // ancora la embaixo).
+  //
+  // POR QUE AS FICHAS ENTRARAM NO MESMO GRUPO DAS CARTAS. Antes o pote de
+  // enfeite ficava assado no pano pra sempre, e a mesa viva empilha a aposta de
+  // verdade a 30 cm dele: o dono olhava o feltro e nao sabia dizer qual monte
+  // era o dinheiro dele ("no pote n fique essas fichas que estao no meio so as
+  // que apostamos"). Um grupo so, e nao dois, porque assim mesa-3d.js continua
+  // com UMA linha e nao precisa saber que ha dois tipos de enfeite.
+  //
+  // O grupo so e fechado no FIM desta funcao (fecharEnfeite, depois do copo e
+  // do cinzeiro): ele tem que estar cheio antes de ir pro forno, e a ordem
+  // forno-depois-marca esta explicada la em cima, no proprio fecharEnfeite.
   const enfeite = new THREE.Group()
-  enfeite.name = 'poker-cartas-enfeite'
-  enfeite.userData.noBake = true
+  enfeite.name = 'poker-enfeite'
+  // Duas cartas viradas na frente de cada lugar: e "heads up de duas cartas".
+  // Antes as cartas vivas pousavam exatamente em cima deste par e o escondiam
+  // por serem maiores em toda borda; agora elas ficam de pe e mais pra frente
+  // (ver LAYOUT.poker em cassino/mesa-3d.js), e o que sobrava embaixo era um
+  // TERCEIRO par fantasma no feltro.
   const dorso = solid(0x14315f, 0.55)
   const dorso2 = solid(0x8c1224, 0.55)
   for (const s of [-1, 1]) {
@@ -1993,6 +2080,13 @@ function buildPoker(g, colliders) {
   // disco liso: liso era exatamente o que o dono chamou de estranho, e um botao
   // liso branco no meio das fichas novas continuaria sendo a peca velha da foto.
   // Como usa o mesmo material das fichas, ele nao custa draw call nenhum.
+  //
+  // ELE FICA NO PANO COM A MESA ABERTA, e e o UNICO disco que fica. Nao e
+  // enfeite: e o botao, ele diz de quem e a vez de abrir, e com Texas Hold'em
+  // ele passa a ser informacao de regra e nao mais so ambientacao. Cabe onde
+  // esta porque x=-0.55 e a beira -X do oval: 55 cm fora da coluna do pote e a
+  // meio metro da fileira das cinco comunitarias (z de -0.10 a +0.10). Sozinho,
+  // gordo e de marfim, ele nao le como pilha de aposta.
   const bt = new THREE.Mesh(geoFicha(D1), M.ficha)
   bt.scale.set(1.30, 1.75, 1.30)
   bt.position.set(-0.55, yT + ALT_FICHA * 0.9, 0.18)
@@ -2000,21 +2094,27 @@ function buildPoker(g, colliders) {
   bt.receiveShadow = true
   u.add(bt)
 
-  // O POTE, E ELE E UM MONTE, NAO UMA FILEIRA.
+  // O POTE DE MENTIRA, E ELE E UM MONTE, NAO UMA FILEIRA.
   //
   // Eram cinco pilhas alinhadas em x com 11 cm de passo, a mesma altura de
   // ombro, e o resultado na foto era uma regua de disquinhos atravessada no meio
   // do pano — a leitura de "alguem derrubou fichas na mesa", nao a de pote.
   // Pote de verdade e um amontoado irregular: alturas diferentes, encostadas
   // mas nao alinhadas. As cinco cabem num circulo de 16 cm em volta de
-  // (-0.10, -0.02), longe dos 28 cm em x onde a mesa viva empilha as apostas de
-  // verdade (LAYOUT.poker.pilhas em cassino/mesa-3d.js) — as duas nao podem
-  // ocupar o mesmo pano ou a aposta do jogador nasce dentro do enfeite.
+  // (-0.10, -0.02).
+  //
+  // ELE VAI PRO 'enfeite' PORQUE OCUPA O POTE DE VERDADE. Afasta-lo nao
+  // resolvia: as duas entradas vivas do pote estao a 34 e 37 cm daqui
+  // (LAYOUT.poker.pilhas: minha em 0.28/-0.30, dele em 0.28/0.26) e este monte
+  // fica EXATAMENTE ENTRE elas, entao a leitura era "tres apostas na mesa e uma
+  // e minha". Pior a partir de agora: as cinco cartas comunitarias do Hold'em
+  // deitam numa fileira em z de -0.10 a +0.10, que e a faixa deste monte — o
+  // meio do pano virou area de leitura e nao sobra pano pros dois.
   const pote = [
     [-0.24, -0.10, 6, D25], [-0.11, 0.04, 4, D100], [0.01, -0.07, 9, D500],
     [-0.17, 0.10, 4, D50], [-0.02, 0.10, 5, D250],
   ]
-  for (const p of pote) pilhaFichas(u, p[0], yT + 0.010, p[1], p[2], p[3])
+  for (const p of pote) pilhaFichas(enfeite, p[0], yT + 0.010, p[1], p[2], p[3])
 
   // A MURALHA DO RICACO (lado +Z), agora em DUAS FILEIRAS.
   //
@@ -2024,11 +2124,23 @@ function buildPoker(g, colliders) {
   // que paga os 192 triangulos por ficha do modelo novo.
   // A fileira da frente para em z=0.72 e nao 0.70: as cartas decorativas do
   // ricaco terminam em z=0.667 e a ficha tem 3,15 cm de raio.
+  //
+  // ELA TAMBEM VAI PRO 'enfeite', e a decisao aqui foi disputada: a muralha e
+  // CARACTERIZACAO ("esse cara tem dinheiro"), e a aposta viva dele nasce a
+  // 48 cm daqui (0.28/0.26), longe o bastante. O que decidiu foi a VARRIDA DO
+  // POTE. Quando o ricaco ganha, mesa-3d.js desliza as fichas do pote ate
+  // LAYOUT.poker.casa = 0.00/0.90 e a corrida passa em x=0.078 na altura da
+  // fileira da frente e em x=0.026 na de tras: nos dois casos a menos de 5 cm
+  // do centro de uma pilha, ou seja, DENTRO dela (duas fichas encostadas pedem
+  // 6,3 cm). E o dinheiro que ele acabou de ganhar atravessando um monte de
+  // dinheiro falso — a mesma confusao do pote, uma cadeira adiante. Somando: o
+  // monte nunca muda quando ele aposta, entao com a mesa aberta ele para de
+  // dizer "ele tem dinheiro" e passa a mentir sobre quanto.
   const muralha = [
     [-0.36, 0.84, 9, D500], [-0.19, 0.84, 7, D250], [-0.02, 0.84, 11, D500], [0.15, 0.84, 6, D100],
     [-0.28, 0.72, 4, D25], [-0.11, 0.72, 3, D50], [0.06, 0.72, 4, D25],
   ]
-  for (const p of muralha) pilhaFichas(u, p[0], yT + 0.010, p[1], p[2], p[3])
+  for (const p of muralha) pilhaFichas(enfeite, p[0], yT + 0.010, p[1], p[2], p[3])
 
   // AS FICHAS QUE ALGUEM DEIXOU, e elas SAIRAM DA FRENTE DO JOGADOR.
   //
@@ -2040,12 +2152,21 @@ function buildPoker(g, colliders) {
   //
   // Agora sao um montinho no canto -X do oval (a DIREITA da tela), num lugar que
   // e vago dos tres jeitos: fora do caixote vivo (x de -0.40 a +0.40 em z=-0.90),
-  // fora da linha impressa no pano (x de -0.8 a +0.8, z de -0.52 a -0.32) e ainda
-  // dentro do oval: a mais afastada fica a 16 cm da linha do tampo, o que deixa
+  // fora da regra impressa no pano (que hoje mora do lado do ricaco, em z=+0.44)
+  // e ainda dentro do oval: a mais afastada fica a 16 cm da linha do tampo, e deixa
   // uns 4 cm de pano livre entre ela e a borda estofada. Ali elas leem como "o
   // ultimo jogador esqueceu isto" em vez de "as suas fichas, mas mortas".
+  //
+  // AFASTAR NAO BASTOU, ENTAO ELAS TAMBEM VAO PRO 'enfeite'. Com o caixote
+  // mostrando cinco denominacoes sobra folga (44 cm ate a pilha mais a -X),
+  // mas o caixote cresce ate OITO casas — a passo 0.115 ele chega em x=-0.40, e
+  // ai a pilha esquecida de (-0.64, -0.74) fica a 29 cm dela. Vinte e dois
+  // centimetros de pano entre uma pilha morta e a pilha de onde sai toda aposta
+  // minha, no ponto do quadro mais perto da lente. E a mesma pergunta do pote,
+  // so que do meu lado: quanto disto e meu? Zero custo em manter: elas voltam
+  // no sair(), e e la que elas fazem falta.
   const esquecidas = [[-0.74, -0.62, 6, D25], [-0.84, -0.72, 3, D100], [-0.64, -0.74, 3, D5]]
-  for (const p of esquecidas) pilhaFichas(u, p[0], yT + 0.010, p[1], p[2], p[3])
+  for (const p of esquecidas) pilhaFichas(enfeite, p[0], yT + 0.010, p[1], p[2], p[3])
 
   // copo de uisque e charuto apagado no cinzeiro, do lado do ricaco
   const copo = new THREE.Group()
@@ -2068,6 +2189,7 @@ function buildPoker(g, colliders) {
   sombras(cinz)
   u.add(cinz)
 
+  fecharEnfeite(enfeite)
   g.add(u)
 
   // --- cadeiras: a do ricaco e a VAZIA do jogador -------------------------
@@ -2706,7 +2828,7 @@ export function buildCasino(game) {
   revestimento(dentro)
   tetoELustres(dentro, luzes)
   buildCaixa(dentro, colliders)
-  buildBlackjack(dentro, colliders)
+  const enfeiteBlackjack = buildBlackjack(dentro, colliders)
   const enfeitePoker = buildPoker(dentro, colliders)
   const maquinas = buildSlots(dentro, colliders, interactables, matsFase)
   // O bar VELHO (balcao encostado na parede do fundo, espelho, garrafas de
@@ -2996,6 +3118,11 @@ export function buildCasino(game) {
         centro: new THREE.Vector3(BJ.x, BASE, BJ.z),
         raio: BJ.r,
         tampo: BASE + 0.92,
+        // As duas maos de mentira dos lugares 2 e 4 — cartas viradas e a pilha
+        // de aposta dentro do anel impresso. MESMO NOME DE CAMPO do poker, e
+        // isso e a coisa toda: mesa-3d.js so tem `if (ancora.enfeite)`, entao a
+        // mesa do blackjack ganhou o comportamento sem uma linha nova la.
+        enfeite: enfeiteBlackjack,
         dealer: new THREE.Vector3(BJ_NPC.x, BASE, BJ_NPC.z),
         jogador: new THREE.Vector3(BJ.x, BASE, BJ.z - BJ.r - 0.55),
       },
@@ -3003,10 +3130,11 @@ export function buildCasino(game) {
         centro: new THREE.Vector3(PK.x, BASE, PK.z),
         rx: PK.rx, rz: PK.rz,
         tampo: BASE + 0.78,
-        // O par de cartas desenhado no feltro em cada lugar. Quem senta na mesa
-        // APAGA isto (cassino/mesa-3d.js, em entrar()) e acende de volta ao
-        // sair: as cartas vivas nao ficam mais em cima dele, e o feltro com dois
-        // pares le como mesa bugada.
+        // A MAO DE MENTIRA DO FELTRO: o par de cartas de cada lugar, o pote do
+        // meio, a muralha do ricaco e as pilhas esquecidas. Quem senta na mesa
+        // APAGA tudo isto (cassino/mesa-3d.js, em entrar()) e acende de volta ao
+        // sair. Com a mesa aberta o unico dinheiro no pano e o que foi apostado
+        // de verdade; com a mesa vazia, quem passa andando ve mesa em jogo.
         enfeite: enfeitePoker,
         npc: new THREE.Vector3(PK_NPC.x, BASE, PK_NPC.z),
         jogador: new THREE.Vector3(PK_VAZIA.x, BASE, PK_VAZIA.z),

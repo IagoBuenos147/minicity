@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import { criarBaralho, NAIPES, CARTA_OCULTA, cartaTexto, nomeValor } from '../src/cassino/baralho.js'
 import { criarBlackjack, valorMao } from '../src/cassino/blackjack.js'
-import { forcaDaMao, criarPoker, TETO_AUMENTOS } from '../src/cassino/poker.js'
+import { melhorMao, descreverMao, criarPoker, TETO_AUMENTOS, RUAS } from '../src/cassino/poker.js'
 import { criarSlots, SIMBOLOS, PAGAMENTOS } from '../src/cassino/slots.js'
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url))
@@ -289,86 +289,155 @@ function baralhoFixo(lista) {
   check('aposta valida e aceita', jogo.comecar(25) === true)
 }
 
-// --- 10) poker: ordem completa das categorias ------------------------------
+// --- 10) poker: as nove categorias do Hold'em ------------------------------
 
 {
-  // espadas = 0, copas = 1. Naipe diferente onde a mao NAO pode ser flush.
-  const parA = forcaDaMao(k('A', 0), k('A', 1))
-  const parK = forcaDaMao(k('K', 0), k('K', 1))
-  const par2 = forcaDaMao(k('2', 0), k('2', 1))
-  const seqAK = forcaDaMao(k('A', 0), k('K', 1))
-  const seqA2 = forcaDaMao(k('A', 0), k('2', 1))
-  const seqQJ = forcaDaMao(k('Q', 0), k('J', 1))
-  const naipeAQ = forcaDaMao(k('A', 0), k('Q', 0))
-  const naipe42 = forcaDaMao(k('4', 0), k('2', 0))
-  const altaAQ = forcaDaMao(k('A', 0), k('Q', 1))
-  // 5-3 e nao 3-2: 3-2 sao vizinhos e cairiam em sequencia, nao em carta alta.
-  const alta53 = forcaDaMao(k('5', 0), k('3', 1))
+  // Naipes: 0 espadas, 1 copas, 2 ouros, 3 paus.
+  const m = (...cs) => melhorMao(cs)
+  const sf = m(k('9', 0), k('8', 0), k('7', 0), k('6', 0), k('5', 0))
+  const quadra = m(k('9', 0), k('9', 1), k('9', 2), k('9', 3), k('5', 0))
+  const full = m(k('9', 0), k('9', 1), k('9', 2), k('5', 3), k('5', 0))
+  const flush = m(k('A', 0), k('J', 0), k('8', 0), k('4', 0), k('2', 0))
+  const seq = m(k('9', 0), k('8', 1), k('7', 0), k('6', 0), k('5', 0))
+  const trinca = m(k('9', 0), k('9', 1), k('9', 2), k('J', 3), k('5', 0))
+  const dois = m(k('9', 0), k('9', 1), k('5', 2), k('5', 3), k('J', 0))
+  const par = m(k('9', 0), k('9', 1), k('5', 2), k('J', 3), k('3', 0))
+  const alta = m(k('A', 0), k('J', 1), k('8', 2), k('4', 3), k('2', 0))
 
-  check('categorias saem certas (3 par, 2 seq, 1 naipe, 0 alta)',
-    parA.categoria === 3 && seqAK.categoria === 2 && naipeAQ.categoria === 1 && altaAQ.categoria === 0,
-    [parA.categoria, seqAK.categoria, naipeAQ.categoria, altaAQ.categoria].join(','))
+  check('as nove categorias saem certas',
+    sf.categoria === 8 && quadra.categoria === 7 && full.categoria === 6 &&
+    flush.categoria === 5 && seq.categoria === 4 && trinca.categoria === 3 &&
+    dois.categoria === 2 && par.categoria === 1 && alta.categoria === 0,
+    [sf, quadra, full, flush, seq, trinca, dois, par, alta].map((f) => f.categoria).join(','))
 
-  check('par de A > par de K', parA.chave > parK.chave, parA.chave + ' > ' + parK.chave)
-  check('par de K > par de 2', parK.chave > par2.chave, parK.chave + ' > ' + par2.chave)
-  check('pior par > melhor sequencia', par2.chave > seqAK.chave, par2.chave + ' > ' + seqAK.chave)
-  check('pior sequencia > melhor naipe', seqA2.chave > naipeAQ.chave, seqA2.chave + ' > ' + naipeAQ.chave)
-  check('pior naipe > melhor carta alta', naipe42.chave > altaAQ.chave, naipe42.chave + ' > ' + altaAQ.chave)
-  check('carta alta se ordena entre si', altaAQ.chave > alta53.chave, altaAQ.chave + ' > ' + alta53.chave)
+  const escada = [alta, par, dois, trinca, seq, flush, full, quadra, sf]
+  let fora = 0
+  for (let i = 1; i < escada.length; i++) if (escada[i].chave <= escada[i - 1].chave) fora++
+  check('a escada de categorias e estritamente crescente', fora === 0, fora + ' degraus fora de ordem')
 
-  check('A-2 conta como sequencia', seqA2.categoria === 2, seqA2.nome)
-  check('A-K conta como sequencia', seqAK.categoria === 2, seqAK.nome)
-  check('A-2 e a sequencia MAIS FRACA (As desce pra 1)',
-    seqA2.chave < seqQJ.chave && seqQJ.chave < seqAK.chave,
-    seqA2.chave + ' < ' + seqQJ.chave + ' < ' + seqAK.chave)
+  // A RODA. A-2-3-4-5 e sequencia com o As valendo UM, entao e a MAIS FRACA de
+  // todas — mais fraca que 6-5-4-3-2. E o caso que quase todo avaliador erra.
+  const roda = m(k('A', 0), k('2', 1), k('3', 2), k('4', 3), k('5', 0))
+  const seq6 = m(k('6', 0), k('5', 1), k('4', 2), k('3', 3), k('2', 0))
+  check('A-2-3-4-5 e sequencia', roda.categoria === 4, roda.nome)
+  check('a roda e a sequencia MAIS FRACA', roda.chave < seq6.chave, roda.chave + ' < ' + seq6.chave)
+  const rodaSF = m(k('A', 0), k('2', 0), k('3', 0), k('4', 0), k('5', 0))
+  const sf6 = m(k('6', 1), k('5', 1), k('4', 1), k('3', 1), k('2', 1))
+  check('a roda do mesmo naipe e straight flush', rodaSF.categoria === 8, rodaSF.nome)
+  check('e e o straight flush MAIS FRACO', rodaSF.chave < sf6.chave, rodaSF.chave + ' < ' + sf6.chave)
 
-  check('nome da mao sai legivel', parA.nome === 'par de A' && seqAK.nome === 'sequencia A-K', parA.nome + ' | ' + seqAK.nome)
+  // KICKER. Mesmo par, kicker diferente: quem tem o kicker maior ganha.
+  const parAK = m(k('9', 0), k('9', 1), k('A', 2), k('7', 3), k('3', 0))
+  const parQK = m(k('9', 2), k('9', 3), k('Q', 0), k('7', 1), k('3', 1))
+  check('kicker desempata par igual', parAK.chave > parQK.chave, parAK.chave + ' > ' + parQK.chave)
+
+  check('nome da mao sai legivel',
+    quadra.nome === 'quadra de 9' && dois.nome === 'dois pares, 9 e 5',
+    quadra.nome + ' | ' + dois.nome)
+
+  // A dica da faixa tem que dizer alguma coisa desde o pre-flop, quando ainda
+  // nao ha cinco cartas pra avaliar.
+  const pre = descreverMao([k('A', 0), k('K', 0)], [])
+  check('descreverMao fala do pre-flop sem mesa', pre.indexOf('A-K') === 0 && pre.indexOf('naipe') > 0, pre)
+  check('descreverMao usa a mesa quando ela existe',
+    descreverMao([k('9', 1), k('9', 2)], [k('9', 0), k('J', 0), k('4', 3)]) === 'trinca de 9',
+    descreverMao([k('9', 1), k('9', 2)], [k('9', 0), k('J', 0), k('4', 3)]))
 }
 
-// --- 11) poker: a ordem e TOTAL -------------------------------------------
+// --- 11) poker: a melhor de cinco entre sete -------------------------------
 
 {
-  // Enumera as 1326 maos possiveis de um baralho e confere que chave igual so
-  // acontece entre maos de fato equivalentes (mesma categoria e mesmos dois
-  // valores, so mudando o naipe) — que e o que "ordem total" quer dizer aqui.
-  const cartas = []
-  for (let n = 0; n < 4; n++) for (let r = 1; r <= 13; r++) cartas.push({ r, n })
+  // SETE CARTAS: o flush do board tem que ganhar do par da mao. Um avaliador
+  // que so olhasse as duas da mao mais tres do board acharia o par.
+  const seteFlush = melhorMao([
+    k('9', 1), k('9', 2),
+    k('A', 0), k('J', 0), k('8', 0), k('4', 0), k('2', 0)])
+  check('entre 7 cartas ele acha o flush e nao o par', seteFlush.categoria === 5, seteFlush.nome)
 
-  const porChave = new Map()
-  let maos = 0
-  for (let i = 0; i < cartas.length; i++) {
-    for (let j = i + 1; j < cartas.length; j++) {
-      const f = forcaDaMao(cartas[i], cartas[j])
-      maos++
-      const va = cartas[i].r === 1 ? 14 : cartas[i].r
-      const vb = cartas[j].r === 1 ? 14 : cartas[j].r
-      const assinatura = f.categoria + ':' + Math.max(va, vb) + ':' + Math.min(va, vb)
-      const antes = porChave.get(f.chave)
-      if (antes === undefined) porChave.set(f.chave, assinatura)
-      else if (antes !== assinatura) porChave.set(f.chave, '!CONFLITO')
-    }
-  }
-  let conflitos = 0
-  for (const v of porChave.values()) if (v === '!CONFLITO') conflitos++
-  check('as 1326 maos passam pela forca', maos === 1326, String(maos))
-  check('chave igual so entre maos equivalentes (ordem total)', conflitos === 0, conflitos + ' chaves em conflito')
+  // O BOARD JOGA: quando as cinco do meio sao a melhor mao, duas maos
+  // diferentes tem que empatar EXATAMENTE.
+  const board = [k('A', 0), k('K', 0), k('Q', 0), k('J', 0), k('10', 0)]
+  const x = melhorMao([k('2', 1), k('3', 2)].concat(board))
+  const y = melhorMao([k('7', 3), k('8', 1)].concat(board))
+  check('board com royal: as duas maos empatam', x.chave === y.chave, x.chave + ' vs ' + y.chave)
 
-  // Simetria: a ordem das cartas nao pode mudar nada.
+  // A ORDEM DAS CARTAS NAO PODE MUDAR NADA.
+  const rng = semente(99)
+  const bar = criarBaralho(1, rng)
   let assimetrico = 0
-  for (let i = 0; i < cartas.length; i++) {
-    for (let j = i + 1; j < cartas.length; j++) {
-      if (forcaDaMao(cartas[i], cartas[j]).chave !== forcaDaMao(cartas[j], cartas[i]).chave) assimetrico++
-    }
+  for (let n = 0; n < 400; n++) {
+    if (bar.precisaEmbaralhar) bar.embaralhar()
+    const sete = []
+    for (let i = 0; i < 7; i++) sete.push(bar.pegar())
+    if (melhorMao(sete).chave !== melhorMao(sete.slice().reverse()).chave) assimetrico++
   }
-  check('forcaDaMao(a,b) === forcaDaMao(b,a)', assimetrico === 0, assimetrico + ' assimetrias')
+  check('melhorMao nao depende da ordem das cartas', assimetrico === 0, assimetrico + ' assimetrias')
 
-  // Contagem de sequencias: 13 pares de valores vizinhos (A-2 ate A-K) x 16
-  // combinacoes de naipe = 208.
-  let seqs = 0
-  for (let i = 0; i < cartas.length; i++) {
-    for (let j = i + 1; j < cartas.length; j++) if (forcaDaMao(cartas[i], cartas[j]).categoria === 2) seqs++
+  // FREQUENCIA. Este e o teste que pega erro de categoria de verdade: as
+  // proporcoes de 7 cartas sao conhecidas, e um avaliador com um caso errado
+  // sai da faixa na hora. Alvos (7 cartas, em %): alta 17,4 - par 43,8 -
+  // dois pares 23,5 - trinca 4,8 - sequencia 4,6 - flush 3,0 - full 2,6 -
+  // quadra 0,17 - straight flush 0,031. A folga e larga de proposito: o que se
+  // quer pegar aqui e categoria trocada, nao ruido de amostragem.
+  const rng2 = semente(4242)
+  const bar2 = criarBaralho(1, rng2)
+  const conta = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+  const N = 40000
+  for (let n = 0; n < N; n++) {
+    if (bar2.precisaEmbaralhar) bar2.embaralhar()
+    const sete = []
+    for (let i = 0; i < 7; i++) sete.push(bar2.pegar())
+    conta[melhorMao(sete).categoria]++
   }
-  check('existem 208 sequencias no baralho', seqs === 208, String(seqs))
+  const pct = conta.map((c) => (c / N) * 100)
+  const perto = (i, alvo, folga) => Math.abs(pct[i] - alvo) <= folga
+  check('frequencia de par bate com a teoria', perto(1, 43.8, 3), pct[1].toFixed(2) + '% (alvo 43,8)')
+  check('frequencia de dois pares bate', perto(2, 23.5, 3), pct[2].toFixed(2) + '% (alvo 23,5)')
+  check('frequencia de carta alta bate', perto(0, 17.4, 3), pct[0].toFixed(2) + '% (alvo 17,4)')
+  check('trinca, sequencia e flush ficam na casa certa',
+    perto(3, 4.8, 1.5) && perto(4, 4.6, 1.5) && perto(5, 3.0, 1.5),
+    [pct[3], pct[4], pct[5]].map((v) => v.toFixed(2)).join(' / '))
+  check('full house e raro mas existe', perto(6, 2.6, 1.2), pct[6].toFixed(2) + '% (alvo 2,6)')
+  check('quadra e straight flush aparecem e sao raros',
+    conta[7] > 0 && pct[7] < 1 && pct[8] < 0.3,
+    'quadra ' + pct[7].toFixed(3) + '% / SF ' + pct[8].toFixed(3) + '%')
+}
+
+// --- 11b) poker: as quatro ruas acontecem na ordem -------------------------
+
+{
+  const rng = semente(7)
+  const baralho = criarBaralho(1, rng)
+  const jogo = criarPoker({ baralho, rng, aposta: 25, fichasNpc: 500000 })
+
+  // Um jogador que so PASSA e PAGA nunca fecha a mao cedo: ela tem que
+  // atravessar as quatro ruas e chegar no showdown com cinco cartas na mesa.
+  let chegouNoRiver = 0
+  let ruaFora = 0
+  let mesaErrada = 0
+  const vistas = new Set()
+  const ESPERADO = [0, 3, 4, 5]
+  for (let n = 0; n < 300; n++) {
+    jogo.comecar()
+    let passos = 0
+    while (jogo.estado().fase === 'jogador' && passos < 60) {
+      const e = jogo.estado()
+      vistas.add(e.rua)
+      if (e.rua < 0 || e.rua > 3) ruaFora++
+      // A mesa tem que ter exatamente as cartas da rua em que esta.
+      if (e.mesa.length !== ESPERADO[e.rua]) mesaErrada++
+      if (e.acoes.indexOf('pagar') >= 0) jogo.pagar()
+      else jogo.passar()
+      passos++
+    }
+    const fim = jogo.estado()
+    if (fim.resultado && fim.resultado.tipo !== 'ele-desistiu' && fim.mesa.length === 5) chegouNoRiver++
+  }
+  check('a mesa tem 0/3/4/5 cartas conforme a rua', mesaErrada === 0, mesaErrada + ' desencontros')
+  check('a rua nunca sai da faixa 0..3', ruaFora === 0, ruaFora + ' fora')
+  check('as quatro ruas sao visitadas', [0, 1, 2, 3].every((r) => vistas.has(r)), [...vistas].join(','))
+  check('quem so paga chega ao showdown com 5 na mesa', chegouNoRiver > 200, chegouNoRiver + '/300')
+  check('os nomes das ruas existem', RUAS.length === 4 && RUAS[0] === 'pre-flop' && RUAS[3] === 'river', RUAS.join('/'))
 }
 
 // --- 12) poker: a mao sempre termina e a IA nao trapaceia -------------------
@@ -387,7 +456,7 @@ function baralhoFixo(lista) {
   for (let n = 0; n < 1500; n++) {
     jogo.comecar()
     let passos = 0
-    while (jogo.estado().fase === 'jogador' && passos < 40) {
+    while (jogo.estado().fase === 'jogador' && passos < 90) {
       const e = jogo.estado()
       if (e.aumentos > maxAumentos) maxAumentos = e.aumentos
       if (e.aumentos > TETO_AUMENTOS) passouDoTeto++
@@ -410,7 +479,7 @@ function baralhoFixo(lista) {
     }
     const fim = jogo.estado()
     if (fim.fase === 'fim' && fim.resultado) maosCompletas++
-    if (passos >= 40) travou++
+    if (passos >= 90) travou++
   }
   check('1500 maos de poker terminam sempre em fim com resultado', maosCompletas === 1500, maosCompletas + '/1500')
   check('nenhuma mao vira leilao infinito', travou === 0, travou + ' travadas')
@@ -453,7 +522,7 @@ function baralhoFixo(lista) {
   for (let n = 0; n < 400; n++) {
     jogo.comecar()
     let passos = 0
-    while (jogo.estado().fase === 'jogador' && passos < 40) {
+    while (jogo.estado().fase === 'jogador' && passos < 90) {
       const e = jogo.estado()
       // Acao aleatoria pra as duas pontas correrem: sem desistir do lado do
       // jogador, o NPC nunca enfrenta aposta e nunca corre tambem.
@@ -489,7 +558,7 @@ function baralhoFixo(lista) {
   for (let n = 0; n < 300; n++) {
     jogo.comecar()
     let passos = 0
-    while (jogo.estado().fase === 'jogador' && passos < 40) {
+    while (jogo.estado().fase === 'jogador' && passos < 90) {
       const e = jogo.estado()
       const acao = e.acoes[Math.floor(rng() * e.acoes.length)]
       if (acao === 'passar') jogo.passar()

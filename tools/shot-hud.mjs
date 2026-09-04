@@ -18,6 +18,10 @@
 //   2. O EIXO. O pedido era "botoes centralizados". "Parece centralizado" numa
 //      foto de 1280 px erra por 30 px sem ninguem ver. Aqui a gente mede o meio
 //      do BLOCO de botoes contra o meio da tela e reprova acima de 2 px.
+//   3. A ANCORA DO SAIR. O SAIR DA MESA nao esta mais no bloco: ele mora colado
+//      na beirada direita do rodape. "Colado" tambem e pixel — a gente mede a
+//      distancia dele ate a borda util da faixa e reprova acima de 2 px, senao
+//      ele volta a passear conforme os botoes do meio mudam de largura.
 //
 // As cenas, em ordem:
 //   01  poker, minha vez SEM ficha no pano   (TUDO / PASSAR / PAGAR / DESISTIR)
@@ -88,8 +92,26 @@ window.__hud = {
     const f = document.querySelector('.mcrp-mesa-faixa')
     if (!f) return { erro: 'faixa nao esta na tela' }
     const r = f.getBoundingClientRect()
-    const vis = [...document.querySelectorAll('.mcrp-mesa-btn')]
+    const todos = [...document.querySelectorAll('.mcrp-mesa-btn')]
       .filter((b) => b.offsetParent && b.getBoundingClientRect().width > 0)
+    // O SAIR DA MESA SAIU DO BLOCO. Ele agora mora num trilho proprio colado na
+    // beirada direita (o CANTO, em cassino/faixa-mesa.js) e tem um espelho
+    // invisivel do outro lado que reserva a mesma largura. Medir o eixo com os
+    // dois dentro nao mediria nada: eles se anulam por construcao e o numero
+    // daria zero mesmo com a fila torta. Entao o EIXO e do bloco de acao SEM o
+    // canto, e a ancoragem do sair virou uma segunda medida (sairDaBorda).
+    // Em janela estreita nao ha ancora: a media query devolve o sair pra fila e
+    // ai ele conta no bloco como qualquer outro botao. Quem diz em qual dos
+    // dois mundos a gente esta e o proprio espelho — ele so existe no layout
+    // enquanto a ancora existe. Ler isso do DOM em vez de repetir aqui a
+    // largura de corte deixa a regua certa mesmo se o CSS mudar de numero.
+    const esp = document.querySelector('.mcrp-mesa-espelho')
+    const ancorado = !!(esp && esp.offsetParent)
+    const vis = todos.filter((b) => !(ancorado && b.closest('.mcrp-mesa-canto')))
+    const sair = ancorado
+      ? todos.find((b) => b.closest('.mcrp-mesa-canto') && !b.closest('.mcrp-mesa-espelho')) || null
+      : null
+    const folgaDir = parseFloat(getComputedStyle(f).paddingRight) || 0
     const cx = (b) => { const q = b.getBoundingClientRect(); return q.left + q.width / 2 }
     const grande = vis.find((b) => b.classList.contains('mcrp-mesa-grande'))
     const chama = vis.find((b) => b.classList.contains('mcrp-mesa-chama'))
@@ -111,10 +133,21 @@ window.__hud = {
         ? +(((Math.min(...vis.map((b) => b.getBoundingClientRect().left))
             + Math.max(...vis.map((b) => b.getBoundingClientRect().right))) / 2) - w / 2).toFixed(1)
         : null,
+      // A ANCORAGEM: quanto sobra entre a direita do SAIR e a beirada util do
+      // rodape (a caixa de conteudo da faixa, ja sem o padding). Zero e o alvo.
+      sairDaBorda: sair
+        ? +((r.right - folgaDir) - sair.getBoundingClientRect().right).toFixed(1)
+        : null,
+      // E o vao entre o fim do bloco de acao e o comeco do SAIR: e ele que
+      // impede o dedo de confundir SAIR DA MESA com DESISTIR.
+      vaoDoSair: sair && vis.length
+        ? +(sair.getBoundingClientRect().left
+            - Math.max(...vis.map((b) => b.getBoundingClientRect().right))).toFixed(1)
+        : null,
       linhaBotoes: linha
         ? [+(100 * linha.y0 / h).toFixed(1) + '%', +(100 * linha.y1 / h).toFixed(1) + '%']
         : null,
-      botoes: vis.map((b) => ({
+      botoes: (sair ? vis.concat([sair]) : vis).map((b) => ({
         t: b.textContent.trim().slice(0, 22),
         cls: b.className.replace(/mcrp-mesa-/g, ''),
         px: +cx(b).toFixed(0), h: alt(b), w: +b.getBoundingClientRect().width.toFixed(0),
@@ -125,10 +158,15 @@ window.__hud = {
 
   /** O ponto de tela pra pousar o ponteiro: o botao principal, ou o primeiro
    *  vivo. Devolve x/y um pouco a esquerda do meio, pra a onda do clique
-   *  nascer visivelmente fora do centro. */
+   *  nascer visivelmente fora do centro.
+   *
+   *  O :not(espelho) nao e detalhe: o espelho do SAIR e o PRIMEIRO botao do
+   *  DOM (ele abre a grade, no trilho da esquerda) e continua tendo caixa e
+   *  offsetParent, so nao tem tinta. Sem o filtro, a foto do hover era o mouse
+   *  parado em cima de nada. */
   ondeApontar() {
     const vis = [...document.querySelectorAll('.mcrp-mesa-btn')]
-      .filter((b) => b.offsetParent && !b.disabled)
+      .filter((b) => b.offsetParent && !b.disabled && !b.closest('.mcrp-mesa-espelho'))
     const b = vis.find((x) => x.classList.contains('mcrp-mesa-grande')
       || x.classList.contains('mcrp-mesa-promovido')) || vis[0]
     if (!b) return null
@@ -140,7 +178,8 @@ window.__hud = {
   apertar(re) {
     const rx = new RegExp(re, 'i')
     const b = [...document.querySelectorAll('.mcrp-mesa-btn')]
-      .find((x) => x.offsetParent && !x.disabled && rx.test(x.textContent))
+      .find((x) => x.offsetParent && !x.disabled && !x.closest('.mcrp-mesa-espelho')
+        && rx.test(x.textContent))
     if (!b) return null
     b.click()
     return b.textContent.trim()
@@ -162,23 +201,32 @@ const TETO_TOPO = 87
  * onde a ordem da mesa manda; prender o principal no pixel do meio joga o
  * bloco pra um lado e troca a ordem que o jogador ja conhece. Entao a regua e:
  * o meio da fila tem que bater com o meio da tela em 2 px.
+ *
+ * A SEGUNDA REGUA e a do SAIR DA MESA: o pedido foi "localizado a direita", e
+ * direita aqui e a BEIRADA, nao "depois dos outros". Ele tem que encostar na
+ * borda util do rodape em 2 px e continuar encostado quando os botoes do meio
+ * trocarem de largura, que e o que passa a acontecer a cada rua do Hold'em.
  */
 function conferir(rotulo, m) {
   if (!m || m.erro) { console.log('  !! ' + rotulo + ': ' + (m && m.erro)); return }
   const okTopo = m.topoPct >= TETO_TOPO
   const okEixo = m.eixoBloco === null || Math.abs(m.eixoBloco) <= 2
+  const okAncora = m.sairDaBorda === null || Math.abs(m.sairDaBorda) <= 2
   console.log('  ' + rotulo
     + '  topo=' + m.topoPct + '%' + (okTopo ? ' ok' : ' ESTOUROU (teto ' + TETO_TOPO + '%)')
     + '  altura=' + m.alturaPx + 'px/' + m.alturaPct + '%'
     + '  eixo do bloco=' + m.eixoBloco + 'px' + (okEixo ? ' ok' : ' FORA DO CENTRO')
     + '  (principal em ' + (m.eixoGrande === null ? '-' : m.eixoGrande + 'px') + ')'
+    + '  sair ' + (m.sairDaBorda === null ? 'na fila (janela estreita)'
+      : 'a ' + m.sairDaBorda + 'px da borda' + (okAncora ? ' ok' : ' SOLTO')
+        + ' com vao de ' + m.vaoDoSair + 'px')
     + '  botoes em ' + (m.linhaBotoes ? m.linhaBotoes.join('..') : '-'))
   for (const b of m.botoes) {
     console.log('      ' + (b.off ? '[off] ' : '      ') + b.t.padEnd(22)
       + ' h=' + String(b.h).padStart(3) + ' w=' + String(b.w).padStart(4)
       + ' x=' + String(b.px).padStart(5) + '  ' + b.cls.replace('btn ', ''))
   }
-  laudo.push({ rotulo, ...m, okTopo, okEixo })
+  laudo.push({ rotulo, ...m, okTopo, okEixo, okAncora })
 }
 
 async function sessao(rotulo, largura, corpo) {
@@ -417,11 +465,13 @@ try {
   console.log('LAUDO — o rodape tem que comecar em ' + TETO_TOPO + '% ou mais')
   let ruim = 0
   for (const l of laudo) {
-    const s = (l.okTopo && l.okEixo ? 'ok  ' : 'RUIM') + '  topo=' + String(l.topoPct).padStart(6)
+    const s = (l.okTopo && l.okEixo && l.okAncora ? 'ok  ' : 'RUIM')
+      + '  topo=' + String(l.topoPct).padStart(6)
       + '%  alt=' + String(l.alturaPx).padStart(3) + 'px'
       + '  eixo do bloco=' + String(l.eixoBloco === null ? '-' : l.eixoBloco).padStart(6)
+      + '  sair da borda=' + String(l.sairDaBorda === null ? '-' : l.sairDaBorda).padStart(5)
       + '  ' + l.rotulo
-    if (!l.okTopo || !l.okEixo) ruim++
+    if (!l.okTopo || !l.okEixo || !l.okAncora) ruim++
     console.log('  ' + s)
   }
   console.log(ruim ? '  ' + ruim + ' cena(s) fora do orcamento' : '  todas dentro do orcamento')

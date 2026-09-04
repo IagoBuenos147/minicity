@@ -80,22 +80,27 @@ import * as THREE from 'three'
 // resolvia: o marfim honesto (#f5f0e4) leva o atlas de 1.36 pra 1.17 medidos,
 // ainda muito acima de 0.85.
 //
-// Entao o corte vem em DOIS passos, os dois no lado da carta:
+// Entao o corte vem em TRES passos, os tres no lado da carta:
 //   a) o ATLAS pinta ALBEDO honesto (marfim de cartao, nao branco de monitor);
 //   b) 'material.color' e um TRIM de exposicao explicito, medido contra a luz
-//      que existe hoje no salao — ver BRILHO_CARTA la embaixo.
+//      que existe hoje no salao — ver BRILHO_CARTA la embaixo;
+//   c) a TINTA sai de baixo do trim: ela e declarada em albedo e dividida pelo
+//      trim antes de ir pro canvas, entao mexer no trim move o PAPEL e mais
+//      nada. Ver 'tinta()' e a nota do segundo defeito, logo abaixo.
 // Separar assim tem uma razao pratica: quem for olhar o atlas ve o desenho como
-// ele foi feito, e quem for mexer na luz da mesa mexe num numero so.
+// ele foi feito, e quem for mexer na luz da mesa mexe num numero so — sem
+// arrastar o naipe junto, que foi exatamente o que deu errado da primeira vez.
 //
-// MEDIDO DEPOIS, mesma carta e mesmo enquadramento:
-//     poker, carta escorada .... max 0.60 e 0.64   0% acima de 0.85
-//     blackjack ................ max 0.52 e 0.54   0% acima de 0.85
+// MEDIDO AGORA, com a luz do salao ja rebaixada pra 118 e 74 candelas, mao
+// forcada em 5 de espadas e 5 de copas, carta escorada a 11,3% da altura:
+//     poker ......... max 0.592 e 0.615   0% acima de 0.85   folga 28-30%
+//     blackjack ..... max 0.550           0% acima de 0.85   folga 35%
+// O pior caso continua sendo a carta DEITADA, 1.076 vez a escorada: 0.662, que
+// ainda deixa 22% de folga.
 //
-// E ela NAO ficou cinza, que era a outra metade do pedido: a mesma ferramenta
-// le a cor final na tela, depois do ACES e do bloom e do grade, e a carta sai
-// em RGB 220..229 / 198..211 / 168..184. O ACES comprime tanto no topo que
-// derrubar a luminancia linear pela metade custou menos de 10 niveis em 255 —
-// perdeu o halo, nao perdeu o papel. Escurecer nao era o pedido.
+// E ela NAO ficou cinza, que era a outra metade daquele pedido: a mesma
+// ferramenta le a cor final na tela, depois do ACES e do bloom e do grade, e o
+// papel sai em RGB 222..228 / 205..212 / 179..188.
 //
 // ===========================================================================
 // A RESOLUCAO DA CELULA — a conta, pra ninguem refazer no escuro.
@@ -161,51 +166,146 @@ const TAU = Math.PI * 2
 // longe (a mesma coisa que acontece com atlas de tile em qualquer engine).
 const PAD_UV = 1.5
 
+// TRIM DE EXPOSICAO DO PAPEL — o segundo dos dois passos descritos no
+// cabecalho. Multiplica o que sai do atlas: papel, verso e a fita da lateral.
+// A TINTA fica de fora dele; como, esta logo abaixo em 'tinta()'.
+//
+// Como este numero e achado, pra ninguem chutar. Ele e um multiplicador LINEAR
+// direto sobre a carta: `node tools/shot-cartas.mjs poker` imprime o 'max' da
+// luminancia linear do papel, e esse max escala 1:1 com o trim. O alvo e ficar
+// CONFORTAVELMENTE abaixo do 0.85 do UnrealBloomPass.
+//
+// O PIOR CASO nao e a carta escorada, que e a que a ferramenta mede: e a carta
+// DEITADA, com a face olhando pro teto e pegando a PointLight de frente. Medida
+// a 1/5 da subida ela da 1.076 vez a escorada. Entao o alvo da MEDIDA e 0.60, o
+// que poe a deitada em 0.645 e deixa 24% de folga ate o corte.
+//
+// POR QUE ELE SUBIU DE 0xc1c5c4 (luma 0.550) PRA 0xdee3e2 (luma 0.756).
+// O trim de 0.550 foi calibrado contra duas PointLight de 165 e 95 candelas.
+// Outra sessao derrubou as duas pra 118 e 74 (world/casino.js) — 0.72 da luz de
+// antes — e o trim ficou corrigindo um estouro que ja nao existia: a medida caiu
+// de 0.64 pra 0.436, 49% de folga, e o papel na tela desabou de ~220 pra 191.
+// Papel escuro nao e carta boa e ainda por cima ENCOLHE o contraste do naipe,
+// porque o naipe ja esta no fundo da curva e nao desce junto. Subir o trim por
+// 0.60/0.436 = 1.376 devolve o papel e, com a tinta fora do trim, todo esse
+// ganho vira contraste.
+//
+// Nao e cinza neutro: de/e3/e2 puxa pro FRIO, e isso e compensacao de luz. As
+// duas PointLight do salao sao 0xffd2a0 — em linear o azul delas vale 0.36 do
+// vermelho — e sem o trim frio a carta saia cor de manteiga. Ele nao neutraliza
+// o ambar (nem deve: a carta esta num salao ambar), so tira o excesso. A razao
+// entre os tres canais e a mesma de 0xc1c5c4; so a altura mudou.
+//
+// SE A LUZ DA MESA MUDAR DE NOVO: rode a ferramenta, leia o 'max' e multiplique
+// este numero por 0.60/max — em LINEAR, nao no hex. A tinta nao se mexe.
+const BRILHO_CARTA = 0xdee3e2
+
 // --- as tintas -------------------------------------------------------------
 //
-// Estes valores sao ALBEDO: quanto o papel devolve da luz que chega, nao como
-// a carta aparece na tela. Quem faz a carta parecer branca e o tone mapping do
+// Estes valores sao ALBEDO: quanto a carta devolve da luz que chega, nao como
+// ela aparece na tela. Quem faz a carta parecer branca e o tone mapping do
 // engine, e ele comprime muito no topo — ver a nota do brilho no cabecalho.
 //
-// O vermelho NAO e 0xff0000: carmim puro estoura no tone mapping e o naipe
-// vira um borrao saturado sem forma. E a preta nao e 0x000000 — tinta de
-// impressao reflete uns 8%, e preto absoluto no meio de marfim serrilha feio
-// quando o mipmap comeca a misturar os dois.
+// ===========================================================================
+// O SEGUNDO DEFEITO: "de uma melhorada nas cartas, ta bem apagado os nipes".
+// ===========================================================================
+//
+// O trim multiplicava a carta INTEIRA. Papel e tinta desciam juntos, e como a
+// curva ACES e quase plana em cima e quase reta embaixo, descer os dois junto
+// NAO preserva a leitura: o papel perde pouco (ele so anda no trecho comprimido)
+// e o naipe perde tudo. Medido na mesa de poker, com a mao forcada em 5 de
+// espadas e 5 de copas (tools/shot-cartas.mjs), luma na tela em 0..255:
+//
+//     papel 191..195     pip preto 48 (nucleo 34)     pip vermelho 78
+//     DELTA papel-pip:   preto 147      vermelho 114      INDICE DO CANTO 63
+//
+// O indice era o pior de todos, e por dois motivos alem do trim: ele e pequeno
+// (naipinho de 24 px numa celula de 358) e o traco da fonte e fino. Com a carta
+// ocupando 11% da altura da tela, a celula minifica 5 vezes — o mipmap mistura
+// tinta com papel e o que sobra de um traco de 1,3 pixel e cinza.
+//
+// TRES CONSERTOS, e nenhum deles desfaz o conserto do brilho:
+//
+//   1) A TINTA SAI DE BAIXO DO TRIM. 'tinta()' recebe o albedo que se QUER e
+//      devolve o texel que, depois de multiplicado pelo trim, da exatamente
+//      esse albedo. Papel e tinta sao camadas diferentes do mesmo canvas, entao
+//      da pra descer uma sem descer a outra — e agora mexer no trim move so o
+//      papel, que e o unico que responde pelo bloom.
+//   2) O VERMELHO VIROU CARMIM. Era #b32338, que com o trim dava albedo efetivo
+//      #871823: razao de 5.1:1 contra o papel, e no canal R so 38 niveis de
+//      diferenca em 255. Um pip cujo canal R quase nao se separa do papel perde
+//      a forma no mipmap antes de perder a cor — e por isso ele lia lavado, nao
+//      escuro. Agora o alvo e albedo direto, 7.6:1, com o R bem mais fundo.
+//   3) O TRACO ENGROSSOU onde a medida mandou: indice maior e com contorno, pip
+//      um pouco maior. Ver a regua la embaixo.
+//
+// MEDIDO DEPOIS, mesma mao forcada, mesmo enquadramento (luma na tela, 0..255):
+//
+//                        antes  ->  depois
+//     papel .............. 192      209        (o trim que voltou pro lugar)
+//     DELTA pip preto .... 147      165   (+12%)   nucleo 161 -> 182
+//     DELTA pip vermelho . 114      148   (+30%)   nucleo 123 -> 155
+//     DELTA indice preto .. 66      118   (+79%)
+//     DELTA indice vermelho 63      105   (+67%)
+//     razao de albedo papel/tinta: preto 42.5:1 -> 63.6:1, vermelho 5.1:1 -> 10.3:1
+//
+// O UNICO numero que desceu e a CROMA do vermelho na tela, R-(G+B)/2 contra o
+// papel: 110 -> 92. E troca de proposito, nao perda. Croma sem contraste de luz
+// e o que faz um pip de tres pixels virar uma mancha rosa; o que se comprou com
+// esses 18 pontos foi o canal R descendo 60 niveis abaixo do papel em vez de 38,
+// que e a diferenca entre um coracao com forma e uma marca vermelha.
+//
+// O vermelho continua NAO sendo 0xff0000: carmim puro estoura no tone mapping e
+// o naipe vira um borrao saturado sem forma. E a preta nao e 0x000000 — preto
+// absoluto no meio de marfim serrilha feio quando o mipmap mistura os dois.
+//
 // O degrade do papel e ESTREITO de proposito. A primeira tentativa ia de
 // #f4efe2 a #e0d8c3 e, com a vinheta por cima, a carta na mesa lia CAQUI — o
 // pico ficava certo mas a mediana despencava pra 0.46 e o dono nao pediu carta
 // suja, pediu carta sem halo. Marfim de cartao varia pouco: 6% entre o canto
 // mais claro e o mais escuro e o que da volume sem sujar.
-const TINTA_PRETA = '#20242c'
-const TINTA_VERMELHA = '#b32338'
+
+const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+const l2s = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055)
+
+// O trim decomposto em linear, canal a canal — as mesmas contas que o three faz
+// com material.color (ColorManagement liga sRGB -> working space por padrao).
+const TRIM_LIN = [(BRILHO_CARTA >> 16) & 255, (BRILHO_CARTA >> 8) & 255, BRILHO_CARTA & 255]
+  .map((c) => s2l(c / 255))
+
+/**
+ * O ANTIDOTO DO TRIM. Recebe o ALBEDO EFETIVO que a tinta tem que ter e devolve
+ * a cor pra pintar no canvas, ja dividida pelo trim: quando o material
+ * multiplicar de volta, sobra o alvo.
+ *
+ * So faz sentido pra cor ESCURA. Um alvo mais claro que o trim satura em 1.0 e
+ * a divisao para de valer — por isso papel, pele, ouro e aco NAO passam por
+ * aqui: eles sao materia da carta e devem descer e subir junto com o papel. O
+ * que passa por aqui e o que tem que ficar parado onde esta: as duas tintas, o
+ * contorno da figura, o cabelo e o manto escuro.
+ */
+function tinta(alvo) {
+  const canais = [(alvo >> 16) & 255, (alvo >> 8) & 255, alvo & 255]
+  return '#' + canais.map((c, k) => {
+    const v = Math.round(l2s(Math.min(1, s2l(c / 255) / TRIM_LIN[k])) * 255)
+    return v.toString(16).padStart(2, '0')
+  }).join('')
+}
+
+// Albedo ALVO das duas tintas (nao e o que vai no canvas; ver tinta()).
+// preta ... luma linear 0.0090, 46:1 contra o papel. Tinta de impressao de
+//           verdade reflete uns 8%, mas 8% de albedo numa carta minificada 5x
+//           vira cinza no mipmap: aqui ela e mais preta que o papel de verdade
+//           de proposito, e o azul de sobra e o que tira o serrilhado.
+// vermelha  luma linear 0.0544, 7.6:1. O canal R desce de 0.240 pra 0.165 de
+//           albedo — 60 niveis abaixo do papel em vez de 38 — que e o que faz o
+//           coracao ter FORMA e nao so cor.
+const TINTA_PRETA = tinta(0x14181f)
+const TINTA_VERMELHA = tinta(0x711121)
 const MARFIM = '#f0ebde'          // o marfim de referencia (bordas e retalho)
 const MARFIM_ALTO = '#f5f0e4'     // canto claro do degrade do papel
 const MARFIM_BAIXO = '#e9e2d0'    // canto escuro
 const MARFIM_SOMBRA = '#d2c9b2'   // a fita da lateral, um tom abaixo
-
-// TRIM DE EXPOSICAO DA CARTA — o segundo dos dois passos descritos no
-// cabecalho. Multiplica o atlas inteiro (faces, versos e a fita da lateral).
-//
-// Como este numero foi achado, pra ninguem chutar de novo. 0xc1c5c4 vale 0.55
-// de luminancia LINEAR, e ele multiplica tudo: a carta escorada da mesa de
-// poker mede 0.64 com ele, logo mediria 0.64/0.55 = 1.17 sem ele. O alvo era
-// ficar CONFORTAVELMENTE abaixo do 0.85 do bloom, e 0.64 deixa 25% de folga.
-//
-// O PIOR CASO nao e a carta escorada, e a carta DEITADA — a face olhando pro
-// teto pega a PointLight de frente. Medida a 1/5 da subida, ela da 1.076 vez a
-// escorada, ou seja ~0.69: 19% de folga. Foi por isso que o trim parou aqui em
-// vez de subir mais: com a carta mais clara, o instante em que ela pousa e
-// ainda nao levantou voltaria a estourar, e esse instante acontece toda mao.
-//
-// Nao e cinza neutro: c1/c5/c4 puxa pro FRIO, e isso e compensacao de luz. As
-// duas PointLight do salao sao 0xffd2a0 — em linear o azul delas vale 0.36 do
-// vermelho — e sem o trim frio a carta saia cor de manteiga. Ele nao neutraliza
-// o ambar (nem deve: a carta esta num salao ambar), so tira o excesso.
-//
-// SE A LUZ DA MESA MUDAR: rode `node tools/shot-cartas.mjs poker` e leia o
-// 'max'. Ele escala linear com este numero — se der 0.40, da pra subir o trim
-// por 0.75/0.40 e recuperar papel; se der 1.0, desce na mesma proporcao.
-const BRILHO_CARTA = 0xc1c5c4
 
 // ---------------------------------------------------------------------------
 // Os quatro naipes, desenhados na mao.
@@ -221,7 +321,34 @@ const BRILHO_CARTA = 0xc1c5c4
 // 0.94 pro coracao, 0.78 pro losango, 0.90 pro trevo.
 // ---------------------------------------------------------------------------
 
-function pique(g, x, y, s) {
+/**
+ * Fecha a forma: preenche e, se 'eng' vier, contorna com a MESMA cor.
+ *
+ * Contornar com a cor do preenchimento nao e enfeite, e um dilatador: engrossa
+ * a silhueta em eng/2 pra cada lado sem redesenhar nada. E o que salva o naipe
+ * do canto, que na mesa mede 5 px de altura — em vez de crescer a forma (o que
+ * roubaria a rua ate o pip da coluna), engrossa-se a borda, e o mipmap passa a
+ * ter mais tinta pra fazer a media.
+ *
+ * O trevo tem quatro sub-formas que se cruzam: contornar cada uma nao deixa
+ * costura nenhuma a vista, justamente porque o contorno tem a cor do miolo.
+ */
+function pintar(g, eng) {
+  g.fill()
+  if (!eng) return
+  const w = g.lineWidth
+  const j = g.lineJoin
+  const c = g.strokeStyle
+  g.lineWidth = eng
+  g.lineJoin = 'round'
+  g.strokeStyle = g.fillStyle
+  g.stroke()
+  g.lineWidth = w
+  g.lineJoin = j
+  g.strokeStyle = c
+}
+
+function pique(g, x, y, s, eng) {
   const w = 0.46 * s
   const h = 0.50 * s
   g.beginPath()
@@ -237,10 +364,10 @@ function pique(g, x, y, s) {
   g.bezierCurveTo(x - w * 0.44, y + h * 0.70, x - w, y + h * 0.62, x - w, y + h * 0.18)
   g.bezierCurveTo(x - w, y - h * 0.22, x - w * 0.20, y - h * 0.50, x, y - h)
   g.closePath()
-  g.fill()
+  pintar(g, eng)
 }
 
-function coracao(g, x, y, s) {
+function coracao(g, x, y, s, eng) {
   const w = 0.47 * s
   const h = 0.50 * s
   g.beginPath()
@@ -250,10 +377,10 @@ function coracao(g, x, y, s) {
   g.bezierCurveTo(x + w * 0.30, y - h * 1.02, x + w, y - h * 1.06, x + w, y - h * 0.36)
   g.bezierCurveTo(x + w, y + h * 0.04, x + w * 0.32, y + h * 0.58, x, y + h)
   g.closePath()
-  g.fill()
+  pintar(g, eng)
 }
 
-function losango(g, x, y, s) {
+function losango(g, x, y, s, eng) {
   const w = 0.39 * s
   const h = 0.50 * s
   // As laterais sao levemente CONVEXAS (o controle a 0.46 e nao no meio). Um
@@ -266,31 +393,34 @@ function losango(g, x, y, s) {
   g.quadraticCurveTo(x - w * 0.46, y + h * 0.34, x - w, y)
   g.quadraticCurveTo(x - w * 0.46, y - h * 0.34, x, y - h)
   g.closePath()
-  g.fill()
+  pintar(g, eng)
 }
 
-function trevo(g, x, y, s) {
+function trevo(g, x, y, s, eng) {
   const r = 0.192 * s
   // tres discos: um em cima e dois embaixo, encostados o suficiente pra o vao
   // entre eles fechar sozinho quando o mipmap comeca a misturar
-  g.beginPath(); g.arc(x, y - 0.235 * s, r, 0, TAU); g.fill()
-  g.beginPath(); g.arc(x - 0.238 * s, y + 0.105 * s, r, 0, TAU); g.fill()
-  g.beginPath(); g.arc(x + 0.238 * s, y + 0.105 * s, r, 0, TAU); g.fill()
+  g.beginPath(); g.arc(x, y - 0.235 * s, r, 0, TAU); pintar(g, eng)
+  g.beginPath(); g.arc(x - 0.238 * s, y + 0.105 * s, r, 0, TAU); pintar(g, eng)
+  g.beginPath(); g.arc(x + 0.238 * s, y + 0.105 * s, r, 0, TAU); pintar(g, eng)
   g.beginPath()
   g.moveTo(x - 0.052 * s, y + 0.02 * s)
   g.bezierCurveTo(x - 0.062 * s, y + 0.26 * s, x - 0.16 * s, y + 0.42 * s, x - 0.215 * s, y + 0.50 * s)
   g.lineTo(x + 0.215 * s, y + 0.50 * s)
   g.bezierCurveTo(x + 0.16 * s, y + 0.42 * s, x + 0.062 * s, y + 0.26 * s, x + 0.052 * s, y + 0.02 * s)
   g.closePath()
-  g.fill()
+  pintar(g, eng)
 }
 
 const DESENHO_NAIPE = [pique, coracao, losango, trevo]
 
-/** Desenha o naipe 'n' em (x,y) com ALTURA 's'. Ordem = a de baralho.js. */
-function naipe(g, n, x, y, s) {
+/**
+ * Desenha o naipe 'n' em (x,y) com ALTURA 's'. Ordem = a de baralho.js.
+ * 'eng' engrossa a silhueta (ver pintar) e so os simbolos pequenos usam.
+ */
+function naipe(g, n, x, y, s, eng) {
   const f = DESENHO_NAIPE[n] || pique
-  f(g, x, y, s)
+  f(g, x, y, s, eng)
 }
 
 // ---------------------------------------------------------------------------
@@ -433,18 +563,46 @@ const ARRANJO = {
 // MESMO tamanho e o olho lia os dois como um PAR de simbolos — o 5 de copas
 // parecia ter seis coracoes. O indice tem que ser miniatura, nao irmao gemeo.
 //
-// Com os numeros abaixo, na regua de 256 x 358:
-//     '10' do indice ..... x  6..44     pip da coluna .... x 49..84
-//     naipe do canto ..... x 15..36     rua entre eles ... 13 px (5% da carta)
+// O QUE MUDOU AGORA, e o que decidiu cada numero.
+//
+// A medida do indice na tela era um delta de 63 em 255 contra o papel, menos da
+// METADE do delta de um pip (147). O indice nao estava mal desenhado: ele
+// estava PEQUENO pro tamanho em que a carta aparece. Com a carta ocupando 11%
+// da tela, a celula de 358 minifica 5 vezes; o naipinho de 24 px virava 4,6 px
+// e o traco da fonte, 1,3 px. O mipmap nao apaga o desenho, ele faz a MEDIA —
+// e a media de um traco de 1,3 px com o papel em volta e cinza claro.
+//
+// Entao o indice cresceu ate onde o '10' deixa, e nao um decimo alem:
+//     naipe do canto  0.068 -> 0.080   (24 -> 29 px de altura, +46% de tinta)
+//     fonte 1 digito  0.134 -> 0.146   (48 -> 52 px)
+//     fonte '10'      0.117 (PARADO)   — ver abaixo
+//     contorno do numero  0 -> 0.0072  (2,6 px: haste de 8 px vira 10,5)
+//     pip             0.108 -> 0.118   (39 -> 42 px)
+//     coluna dos pips 0.240 -> 0.228   (recuou 3 px pro centro pra devolver a
+//                                       rua que o naipe maior comeu)
+//
+// O '10' NAO CRESCE, e e ele que trava tudo. Ele e o unico indice de dois
+// digitos: em 0.117 ele ja ocupa x 6..44 na celula, com a moldura em 9. Um
+// corpo maior o joga pra fora da moldura de um lado e em cima do pip do outro.
+// Quem carrega o '10' e o CONTORNO (ver 'indice' em desenharFace), que engrossa
+// o traco sem mexer na caixa da letra.
+//
+// Com os numeros de agora, na regua de 256 x 358:
+//     '10' do indice ..... x  5..45     pip da coluna .... x 49..88
+//     naipe do canto ..... x 11..40     rua entre eles ... 9 px (3,6% da carta)
 const IDX_X = 0.098          // centro do indice, em fracao da largura
-const IDX_Y = 0.088          // centro do numero, em fracao da altura
-const IDX_FONTE = 0.134      // corpo da fonte pra 1 digito
-const IDX_FONTE_2 = 0.117    // ... e pra '10'
-const IDX_NAIPE = 0.068      // altura do naipe do canto
-const IDX_NAIPE_DY = 0.100   // quanto ele fica abaixo do numero
-const PIP_COL = 0.240        // afastamento das colunas laterais (fracao de W)
+// 0.093 e nao 0.088: a fonte maior subiu a cabeca do numero pra y 12 e a moldura
+// interna mora em y 9. Um '7' encostando na moldura le como erro de impressao,
+// e sao 2 px pra resolver — o indice inteiro desce junto e nada mais se move.
+const IDX_Y = 0.093          // centro do numero, em fracao da altura
+const IDX_FONTE = 0.146      // corpo da fonte pra 1 digito
+const IDX_FONTE_2 = 0.117    // ... e pra '10' (travado pela largura, ver acima)
+const IDX_TRACO = 0.0072     // contorno do numero, em fracao da altura (~2,6 px)
+const IDX_NAIPE = 0.080      // altura do naipe do canto
+const IDX_NAIPE_DY = 0.104   // quanto ele fica abaixo do numero
+const PIP_COL = 0.228        // afastamento das colunas laterais (fracao de W)
 const PIP_LIN = 0.283        // afastamento das linhas (fracao de H)
-const PIP_ALT = 0.108        // altura do pip (fracao de H)
+const PIP_ALT = 0.118        // altura do pip (fracao de H)
 
 // Tons da figura. O manto vem do NAIPE (vermelho ou azul-ardosia), mas o
 // contorno, a pele, o cabelo e o adorno tem cor propria — e essa separacao e o
@@ -452,14 +610,22 @@ const PIP_ALT = 0.108        // altura do pip (fracao de H)
 // de ouros a 20 cm de distancia, o resultado era uma mancha vermelha sem forma:
 // vermelho sobre marfim tem contraste baixo demais pra carregar desenho
 // sozinho. Contorno escuro sempre; cor so no manto, no cabelo e no adorno.
-const FIG_TINTA = '#20242c'
+//
+// QUEM PASSA POR tinta() E QUEM NAO PASSA. O contorno, o cabelo e o manto
+// escuro sao TINTA: eles seguram a figura e nao podem descer quando o trim
+// desce. O painel, a pele, o ouro e o aco sao MATERIA da carta e ficam de fora
+// — se o painel nao subisse junto com o papel, a figura viraria um selo escuro
+// colado num cartao claro. Os alvos do cabelo e do manto sao exatamente o que
+// eles JA rendiam com o trim antigo (albedo efetivo #362619 e #253345); eles
+// nao mudaram de cor, so pararam de andar.
+const FIG_TINTA = TINTA_PRETA
 const FIG_CLARO = '#f1ecde'
 const FIG_PELE = '#dcb694'
 const FIG_OURO = '#c39b3d'
 const FIG_ACO = '#8e99a5'
-const FIG_CABELO = '#4b3524'
+const FIG_CABELO = tinta(0x352518)
 const FIG_HASTE = '#6d4c2e'
-const FIG_MANTO_PRETO = '#36455c'
+const FIG_MANTO_PRETO = tinta(0x263548)
 
 /**
  * O ADERECO — o que a figura segura. Desenhado ANTES do manto de proposito:
@@ -750,8 +916,12 @@ function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
     peito.closePath()
     g.fillStyle = FIG_CLARO
     g.fill(peito); g.stroke(peito)
+    // o naipe do peito tem 0.30 de 's', ou seja ~25 px na celula: e do tamanho
+    // do naipe do canto e some pelo mesmo motivo. Engrossa junto, mas so 0.35 do
+    // traco — com 0.8 os tres lobos do TREVO se fundiam num bloco e a dama de
+    // paus ficava com uma cruz no peito em vez de um trevo.
     g.fillStyle = corNaipe
-    naipe(g, n, 0, s * 0.36, s * 0.30)
+    naipe(g, n, 0, s * 0.36, s * 0.30, traco * 0.35)
 
     // gola de rufo: cinco discos encostados na linha do ombro. Discos com
     // contorno se cruzando SAO o rufo — nao ha desenho especial pra isso.
@@ -933,13 +1103,22 @@ function desenharFace(g, r, n) {
   // "Arial Narrow" nao e garantia de nada. Um scale(0.92, 1) da o mesmo aperto
   // em qualquer fonte que o sistema tiver. O '10' aperta mais, 0.82, porque e
   // o unico de dois digitos e e ele que decide o quanto o pip pode crescer.
+  //
+  // O CONTORNO DO NUMERO (strokeText na cor do fill) e o que carrega o indice
+  // depois que o '10' proibiu crescer a fonte. Ele engorda cada haste em ~1,9 px
+  // na celula — de 8 pra 10 — o que e +25% de tinta num traco que na mesa tem
+  // pouco mais de um pixel. Sem ele, o indice media 63 de delta contra o papel
+  // enquanto o pip media 147.
   const dois = nome.length > 1
+  const traco = fy(IDX_TRACO)
   const indice = (dir) => {
     g.save()
     g.translate(W / 2, H / 2)
     g.scale(dir, dir)
     g.translate(-W / 2, -H / 2)
     g.fillStyle = tinta
+    g.strokeStyle = tinta
+    g.lineJoin = 'round'
     g.textAlign = 'center'
     g.textBaseline = 'middle'
     g.save()
@@ -947,9 +1126,11 @@ function desenharFace(g, r, n) {
     g.scale(dois ? 0.82 : 0.92, 1)
     g.font = 'bold ' + fy(dois ? IDX_FONTE_2 : IDX_FONTE).toFixed(1) +
       'px "Trebuchet MS", "Segoe UI", Arial, sans-serif'
+    g.lineWidth = traco
+    g.strokeText(nome, 0, 0)
     g.fillText(nome, 0, 0)
     g.restore()
-    naipe(g, n, cantoX, cantoY + fy(IDX_NAIPE_DY), fy(IDX_NAIPE))
+    naipe(g, n, cantoX, cantoY + fy(IDX_NAIPE_DY), fy(IDX_NAIPE), traco)
     g.restore()
   }
   indice(1)

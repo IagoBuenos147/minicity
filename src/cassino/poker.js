@@ -1,35 +1,27 @@
 // ---------------------------------------------------------------------------
-// src/cassino/poker.js — poker de DUAS cartas, mano a mano contra o ricaco.
+// src/cassino/poker.js — TEXAS HOLD'EM mano a mano contra o ricaco.
 //
-// Nao e Texas Hold'em: nao existe mesa comunitaria, nao existe flop. Cada um
-// recebe duas cartas e aposta em cima delas. A escolha e proposital — sem
-// cartas comunitarias a mao inteira cabe em dois cliques, e o jogador que
-// entrou no cassino pra dar uma olhada nao precisa aprender cinco fases de
-// aposta pra jogar uma mao.
+// Duas cartas na mao de cada um, cinco no meio da mesa, quatro rodadas de
+// aposta: pre-flop, flop (3 cartas), turn (a quarta), river (a quinta).
 //
-// A ORDEM DAS CATEGORIAS E DE PROPOSITO DIFERENTE DO POKER DE VERDADE:
+// ISTO SUBSTITUIU UM JOGO INTEIRO, e vale registrar o que caiu porque o
+// comentario antigo defendia o contrario. Antes eram DUAS cartas e uma rodada
+// so, com uma tabela de premios propria (par > sequencia > naipe > carta alta)
+// que estava certa pra duas cartas e nao existe em lugar nenhum fora daqui. A
+// razao escrita era "quem entrou no cassino pra dar uma olhada nao precisa
+// aprender cinco fases de aposta". O dono pediu o contrario, e com todas as
+// letras: "quero que venha o flop de 3 cartas, depois turn, depois river, quero
+// esse tipo de poker". Entao a tabela de premios agora e a DE VERDADE, a que o
+// jogador ja conhece de fora do jogo, e a mao tem quatro momentos de decisao em
+// vez de um.
 //
-//     par  >  sequencia  >  naipe  >  carta alta
-//
-// No poker de 5 cartas o flush ganha da sequencia porque flush e mais raro.
-// Com DUAS cartas a raridade inverte. Contando as 1326 maos do baralho e
-// classificando cada uma como forcaDaMao() classifica de verdade (sequencia do
-// mesmo naipe cai em SEQUENCIA, nao em naipe), da:
-//
-//     par 78 (5,9%)   sequencia 208 (15,7%)   naipe 260 (19,6%)   alta 780 (58,8%)
-//
-// Sequencia e mesmo mais rara que naipe, entao a ordem esta certa — mas os dois
-// numeros que a gente cita de cabeca aqui estao errados e induzem a mexer:
-//   - "mesmo naipe = 12/51 = 23,5%" e a chance CRUA de duas cartas do mesmo
-//     naipe; ela ainda inclui as 52 sequencias do mesmo naipe, que nesta funcao
-//     nao sao naipe. A categoria 'naipe' de verdade e 260/1326 = 19,6%.
-//   - "sequencia = 14,5%" so vale contando 12 pares de valores vizinhos
-//     (192 maos), ou seja, esquecendo que o As fecha dos DOIS lados. Aqui A-K
-//     tambem e sequencia, sao 13 pares, 208 maos, 15,7%.
-//
-// Manter a ordem do poker de 5 aqui pagaria melhor pela mao mais comum — que e
-// exatamente o contrario do que uma tabela de premios deve fazer. Quem mexer
-// nisso depois: a ordem esta certa, ela so parece errada.
+// COMO A MAO E AVALIADA. Sete cartas (duas minhas + cinco da mesa) e a melhor
+// combinacao de CINCO entre elas. As 21 combinacoes sao enumeradas na marra —
+// ver melhorMao(). Existe algoritmo mais esperto, e ele nao vale o risco aqui:
+// isto roda no maximo umas poucas vezes por mao, e um avaliador de 7 cartas
+// escrito a mao e exatamente o tipo de codigo que fica errado num canto raro
+// (a roda A-2-3-4-5, o flush com seis cartas do mesmo naipe) e ninguem
+// descobre. Enumerar e obvio e testavel.
 //
 // Logica pura: sem DOM, sem three.js, sem carteira. Igual ao blackjack, ELA
 // NAO MEXE EM DINHEIRO — 'retorno' diz quanto o jogador recebe e a UI credita.
@@ -37,17 +29,28 @@
 
 import { nomeValor } from './baralho.js'
 
-/** Teto de aumentos por mao. Sem ele, dois jogadores teimosos (e a IA e bem
- *  teimosa com par na mao) podem aumentar um por cima do outro pra sempre e a
- *  mao vira leilao. Tres e o bastante pra ter conversa e pouco o bastante pra
- *  a mao caber em meio minuto. */
+/** Teto de aumentos POR RODADA. Sem ele, dois jogadores teimosos (e a IA e bem
+ *  teimosa com trinca na mao) podem aumentar um por cima do outro pra sempre e
+ *  a rodada vira leilao. Tres por rua e o bastante pra ter conversa; com quatro
+ *  ruas, uma mao ainda cabe em pouco mais de um minuto. */
 export const TETO_AUMENTOS = 3
 
 /** Chance de o NPC apostar forte com mao ruim. 15% e o suficiente pra o
  *  jogador nunca ter certeza — que e o unico motivo de um blefe existir. */
 const CHANCE_BLEFE = 0.15
 
-const CATEGORIAS = ['carta alta', 'naipe', 'sequencia', 'par']
+/** As nove categorias do poker de cinco cartas, da pior pra melhor. O indice
+ *  E o valor: e ele que entra na chave de comparacao. */
+const CATEGORIAS = [
+  'carta alta', 'par', 'dois pares', 'trinca',
+  'sequencia', 'flush', 'full house', 'quadra', 'straight flush',
+]
+
+/** Os nomes das quatro ruas, na ordem em que acontecem. */
+export const RUAS = ['pre-flop', 'flop', 'turn', 'river']
+
+/** Quantas cartas a mesa tem em cada rua. O indice e a rua. */
+const CARTAS_NA_RUA = [0, 3, 4, 5]
 
 /** As vale 14 pra comparar. O 1 cru so serve pra indexar nome de carta. */
 function alto14(r) {
@@ -60,58 +63,139 @@ function paraRank(v) {
 }
 
 /**
- * Forca de uma mao de duas cartas.
+ * A CHAVE de uma mao: um inteiro em que comparar dois numeros e comparar duas
+ * maos, com desempate completo.
  *
- * 'chave' e um inteiro comparavel: categoria * 10000 + alto * 100 + baixo.
- * As tres faixas nunca se invadem porque alto e baixo cabem em 14 (1400 + 14 =
- * 1414, bem abaixo dos 10000 de um degrau de categoria). Comparar duas maos e
- * comparar dois numeros, e a ordem e TOTAL: chave igual so acontece quando as
- * maos tem mesma categoria e mesmos dois valores — e ai elas sao mesmo
- * equivalentes, porque naipe nao tem hierarquia.
+ * base 15 e nao 14 porque o As vale 14 e o digito precisa de um valor a mais
+ * que o maior que ele carrega. Cinco digitos de desempate (15^5 = 759.375)
+ * cabem folgados abaixo do degrau de categoria, entao categoria NUNCA e
+ * invadida por desempate — que e o erro classico deste tipo de codificacao.
  */
-export function forcaDaMao(a, b) {
-  const va = alto14(a.r)
-  const vb = alto14(b.r)
-  let alto = va > vb ? va : vb
-  let baixo = va > vb ? vb : va
-
-  const par = va === vb
-  const mesmoNaipe = a.n === b.n
-
-  // Sequencia: dois valores vizinhos. O As fecha dos DOIS lados — A-K por cima
-  // e A-2 por baixo.
-  let seq = alto - baixo === 1
-  if (!seq && alto === 14 && baixo === 2) {
-    seq = true
-    // Aqui o As passa a valer 1 pra montar a chave. Sem essa troca, A-2 sairia
-    // com alto=14 e ficaria ACIMA de K-Q na comparacao — a sequencia mais
-    // fraca do jogo ganhando da segunda mais forte. E o bug classico do "As
-    // dos dois lados": lembrar que ele e alto e facil, lembrar de rebaixa-lo
-    // quando ele fecha por baixo e que ninguem faz.
-    alto = 2
-    baixo = 1
-  }
-
-  let categoria
-  if (par) categoria = 3
-  else if (seq) categoria = 2
-  else if (mesmoNaipe) categoria = 1
-  else categoria = 0
-
-  // Sequencia do mesmo naipe (A♠K♠) cai em 'sequencia' e nao ganha degrau
-  // extra: sao so quatro categorias, e inventar uma quinta aqui quebraria a
-  // tabela de premios que a UI desenha a partir de CATEGORIAS.
-
-  let nome
-  if (categoria === 3) nome = 'par de ' + nomeValor(a.r)
-  else if (categoria === 2) nome = 'sequencia ' + nomeValor(paraRank(Math.max(va, vb))) + '-' + nomeValor(paraRank(Math.min(va, vb)))
-  else if (categoria === 1) nome = 'naipe ' + nomeValor(paraRank(alto)) + '-' + nomeValor(paraRank(baixo))
-  else nome = 'carta alta ' + nomeValor(paraRank(alto))
-
-  return { categoria, nome, chave: categoria * 10000 + alto * 100 + baixo }
+function chaveDe(categoria, ordem) {
+  let k = categoria
+  for (let i = 0; i < 5; i++) k = k * 15 + (ordem[i] || 0)
+  return k
 }
 
-/** Nome da categoria pura, pra tabela de premios da UI. */
+/**
+ * Avalia EXATAMENTE cinco cartas. Devolve { categoria, ordem } onde 'ordem' sao
+ * os cinco valores na ordem de desempate — primeiro o que define a categoria,
+ * depois os kickers do maior pro menor.
+ */
+function avaliar5(cinco) {
+  const vals = []
+  const naipes = []
+  for (let i = 0; i < 5; i++) {
+    vals.push(alto14(cinco[i].r))
+    naipes.push(cinco[i].n)
+  }
+
+  const flush = naipes[0] === naipes[1] && naipes[1] === naipes[2] &&
+    naipes[2] === naipes[3] && naipes[3] === naipes[4]
+
+  // conta por valor, do maior pro menor
+  const conta = new Map()
+  for (const v of vals) conta.set(v, (conta.get(v) || 0) + 1)
+  // Ordena por QUANTIDADE primeiro e valor depois: e isso que poe a trinca na
+  // frente do par num full house e o par na frente do kicker.
+  const grupos = [...conta.entries()].sort((a, b) => (b[1] - a[1]) || (b[0] - a[0]))
+
+  // sequencia: cinco valores distintos e consecutivos
+  const unicos = [...conta.keys()].sort((a, b) => b - a)
+  let seq = false
+  let altoSeq = 0
+  if (unicos.length === 5) {
+    if (unicos[0] - unicos[4] === 4) { seq = true; altoSeq = unicos[0] }
+    // A RODA: A-2-3-4-5, a unica sequencia em que o As vale UM. Sem este caso
+    // ela sairia como carta alta de As, que e a mao mais forte da categoria
+    // errada — o bug classico do "As dos dois lados".
+    else if (unicos[0] === 14 && unicos[1] === 5 && unicos[4] === 2) { seq = true; altoSeq = 5 }
+  }
+
+  if (seq && flush) return { categoria: 8, ordem: [altoSeq, 0, 0, 0, 0] }
+  if (grupos[0][1] === 4) return { categoria: 7, ordem: [grupos[0][0], grupos[1][0], 0, 0, 0] }
+  if (grupos[0][1] === 3 && grupos[1][1] === 2) return { categoria: 6, ordem: [grupos[0][0], grupos[1][0], 0, 0, 0] }
+  if (flush) return { categoria: 5, ordem: unicos.concat([0, 0, 0, 0, 0]).slice(0, 5) }
+  if (seq) return { categoria: 4, ordem: [altoSeq, 0, 0, 0, 0] }
+  if (grupos[0][1] === 3) return { categoria: 3, ordem: [grupos[0][0], grupos[1][0], grupos[2][0], 0, 0] }
+  if (grupos[0][1] === 2 && grupos[1][1] === 2) {
+    return { categoria: 2, ordem: [grupos[0][0], grupos[1][0], grupos[2][0], 0, 0] }
+  }
+  if (grupos[0][1] === 2) {
+    return { categoria: 1, ordem: [grupos[0][0], grupos[1][0], grupos[2][0], grupos[3][0], 0] }
+  }
+  return { categoria: 0, ordem: unicos.slice(0, 5) }
+}
+
+/** O nome que a faixa mostra. Curto: cabe numa linha de rodape. */
+function nomeDe(categoria, ordem) {
+  const n = (v) => nomeValor(paraRank(v))
+  switch (categoria) {
+    case 8: return ordem[0] === 5 ? 'straight flush ate 5' : 'straight flush ate ' + n(ordem[0])
+    case 7: return 'quadra de ' + n(ordem[0])
+    case 6: return 'full de ' + n(ordem[0]) + ' com ' + n(ordem[1])
+    case 5: return 'flush de ' + n(ordem[0])
+    case 4: return ordem[0] === 5 ? 'sequencia ate 5' : 'sequencia ate ' + n(ordem[0])
+    case 3: return 'trinca de ' + n(ordem[0])
+    case 2: return 'dois pares, ' + n(ordem[0]) + ' e ' + n(ordem[1])
+    case 1: return 'par de ' + n(ordem[0])
+    default: return 'carta alta ' + n(ordem[0])
+  }
+}
+
+/**
+ * A MELHOR MAO DE CINCO dentro de 5 a 7 cartas.
+ *
+ * Enumera as combinacoes. Com 7 cartas sao 21, com 6 sao 6, com 5 e uma: o
+ * custo total de uma mao inteira de poker e menos de cem avaliacoes de cinco
+ * cartas, o que nao aparece em profiler nenhum.
+ */
+export function melhorMao(cartas) {
+  const c = Array.isArray(cartas) ? cartas.filter((x) => x && x.r) : []
+  if (c.length < 5) return null
+  let melhor = null
+  const cinco = [0, 0, 0, 0, 0]
+  for (let a = 0; a < c.length - 4; a++) {
+    for (let b = a + 1; b < c.length - 3; b++) {
+      for (let d = b + 1; d < c.length - 2; d++) {
+        for (let e = d + 1; e < c.length - 1; e++) {
+          for (let f = e + 1; f < c.length; f++) {
+            cinco[0] = c[a]; cinco[1] = c[b]; cinco[2] = c[d]; cinco[3] = c[e]; cinco[4] = c[f]
+            const r = avaliar5(cinco)
+            const chave = chaveDe(r.categoria, r.ordem)
+            if (!melhor || chave > melhor.chave) {
+              melhor = { categoria: r.categoria, chave, nome: nomeDe(r.categoria, r.ordem) }
+            }
+          }
+        }
+      }
+    }
+  }
+  return melhor
+}
+
+/**
+ * O que a faixa escreve na dica. Existe porque no PRE-FLOP nao ha cinco cartas
+ * pra avaliar e melhorMao() devolve null — e a UI precisa de alguma coisa pra
+ * mostrar desde a primeira carta, senao a linha pisca vazia e volta.
+ */
+export function descreverMao(minhas, mesa) {
+  const mao = Array.isArray(minhas) ? minhas.filter((c) => c && c.r) : []
+  const board = Array.isArray(mesa) ? mesa.filter((c) => c && c.r) : []
+  if (!mao.length) return ''
+  const f = melhorMao(mao.concat(board))
+  if (f) return f.nome
+  if (mao.length < 2) return nomeValor(mao[0].r)
+  const a = alto14(mao[0].r)
+  const b = alto14(mao[1].r)
+  const alto = Math.max(a, b)
+  const baixo = Math.min(a, b)
+  if (a === b) return 'par de ' + nomeValor(mao[0].r)
+  const juntas = mao[0].n === mao[1].n ? ' do mesmo naipe' : ''
+  return nomeValor(paraRank(alto)) + '-' + nomeValor(paraRank(baixo)) + juntas
+}
+
+/** Nome da categoria pura, pra tabela de maos da UI. */
 export function nomeCategoria(i) {
   return CATEGORIAS[i] || '?'
 }
@@ -130,6 +214,7 @@ const FALAS = {
   ganhei: ['Chapeu paga as contas.', 'Facil demais.', 'Volta com mais dinheiro.'],
   perdi: ['Sorte de principiante.', 'Anota, foi so uma.', 'Perdi trocado.'],
   empate: ['Empate. Que sem graca.', 'Dividimos, entao.'],
+  vira: ['Vamos ver o que vem.', 'Abre ai.', 'Mostra a proxima.'],
 }
 
 // Congelado de proposito: e devolvido por estado() em varios lugares e um
@@ -152,13 +237,21 @@ export function criarPoker(opts = {}) {
   let fase = 'aposta'
   let minhas = []
   let dele = []
+  let mesa = []               // as comunitarias JA VIRADAS
+  let rua = 0                 // 0 pre-flop, 1 flop, 2 turn, 3 river
   let revelado = false
   let pote = 0
-  let minhaEntrada = 0
+  let minhaEntrada = 0        // total meu na mao inteira
   let entradaDele = 0
-  let aumentos = 0
-  let euPassei = false
-  let elePassou = false
+  // AS ENTRADAS DA RUA sao contas separadas das da mao, e essa separacao e o
+  // coracao do Hold'em. 'paraPagar' e a diferenca DESTA rua: quem pagou 200 no
+  // flop comeca o turn devendo zero, e sem esse par de variaveis o jogador
+  // ficaria pagando de novo, toda rua, o que ja pagou.
+  let minhaRua = 0
+  let deleRua = 0
+  let euAgi = false           // ja agi NESTA rua?
+  let eleAgiu = false
+  let aumentos = 0            // aumentos NESTA rua
   let fala = ''
   let resultado = null
   let mensagem = 'Pague a ante pra ver as cartas'
@@ -169,7 +262,7 @@ export function criarPoker(opts = {}) {
   }
 
   function paraPagar() {
-    const d = entradaDele - minhaEntrada
+    const d = deleRua - minhaRua
     return d > 0 ? d : 0
   }
 
@@ -179,22 +272,12 @@ export function criarPoker(opts = {}) {
    *
    * A MESA E CASH GAME, e o pedido do dono foi literal: "n quero que limite o
    * quanto pode apostar, tem que ser cash in, entao n pode limitar". Esta
-   * funcao ja teve dois tetos artificiais e os dois cairam:
-   *
-   *   1. LIMITE DE POTE (teto = min(pote, npcFichas)). A razao escrita era
-   *      "evita o all-in que acaba com a noite em uma mao" — mas o
-   *      TETO_AUMENTOS de 3 ja evita isso sozinho. O preco apareceu quando as
-   *      fichas viraram objeto em cima do pano: com ante 25 o pote abre em 50,
-   *      a aposta maxima era 50, e as pilhas de 100, 250 e 500 do caixote nunca
-   *      podiam ser empurradas.
-   *   2. QUATRO VEZES O POTE, a tentativa seguinte. Melhor, e ainda um teto:
-   *      quem tinha vinte mil em ficha continuava sem poder empurrar.
-   *
-   * O QUE SOBROU E O UNICO LIMITE HONESTO DE UMA MESA DE VERDADE: nao da pra
-   * apostar mais do que o adversario tem pra cobrir, porque o excedente seria
-   * dinheiro morto no pote — ninguem ganharia nem perderia com ele. E a regra
-   * de "table stakes", e a faixa mostra o numero ('ele tem 1.975') pra ela
-   * nunca ser uma recusa sem explicacao.
+   * funcao ja teve dois tetos artificiais e os dois cairam: limite de pote e
+   * depois quatro vezes o pote. O que sobrou e o unico limite honesto de uma
+   * mesa de verdade — nao da pra apostar mais do que o adversario tem pra
+   * cobrir, porque o excedente seria dinheiro morto no pote. E a regra de
+   * "table stakes", e a faixa mostra o numero ('ele tem 4.975') pra ela nunca
+   * ser uma recusa sem explicacao.
    */
   function limitarAposta(v) {
     const teto = Math.max(ante, npcFichas)
@@ -215,17 +298,60 @@ export function criarPoker(opts = {}) {
       lista.push('passar')
       if (podeSubir) lista.push('apostar')
     }
-    // Desistir sempre aparece, mesmo sem nada a pagar. E jogada legal (perde a
-    // ante), e a UI ganha um botao que nunca some do lugar.
+    // Desistir sempre aparece, mesmo sem nada a pagar. E jogada legal (perde o
+    // que ja esta no pote), e a UI ganha um botao que nunca some do lugar.
     lista.push('desistir')
     return lista
   }
 
+  /** A rodada de aposta desta rua acabou? So quando os DOIS agiram e as duas
+   *  entradas da rua se igualaram. Sem exigir os dois, o 'passo' de abertura do
+   *  jogador fecharia a rua antes de o ricaco poder apostar. */
+  function ruaFechada() {
+    return euAgi && eleAgiu && minhaRua === deleRua
+  }
+
+  /** Vira as cartas que faltam pra rua `r`. O flop sai de uma vez; turn e river
+   *  saem uma a uma. Quem desenha isso na mesa e a UI, pelo estado(). */
+  function abrirMesa(r) {
+    const quer = CARTAS_NA_RUA[r] || 0
+    while (mesa.length < quer) mesa.push(baralho.pegar())
+  }
+
+  function avancarRua() {
+    if (rua >= 3) { showdown(); return }
+    rua++
+    abrirMesa(rua)
+    minhaRua = 0
+    deleRua = 0
+    euAgi = false
+    eleAgiu = false
+    aumentos = 0
+    fala = frase('vira')
+    fase = 'jogador'
+    mensagem = RUAS[rua].toUpperCase() + ' na mesa. Sua vez'
+  }
+
+  /** Uma acao terminou: ou a rua fecha e a proxima carta vem, ou a vez passa. */
+  function seguir(quemAgiu) {
+    if (ruaFechada()) { avancarRua(); return }
+    if (quemAgiu === 'eu') {
+      fase = 'npc'
+      mensagem = 'Ele esta pensando...'
+      if (automatico) agirNpc()
+    } else {
+      fase = 'jogador'
+    }
+  }
+
   function showdown() {
-    fase = 'showdown'
     revelado = true
-    const minha = forcaDaMao(minhas[0], minhas[1])
-    const dela = forcaDaMao(dele[0], dele[1])
+    // No showdown as CINCO cartas da mesa existem mesmo que a rua tenha
+    // acabado antes (all-in, por exemplo): sem isso, duas maos de duas cartas
+    // seriam comparadas com regra de cinco e o resultado nao faria sentido.
+    abrirMesa(3)
+    const minha = melhorMao(minhas.concat(mesa))
+    const dela = melhorMao(dele.concat(mesa))
 
     let tipo
     let retorno
@@ -259,7 +385,7 @@ export function criarPoker(opts = {}) {
     resultado = {
       tipo: 'ele-desistiu',
       retorno: pote,
-      minhaMao: forcaDaMao(minhas[0], minhas[1]),
+      minhaMao: melhorMao(minhas.concat(mesa)),
       // Quem corre nao mostra. E a regra da mesa e tambem o que impede o
       // jogador de aprender a ler a IA olhando as maos que ela larga.
       maoDele: null,
@@ -268,7 +394,8 @@ export function criarPoker(opts = {}) {
   }
 
   // --- IA-NPC-INICIO ---------------------------------------------------------
-  // A IA DECIDE OLHANDO SO PRA `dele` (a mao DELA) E PROS NUMEROS DO POTE.
+  // A IA DECIDE OLHANDO SO PRA `dele` (a mao DELA), PRA `mesa` (que e publica) E
+  // PROS NUMEROS DO POTE.
   // NUNCA leia `minhas` daqui pra baixo ate o marcador de fim. Um NPC que
   // espia as cartas do jogador nao joga melhor: ele joga PERFEITO, e um
   // adversario perfeito nao e dificil, e chato — ele desiste toda vez que o
@@ -278,28 +405,53 @@ export function criarPoker(opts = {}) {
   // O teste tools/teste-cassino.mjs le este bloco e falha se a palavra
   // 'minhas' aparecer dentro dele.
 
-  /** Traduz a chave da mao pra uma nota 0..1. Nao da pra usar chave/31414
-   *  direto: quase toda mao e carta alta e cairia perto de zero, e a IA
-   *  desistiria de tudo. Cada categoria ganha a propria faixa. */
-  function nota(f) {
-    // As faixas nao podem se tocar: a pior sequencia tem que valer mais que o
-    // melhor naipe, senao a IA fica agressiva com flush e passiva com trinca —
-    // e joga na ordem errada do proprio jogo.
-    const escala = (f.chave % 10000) / 1414
-    if (f.categoria === 3) return 0.80 + 0.20 * escala
-    if (f.categoria === 2) return 0.55 + 0.20 * escala
-    if (f.categoria === 1) return 0.38 + 0.15 * escala
-    return 0.05 + 0.30 * escala
+  /**
+   * Nota 0..1 da mao DELE na rua atual.
+   *
+   * Pre-flop nao ha cinco cartas pra avaliar, entao vale uma regra de bolso —
+   * par, cartas altas, mesmo naipe, conectadas — que e como qualquer jogador
+   * humano decide antes do flop. Do flop em diante a nota vem da CATEGORIA da
+   * melhor mao, com uma faixa por categoria.
+   *
+   * O QUE ESTA NOTA NAO SABE: que um par formado pela MESA vale pouco, porque o
+   * adversario tem o mesmo par. Isso deixa a IA um pouco otimista com board
+   * pairs — e um erro conhecido e barato: ele paga um pouco demais, o que e o
+   * jeito certo de errar num adversario de cassino.
+   */
+  function notaDele() {
+    if (mesa.length < 3) {
+      const a = alto14(dele[0].r)
+      const b = alto14(dele[1].r)
+      const alto = Math.max(a, b)
+      const baixo = Math.min(a, b)
+      if (a === b) return 0.62 + (alto / 14) * 0.30
+      let n = 0.10 + (alto / 14) * 0.28 + (baixo / 14) * 0.10
+      if (dele[0].n === dele[1].n) n += 0.08
+      if (alto - baixo === 1) n += 0.06
+      return Math.min(0.92, n)
+    }
+    const f = melhorMao(dele.concat(mesa))
+    if (!f) return 0.2
+    // As faixas nao se tocam: a pior trinca tem que valer mais que o melhor
+    // dois pares, senao a IA fica agressiva com a mao errada e joga fora da
+    // ordem do proprio jogo.
+    const BASE = [0.05, 0.34, 0.52, 0.64, 0.74, 0.82, 0.88, 0.94, 0.99]
+    const LARG = [0.26, 0.16, 0.10, 0.08, 0.06, 0.04, 0.04, 0.03, 0.01]
+    // A parte fracionaria da chave dentro da categoria, normalizada. 15^5 e o
+    // tamanho de um degrau de categoria (ver chaveDe).
+    const dentro = (f.chave % 759375) / 759375
+    return Math.min(0.999, BASE[f.categoria] + LARG[f.categoria] * dentro)
   }
 
   function agirNpc() {
     if (fase !== 'npc') return false
-    const forca = nota(forcaDaMao(dele[0], dele[1]))
+    const forca = notaDele()
     const blefe = sorteio() < CHANCE_BLEFE
-    const falta = minhaEntrada - entradaDele
+    const falta = minhaRua - deleRua
 
     function poe(v) {
       const real = Math.max(0, Math.min(v, npcFichas))
+      deleRua += real
       entradaDele += real
       pote += real
       npcFichas -= real
@@ -307,20 +459,22 @@ export function criarPoker(opts = {}) {
     }
 
     if (falta <= 0) {
-      // Ninguem apostou. Ele abre com mao boa, ou de vez em quando com nada.
+      // Ninguem apostou nesta rua. Ele abre com mao boa, ou de vez em quando
+      // com nada. O tamanho sobe com a rua: apostar 75% do pote no river e
+      // outra conversa que apostar 75% no pre-flop.
       const podeAbrir = aumentos < TETO_AUMENTOS && npcFichas > 0
       if (podeAbrir && (forca >= 0.62 || blefe)) {
         poe(Math.max(ante, Math.round(pote * (blefe ? 0.5 : 0.75))))
         aumentos++
-        euPassei = false
-        elePassou = false
+        eleAgiu = true
+        euAgi = false
         fala = frase(blefe ? 'blefe' : 'aposta')
         fase = 'jogador'
         mensagem = 'Ele apostou. Sua vez'
       } else {
-        elePassou = true
+        eleAgiu = true
         fala = frase('passa')
-        if (euPassei) showdown()
+        if (ruaFechada()) avancarRua()
         else { fase = 'jogador'; mensagem = 'Ele passou. Sua vez' }
       }
       return true
@@ -334,7 +488,8 @@ export function criarPoker(opts = {}) {
     if (forca >= 0.82 && aumentos < TETO_AUMENTOS && npcFichas > falta) {
       poe(falta + Math.max(ante, Math.round(pote * 0.6)))
       aumentos++
-      euPassei = false
+      eleAgiu = true
+      euAgi = false
       fala = frase('aumenta')
       fase = 'jogador'
       mensagem = 'Ele aumentou. Sua vez'
@@ -343,8 +498,12 @@ export function criarPoker(opts = {}) {
 
     if (forca >= odds + 0.12 || (blefe && falta <= pote * 0.5)) {
       poe(falta)
+      eleAgiu = true
       fala = frase('paga')
-      showdown()
+      // Pagar iguala a rua. Se eu ja agi, a rua fecha e a proxima carta vem —
+      // no river isso e o showdown.
+      if (ruaFechada()) avancarRua()
+      else { fase = 'jogador'; mensagem = 'Ele pagou. Sua vez' }
       return true
     }
 
@@ -352,12 +511,6 @@ export function criarPoker(opts = {}) {
     return true
   }
   // --- IA-NPC-FIM ------------------------------------------------------------
-
-  function passarAVez() {
-    fase = 'npc'
-    mensagem = 'Ele esta pensando...'
-    if (automatico) agirNpc()
-  }
 
   const api = {
     get ante() { return ante },
@@ -368,13 +521,18 @@ export function criarPoker(opts = {}) {
     estado() {
       return {
         fase,
+        rua,
+        nomeRua: RUAS[rua] || '',
         minhas: minhas.slice(),
         // 'dele' so aparece no showdown. Mesma regra da carta escondida do
         // blackjack: segredo escondido no DADO, nao no desenho.
         dele: revelado ? dele.slice() : VAZIO,
+        mesa: mesa.slice(),
         pote,
         minhaEntrada,
         entradaDele,
+        minhaRua,
+        deleRua,
         paraPagar: paraPagar(),
         fichasNpc: npcFichas,
         aumentos,
@@ -398,39 +556,41 @@ export function criarPoker(opts = {}) {
       // O ricaco nunca quebra: se o cofre secou, ele "manda buscar mais". E
       // coerente com o personagem e evita a mesa morta, que e o que acontece
       // se o NPC zerar e o jogador ficar com um botao de jogar que nao joga.
-      //
-      // O GATILHO SUBIU (era `< ante*20` somando 2000) porque a banca dele
-      // virou o TETO DA APOSTA: sem limite de pote, o maximo que o jogador pode
-      // empurrar e exatamente o que ele tem pra cobrir. Com o cofre boiando em
-      // 500, o all-in valia 500 e "sem limite" nao queria dizer nada. Repondo
-      // abaixo de 40 antes, ele fica na faixa de 1000 a 5000 — dinheiro que
-      // aguenta uma mao grande e ainda cabe numa noite de jogo.
+      // O gatilho e alto porque a banca dele e o TETO DA APOSTA: sem limite de
+      // pote, o maximo que o jogador pode empurrar e o que ele tem pra cobrir.
       if (npcFichas < ante * 40) npcFichas += 4000
 
       minhas = [baralho.pegar(), baralho.pegar()]
       dele = [baralho.pegar(), baralho.pegar()]
+      mesa = []
+      rua = 0
       revelado = false
 
+      // A ANTE E A ENTRADA DA PRIMEIRA RUA, e nao um pagamento a parte. Contada
+      // como entrada de rua, os dois comecam empatados e o pre-flop abre com
+      // 'passar' disponivel — que e o que se espera de uma mesa em que os dois
+      // pagaram o mesmo pra entrar.
       minhaEntrada = ante
       entradaDele = Math.min(ante, npcFichas)
       npcFichas -= entradaDele
+      minhaRua = minhaEntrada
+      deleRua = entradaDele
       pote = minhaEntrada + entradaDele
 
       aumentos = 0
-      euPassei = false
-      elePassou = false
+      euAgi = false
+      eleAgiu = false
       resultado = null
       fala = frase('inicio')
       fase = 'jogador'
-      mensagem = 'Sua vez'
+      mensagem = 'PRE-FLOP. Sua vez'
       return true
     },
 
     passar() {
       if (fase !== 'jogador' || paraPagar() > 0) return false
-      euPassei = true
-      if (elePassou) showdown()
-      else passarAVez()
+      euAgi = true
+      seguir('eu')
       return true
     },
 
@@ -439,23 +599,28 @@ export function criarPoker(opts = {}) {
       if (aumentos >= TETO_AUMENTOS || npcFichas <= 0) return false
       const val = limitarAposta(v)
       minhaEntrada += val
+      minhaRua += val
       pote += val
       aumentos++
-      euPassei = false
-      elePassou = false
-      passarAVez()
+      euAgi = true
+      // Ele TEM que responder: apostar reabre a rua pra ele mesmo que ele ja
+      // tenha passado antes.
+      eleAgiu = false
+      seguir('eu')
       return true
     },
 
-    /** Pagar FECHA a rodada: iguala e vai pro showdown. E o que faz a mao ter
-     *  fim garantido — sem isso, dois "pago" seguidos ficariam girando. */
+    /** Pagar iguala a rua. Se ele ja agiu, a rua fecha aqui — no river isso e o
+     *  showdown, nas outras e a carta seguinte. */
     pagar() {
       if (fase !== 'jogador') return false
       const falta = paraPagar()
       if (falta <= 0) return false
       minhaEntrada += falta
+      minhaRua += falta
       pote += falta
-      showdown()
+      euAgi = true
+      seguir('eu')
       return true
     },
 
@@ -466,10 +631,12 @@ export function criarPoker(opts = {}) {
       if (aumentos >= TETO_AUMENTOS || npcFichas <= 0) return false
       const extra = limitarAposta(v)
       minhaEntrada += falta + extra
+      minhaRua += falta + extra
       pote += falta + extra
       aumentos++
-      elePassou = false
-      passarAVez()
+      euAgi = true
+      eleAgiu = false
+      seguir('eu')
       return true
     },
 
@@ -481,7 +648,7 @@ export function criarPoker(opts = {}) {
       resultado = {
         tipo: 'desistiu',
         retorno: 0,
-        minhaMao: forcaDaMao(minhas[0], minhas[1]),
+        minhaMao: melhorMao(minhas.concat(mesa)),
         maoDele: null,
       }
       mensagem = 'Voce correu. O pote ficou com ele'
@@ -510,13 +677,17 @@ export function criarPoker(opts = {}) {
       fase = 'aposta'
       minhas = []
       dele = []
+      mesa = []
+      rua = 0
       revelado = false
       pote = 0
       minhaEntrada = 0
       entradaDele = 0
+      minhaRua = 0
+      deleRua = 0
+      euAgi = false
+      eleAgiu = false
       aumentos = 0
-      euPassei = false
-      elePassou = false
       resultado = null
       fala = ''
       mensagem = 'Pague a ante pra ver as cartas'

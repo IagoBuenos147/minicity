@@ -301,6 +301,23 @@ const LAYOUT = {
     filas: {
       eu: { x: 0.00, z: -0.58, passo: 0.122, leque: -0.040, inclina: 0.87, inclinaVerso: 0.87 },
       ele: { x: 0.00, z: 0.62, passo: 0.116, leque: 0.055, inclina: 0.95 },
+      // A MESA COMUNITARIA: flop, turn e river. Ela nasceu quando o jogo virou
+      // Texas Hold'em e e a fila mais importante do feltro — os dois jogadores
+      // leem ela, e ela decide a mao.
+      //
+      // z=0.02 e o meio geometrico entre as duas maos, que e onde o olho ja
+      // procura. 'leque' zero porque board de verdade e uma fileira reta: o
+      // leque existe pra mao na mao, onde a carta de cima cobre a de baixo.
+      // 'passo' 0.122 contra 0.105 de largura de carta deixa 1,7 cm de rua —
+      // encostadas como um dealer espalha, sem virar um bloco so.
+      //
+      // 45 graus de 'inclina', menos que os 50 da minha mao: a carta do board
+      // fica LONGE da lente (1,9 m contra 1,1 m) e leva 7,3% da altura da tela
+      // contra os 3% que teria deitada. Nao passa de 45 porque a carta de pe
+      // esconde 25 cm de pano atras dela, e ai comeca a comer as fichas do
+      // ricaco. Medido na foto: comecou em 35 graus e 6,7%, e os 0,6 ponto que
+      // faltavam vieram de graca.
+      mesa: { x: 0.00, z: 0.02, passo: 0.122, leque: 0, inclina: 0.78, inclinaVerso: 0.78 },
     },
     // AS DUAS ENTRADAS DO POTE SAIRAM DO EIXO DO MEIO, e o motivo e oclusao.
     //
@@ -311,9 +328,13 @@ const LAYOUT = {
     // jogador mais precisa ver enquanto decide. Empurradas 28 cm pro +X (a
     // esquerda da tela) elas viram uma coluna livre: a minha embaixo, perto de
     // mim; a dele em cima, perto dele.
+    // 0.46 e nao 0.28: o board comunitario ocupa de -0.26 a +0.26 em x, e as
+    // pilhas do pote estavam justamente na ponta dele. Empurradas pra 0.46 elas
+    // viram uma coluna livre a esquerda da tela — a minha embaixo, perto de mim,
+    // a dele em cima, perto dele — e o meio do pano fica so pras cinco cartas.
     pilhas: {
-      minha: { x: 0.28, z: -0.30 },
-      dele: { x: 0.28, z: 0.26 },
+      minha: { x: 0.46, z: -0.30 },
+      dele: { x: 0.46, z: 0.28 },
     },
     // O CAIXOTE: as MINHAS fichas em cima do pano, uma pilha por valor, na
     // beirada do oval do meu lado. Em z=-0.93 com x ate 0.35 a elipse do tampo
@@ -1429,28 +1450,25 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
    * porque quem tira ficha do caixote e o proprio jogador empurrando pra
    * aposta — a animacao daquele movimento e a pilha da aposta subindo.
    */
-  function caixote(valores, saldo, tetoAposta) {
+  function caixote(lista) {
     const cx = L.caixote
-    if (!cx || !Array.isArray(valores)) return
+    if (!cx || !Array.isArray(lista)) return
     const teto = Math.max(1, Math.floor(cx.altura) || 10)
-    // TETO DA JOGADA: a mesa de poker limita a aposta ao tamanho do pote, e uma
-    // pilha de 500 num pote de 50 e ficha que o jogador nao tem como empurrar.
-    // Ela some, e a pilha vazia vira o proprio aviso — o mesmo papel que o
-    // botao apagado fazia no rodape. Sem tetoAposta (o blackjack nao tem esse
-    // limite) nada e escondido.
-    const limite = Number.isFinite(tetoAposta) ? tetoAposta : Infinity
-    const n = valores.length
+    const n = lista.length
     let atraso = 0
     for (let i = 0; i < n; i++) {
-      const v = valores[i]
+      const v = Math.max(1, Math.floor(lista[i].v) || 1)
       const p = pilha('cx:' + v)
       p.caixote = true
       p.valorFicha = v
       p.base.x = casaCaixote(i, n)
       p.base.z = cx.z
       const d = DENOM.find((k) => k.v === v) || { v, cor: 0xe8e2d2 }
-      const cabe = v <= limite ? Math.floor(Math.max(0, saldo) / v) : 0
-      const quer = Math.max(0, Math.min(teto, cabe))
+      // Quem conta e quem chama: a UI sabe quantas fichas ja sairam pro pano e
+      // precisa dessa conta pro caixote ENCOLHER na hora do clique ("quando eu
+      // apostar minhas fichas diminuam pq estao indo pra mesa"). Aqui so se
+      // apara pelo teto de altura da pilha.
+      const quer = Math.max(0, Math.min(teto, Math.floor(lista[i].n) || 0))
       const tem = p.itens.length
       if (quer === tem) continue
       if (quer < tem) {
@@ -1470,6 +1488,14 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
   }
 
   /** Todas as pilhas do caixote somem (saida da mesa). */
+  /** Quantas fichas cabem numa pilha do caixote. A UI precisa dela pra aparar
+   *  a contagem ANTES de descontar o que ja foi empurrado — aparar depois faria
+   *  um saldo de 20 mil nunca mudar de altura. */
+  function alturaCaixote() {
+    const cx = L.caixote
+    return Math.max(1, Math.floor(cx && cx.altura) || 10)
+  }
+
   function limparCaixote() {
     for (const p of pilhas.values()) {
       if (!p.caixote) continue
@@ -1716,6 +1742,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     limparFichas,
     caixote,
     limparCaixote,
+    alturaCaixote,
     montarAlvos,
     apontar,
     marcadores,

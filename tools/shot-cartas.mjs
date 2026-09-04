@@ -22,6 +22,32 @@
 // A REGIAO medida e o quadrilatero da FACE da carta projetado na tela, encolhido
 // 14% pro centro pra nao pegar o feltro na borda. Medir um retangulo da tela
 // pegaria o feltro e a ficha e o numero nao diria nada sobre a carta.
+//
+// ===========================================================================
+// SEGUNDA PERGUNTA, DE OUTRO PEDIDO: "ta bem apagado os nipes".
+// ===========================================================================
+//
+// Brilho de papel e uma medida de PICO; legibilidade de naipe e uma medida de
+// CONTRASTE, e as duas nao se deduzem uma da outra. Um percentil baixo sobre a
+// carta inteira tambem nao serve: a tinta ocupa ~5% da face, entao o p05 mistura
+// pip com borda de carta com sombra, e o numero anda quando a mao muda.
+//
+// Entao a ferramenta faz duas coisas a mais:
+//
+// 1) FORCA A MAO. As duas cartas do jogador passam a ser 5 de espadas e 5 de
+//    copas — mesmo arranjo de pips, uma preta e uma vermelha — reescrevendo o uv
+//    da TAMPA (mesh.userData.uv/attr, que cartas-3d.js expoe). Sem isso cada
+//    corrida media uma carta diferente e antes/depois nao comparavam nada.
+//
+// 2) MIRA NO PIP. O centro de cada pip e de cada indice e conhecido em fracao da
+//    celula; dai sai o ponto LOCAL na carta (x = (0.5-u)*L, z = (v-0.5)*C), que
+//    e projetado pela camera como qualquer vertice. Nao ha homografia no meio e
+//    nao ha chute: le-se o pixel onde o pip esta, e mais 8 em volta.
+//
+// O numero que importa e o DELTA: luma do papel menos luma do pip, na tela em
+// 0..255. E ele que responde "o naipe salta?" no tamanho em que o jogador ve.
+// Sai tambem a CROMA do vermelho, R - (G+B)/2, porque um vermelho pode ter
+// contraste de luz e mesmo assim ler como rosa lavado.
 
 import puppeteer from 'puppeteer-core'
 import fs from 'node:fs'
@@ -185,6 +211,58 @@ try {
   console.log('  cartas na mesa:', JSON.stringify(cartas))
   await espera(2500)
 
+  // 2b) FORCA A MAO em 5 de espadas + 5 de copas.
+  //
+  // O uv da tampa e reescrito na mao. Da pra fazer sem saber nada de cartas-3d
+  // porque o uv BASE da tampa e recuperavel da geometria: a face e plana em y,
+  // e o arquivo escreve u = 0.5 - x/L, v = 0.5 + z/C (o vertice 0 e o centro).
+  // Assim a ferramenta nao precisa importar o modulo nem depender da ordem das
+  // faixas — so da largura e do comprimento, que a bounding box da.
+  const forcarMao = () => page.evaluate(() => {
+    const G = window.__game
+    const COLS = 8, CEL_W = 256, CEL_H = 358, PAD = 1.5
+    let grupo = null
+    G.scene.traverse((o) => { if (o.name && o.name.indexOf('mesa3d-') === 0 && o.visible) grupo = o })
+    if (!grupo) return 0
+    const alvos = []
+    grupo.traverse((o) => {
+      if (!o.isMesh || !o.visible || !o.geometry || !o.userData.uv) return
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+      const bb = o.geometry.boundingBox
+      const dx = bb.max.x - bb.min.x, dz = bb.max.z - bb.min.z
+      if (dx < 0.06 || dx > 0.2 || dz < 0.09 || dz > 0.25) return
+      if (o.parent.position.z > -0.5) return
+      alvos.push(o)
+    })
+    alvos.sort((a, b) => a.parent.position.x - b.parent.position.x)
+    const CEL = [4, 17]     // 5 de espadas (n=0) e 5 de copas (n=1): mesmo arranjo
+    alvos.forEach((o, k) => {
+      const cel = CEL[k % CEL.length]
+      const tex = o.material.map.image
+      const cx = (cel % COLS) * CEL_W, cy = Math.floor(cel / COLS) * CEL_H
+      const u0 = (cx + PAD) / tex.width, u1 = (cx + CEL_W - PAD) / tex.width
+      const v0 = 1 - (cy + CEL_H - PAD) / tex.height, v1 = 1 - (cy + PAD) / tex.height
+      const pos = o.geometry.getAttribute('position')
+      const bb = o.geometry.boundingBox
+      const L = bb.max.x - bb.min.x, C = bb.max.z - bb.min.z
+      const uv = o.userData.uv
+      // a tampa e o bloco de vertices com y maximo, do inicio do buffer ate o
+      // primeiro vertice que ja nao esta na tampa
+      for (let i = 0; i < pos.count; i++) {
+        if (Math.abs(pos.getY(i) - bb.max.y) > 1e-6) break
+        const ub = 0.5 - pos.getX(i) / L
+        const vb = 0.5 + pos.getZ(i) / C
+        uv[i * 2] = u0 + ub * (u1 - u0)
+        uv[i * 2 + 1] = v0 + vb * (v1 - v0)
+      }
+      o.userData.attr.needsUpdate = true
+      o.userData.__cel = cel
+    })
+    return alvos.length
+  })
+  console.log('  mao forcada em 5 de espadas + 5 de copas:', await forcarMao(), 'cartas')
+  await espera(400)
+
   // 3) A MEDIDA
   const medida = await page.evaluate(() => {
     const G = window.__game
@@ -296,6 +374,9 @@ try {
         alturaTelaPct: +(((Math.max(q[0][1], q[1][1], q[2][1], q[3][1]) -
           Math.min(q[0][1], q[1][1], q[2][1], q[3][1])) / H) * 100 / 0.86).toFixed(1),
         max, p99, p90: pc(0.90), mediana: pc(0.5), min: pc(0),
+        // ponta de baixo: e a TINTA. Sem ela nao da pra falar de contraste, e
+        // contraste foi o segundo pedido ("ta bem apagado os nipes").
+        p02: pc(0.02), p05: pc(0.05), p10: pc(0.10),
         pctAcima085: +((acimaLimiar / Math.max(1, lumas.length)) * 100).toFixed(2),
         // Um max muito acima do p99 nao e a carta: e alguma coisa POR CIMA dela
         // no quadro (ficha recem-pousada, faisca do pote). O quadrilatero medido
@@ -351,10 +432,139 @@ try {
       const R = canal(0), Gc = canal(1), B = canal(2)
       return { medianaRGB: [R.p50, Gc.p50, B.p50], p95RGB: [R.p95, Gc.p95, B.p95] }
     })
+
+    // --- MIRA NO PIP -------------------------------------------------------
+    // Cada ponto de interesse e dado em pixel da CELULA do atlas (256 x 358, com
+    // a origem no canto de cima a esquerda do desenho). Dali sai o uv da tampa,
+    // dali o ponto local na carta, e dali o pixel na tela. Os alvos sao os do
+    // arranjo do 5 (ARRANJO[5] de cartas-3d.js) mais os dois cantos e dois
+    // pedacos de papel limpo pra servirem de referencia na MESMA carta — comparar
+    // pip com a mediana da face inteira contaria a moldura e a vinheta junto.
+    const CEL_W = 256, CEL_H = 358
+    const PIP_COL = 0.240, PIP_LIN = 0.283, IDX_X = 0.098, IDX_Y = 0.088, IDX_DY = 0.100
+    const ALVOS = [
+      ['pip-ce', 128 - PIP_COL * CEL_W, 179 - PIP_LIN * CEL_H],
+      ['pip-cd', 128 + PIP_COL * CEL_W, 179 - PIP_LIN * CEL_H],
+      ['pip-meio', 128, 179],
+      ['pip-be', 128 - PIP_COL * CEL_W, 179 + PIP_LIN * CEL_H],
+      ['pip-bd', 128 + PIP_COL * CEL_W, 179 + PIP_LIN * CEL_H],
+      ['idx-num', IDX_X * CEL_W, IDX_Y * CEL_H],
+      ['idx-naipe', IDX_X * CEL_W, (IDX_Y + IDX_DY) * CEL_H],
+      ['papel-a', 128, 100],
+      ['papel-b', 128, 258],
+    ]
+    const luma8 = (p) => 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]
+    saida.pips = alvos.map((o) => {
+      const bb = o.geometry.boundingBox
+      const L = bb.max.x - bb.min.x, C = bb.max.z - bb.min.z
+      o.updateWorldMatrix(true, false)
+      const ponto = (px, py) => {
+        const u = px / CEL_W, v = 1 - py / CEL_H
+        const p = new Vec((0.5 - u) * L, bb.max.y, (v - 0.5) * C)
+          .applyMatrix4(o.matrixWorld).project(cam)
+        return [Math.round((p.x * 0.5 + 0.5) * W), Math.round((1 - (p.y * 0.5 + 0.5)) * H)]
+      }
+      // 3x3 em volta do alvo: no tamanho de mesa o pip tem ~3 px de largura e o
+      // centro dele nao cai cravado num pixel. Guarda-se a MEDIA (o que o olho
+      // integra) e o MINIMO (quao escuro o nucleo do pip chega).
+      const amostra = (px, py) => {
+        const [sx, sy] = ponto(px, py)
+        if (sx < 1 || sy < 1 || sx >= W - 1 || sy >= H - 1) return null
+        const d = g2.getImageData(sx - 1, sy - 1, 3, 3).data
+        const cores = []
+        for (let i = 0; i < 9; i++) cores.push([d[i * 4], d[i * 4 + 1], d[i * 4 + 2]])
+        const med = [0, 1, 2].map((k) => Math.round(cores.reduce((a, c) => a + c[k], 0) / 9))
+        let escuro = cores[0]
+        for (const c of cores) if (luma8(c) < luma8(escuro)) escuro = c
+        return { xy: [sx, sy], med, escuro }
+      }
+      const r = { cel: o.userData.__cel, tela: {} }
+      for (const [nome, px, py] of ALVOS) r.tela[nome] = amostra(px, py)
+      const papel = [r.tela['papel-a'], r.tela['papel-b']].filter(Boolean)
+      const lPapel = papel.length ? papel.reduce((a, p) => a + luma8(p.med), 0) / papel.length : 0
+      const pips = ['pip-ce', 'pip-cd', 'pip-meio', 'pip-be', 'pip-bd']
+        .map((k) => r.tela[k]).filter(Boolean)
+      const croma = (p) => p[0] - (p[1] + p[2]) / 2
+      const mediaPip = pips.length ? pips.reduce((a, p) => a + luma8(p.med), 0) / pips.length : 0
+      const nucleoPip = pips.length ? pips.reduce((a, p) => a + luma8(p.escuro), 0) / pips.length : 0
+      r.papelLuma = +lPapel.toFixed(1)
+      r.pipLuma = +mediaPip.toFixed(1)
+      r.pipNucleo = +nucleoPip.toFixed(1)
+      // OS DOIS NUMEROS DO PEDIDO
+      r.deltaPip = +(lPapel - mediaPip).toFixed(1)
+      r.deltaNucleo = +(lPapel - nucleoPip).toFixed(1)
+      r.cromaPip = pips.length
+        ? +(pips.reduce((a, p) => a + croma(p.med), 0) / pips.length - croma(papel[0] ? papel[0].med : [0, 0, 0])).toFixed(1)
+        : 0
+      const idxs = ['idx-num', 'idx-naipe'].map((k) => r.tela[k]).filter(Boolean)
+      r.deltaIndice = idxs.length
+        ? +(lPapel - idxs.reduce((a, p) => a + luma8(p.med), 0) / idxs.length).toFixed(1) : 0
+      return r
+    })
+
+    // --- O DESENHO CRU, sem luz nenhuma no meio ----------------------------
+    // Le o proprio atlas nos MESMOS pontos. Serve pra separar "o desenho e fraco"
+    // de "a luz e o tone mapping comeram o desenho": se o atlas tem 200 de delta
+    // e a tela tem 40, o problema nao esta no traco.
+    const mat = alvos[0].material
+    if (mat && mat.map && mat.map.image) {
+      const tex = mat.map.image
+      const cvA = document.createElement('canvas')
+      cvA.width = tex.width; cvA.height = tex.height
+      cvA.getContext('2d').drawImage(tex, 0, 0)
+      const gA = cvA.getContext('2d', { willReadFrequently: true })
+      const trim = mat.color
+      saida.atlas = [4, 17].map((cel) => {
+        const ox = (cel % 8) * CEL_W, oy = Math.floor(cel / 8) * CEL_H
+        const ler = (px, py) => {
+          const d = gA.getImageData(Math.round(ox + px), Math.round(oy + py), 1, 1).data
+          return [d[0], d[1], d[2]]
+        }
+        const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+        const lin = (p) => p.map((c) => s2l(c / 255))
+        const lum = (p) => 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]
+        const o = { cel }
+        for (const [nome, px, py] of ALVOS) o[nome] = ler(px, py)
+        // albedo EFETIVO = texel x material.color, que e o que a luz enxerga
+        const efet = (p) => {
+          const l = lin(p)
+          return [l[0] * trim.r, l[1] * trim.g, l[2] * trim.b]
+        }
+        o.papelAlbedo = +lum(efet(o['papel-a'])).toFixed(4)
+        o.pipAlbedo = +lum(efet(o['pip-meio'])).toFixed(4)
+        o.razaoAlbedo = +(lum(efet(o['papel-a'])) / Math.max(1e-6, lum(efet(o['pip-meio'])))).toFixed(1)
+        return o
+      })
+      saida.trim = [+trim.r.toFixed(4), +trim.g.toFixed(4), +trim.b.toFixed(4)]
+    }
     return saida
   })
   console.log('  MEDIDA (luminancia linear, limiar do bloom = 0.85):')
   console.log('  ' + JSON.stringify(medida))
+  if (medida.cartas) {
+    console.log('  --- BLOOM (papel) ---')
+    for (const c of medida.cartas) {
+      console.log('    max ' + c.max + '  p99 ' + c.p99 + '  mediana ' + c.mediana +
+        '   acima de 0.85: ' + c.pctAcima085 + '%   folga ate 0.85: ' +
+        (((0.85 - c.max) / 0.85) * 100).toFixed(0) + '%' + (c.sujo ? '   [SUJO]' : ''))
+    }
+  }
+  if (medida.atlas) {
+    console.log('  --- ATLAS (albedo efetivo = texel x trim ' + JSON.stringify(medida.trim) + ') ---')
+    for (const a of medida.atlas) {
+      console.log('    cel ' + a.cel + '  papel ' + a.papelAlbedo + '  pip ' + a.pipAlbedo +
+        '  razao ' + a.razaoAlbedo + ':1   pip sRGB ' + JSON.stringify(a['pip-meio']) +
+        '  indice ' + JSON.stringify(a['idx-naipe']))
+    }
+  }
+  if (medida.pips) {
+    console.log('  --- CONTRASTE NA TELA (0..255, no tamanho que o jogador ve) ---')
+    for (const p of medida.pips) {
+      console.log('    cel ' + p.cel + '  papel ' + p.papelLuma + '  pip ' + p.pipLuma +
+        '  nucleo ' + p.pipNucleo + '   DELTA pip ' + p.deltaPip + '  nucleo ' + p.deltaNucleo +
+        '  indice ' + p.deltaIndice + '   croma vermelha ' + p.cromaPip)
+    }
+  }
 
   // 4) fotos
   await espera(400)

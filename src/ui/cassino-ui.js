@@ -1,6 +1,6 @@
 import { criarBaralho } from '../cassino/baralho.js'
 import { criarBlackjack } from '../cassino/blackjack.js'
-import { criarPoker, forcaDaMao } from '../cassino/poker.js'
+import { criarPoker, descreverMao } from '../cassino/poker.js'
 import { SIMBOLOS, PAGAMENTOS, criarSlots } from '../cassino/slots.js'
 import { criarCameraCena } from '../systems/camera-cena.js'
 import { criarMesa3D } from '../cassino/mesa-3d.js'
@@ -861,25 +861,50 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   // -------------------------------------------------------------------------
 
   /**
-   * Tira a ficha DE CIMA de uma aposta de `v`.
+   * QUANTAS FICHAS DE CADA VALOR O CAIXOTE MOSTRA.
    *
-   * A pilha e montada da maior pra menor (decomposicao gulosa), entao a ficha
-   * do topo e sempre a MENOR da decomposicao — 300 e uma de 250 com uma de 50
-   * em cima, e puxar do topo tira 50, nao 250. Sem essa conta, clicar na pilha
-   * pra corrigir um clique errado tirava o valor errado e o jogador aprendia a
-   * nao clicar ali.
+   * O pedido foi "quando eu apostar minhas fichas diminuam pq estao indo pra
+   * mesa", e a versao anterior nao fazia isso: ela desenhava
+   * `min(altura, floor((saldo - aposta) / valor))`, e com vinte mil em ficha
+   * uma aposta de 225 nao mudava um pixel — floor(19775/500) e floor(20000/500)
+   * dao os mesmos 39, aparados nos mesmos 8.
+   *
+   * Agora a conta e outra: apara PRIMEIRO pela altura da pilha e SO ENTAO
+   * desconta, uma a uma, as fichas que sairam. Empurrar uma de 100 tira uma
+   * ficha da pilha de 100 na tela, sempre — que e o unico jeito de o gesto ter
+   * consequencia visivel.
+   *
+   * `empurradas` e a lista de valores clicados, na ordem. E ela, e nao o total,
+   * que diz de qual pilha cada ficha saiu: cinco cliques de 25 tiram cinco do
+   * monte de 25, e nao uma de 100 mais uma de 25 como uma decomposicao gulosa
+   * do total faria.
    */
-  function tirarDeCima(v) {
-    const total = Math.max(0, inteiro(v))
-    if (total <= 0) return 0
-    let resto = total
-    let ultima = 0
-    for (let i = FICHAS_MESA.length - 1; i >= 0; i--) {
-      const d = FICHAS_MESA[i]
-      while (resto >= d) { resto -= d; ultima = d }
+  function contagemCaixote(saldo, empurradas, altura) {
+    const alt = Math.max(1, Math.floor(altura) || 8)
+    const lista = []
+    for (let i = 0; i < FICHAS_MESA.length; i++) {
+      const v = FICHAS_MESA[i]
+      let fora = 0
+      for (let k = 0; k < empurradas.length; k++) if (empurradas[k] === v) fora++
+      const cabe = Math.min(alt, Math.floor(Math.max(0, saldo) / v))
+      lista.push({ v, n: Math.max(0, cabe - fora) })
     }
-    if (!ultima) return 0
-    return Math.max(0, total - ultima)
+    return lista
+  }
+
+  /**
+   * Desmancha um valor em fichas do caixote, da maior pra menor. So e usada
+   * quando o valor chega PRONTO (o botao TUDO), porque ai nao houve clique
+   * nenhum e a lista de empurradas precisa ser inventada de algum jeito.
+   */
+  function empurrarLote(total) {
+    const fora = []
+    let resto = Math.max(0, inteiro(total))
+    for (let i = FICHAS_MESA.length - 1; i >= 0; i--) {
+      const v = FICHAS_MESA[i]
+      while (resto >= v) { resto -= v; fora.push(v) }
+    }
+    return fora
   }
 
   /** Coordenada de tela do three (-1..1) a partir do evento do mouse. */
@@ -1414,6 +1439,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   function construirMesaBlackjack() {
     let jogo = null
     let aposta = BJ_MIN        // ultima aposta: 'jogar de novo' repete ela
+    // As fichas que sairam do caixote pro pano, na ordem do clique. Mesma
+    // funcao que no poker: e ela que faz o monte certo encolher.
+    let empurradas = empurrarLote(BJ_MIN)
     let pago = false           // o resultado desta mao ja foi lido do modulo?
     let pendente = null        // { rs } resultado lido e ainda nao apresentado
     let varrido = false        // a aposta desta mao ja saiu do feltro?
@@ -1751,9 +1779,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // e o jogador terminava com o premio no bolso e um JOGAR DE NOVO
       // desabilitado por um valor que ele nunca escolheu.
       const emJogo = fase === 'jogador' || fase === 'dealer'
-      if (!emJogo && aposta > bolso) aposta = Math.min(BJ_MAX, bolso)
+      if (!emJogo && aposta > bolso) { aposta = Math.min(BJ_MAX, bolso); empurradas = empurrarLote(aposta) }
       // Caminho de volta: passar no caixa e voltar tem que destravar a mesa.
-      if (fase === 'fim' && aposta < BJ_MIN && bolso >= BJ_MIN) aposta = BJ_MIN
+      if (fase === 'fim' && aposta < BJ_MIN && bolso >= BJ_MIN) { aposta = BJ_MIN; empurradas = empurrarLote(aposta) }
 
       const fim = fase === 'fim'
       faixa.setBolso(carteira ? carteira.ouro : 0, bolso, 'ficha')
@@ -1769,7 +1797,10 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // O CAIXOTE. Fora da fase de aposta ele some: ficha clicavel no meio de
       // uma mao ja repartida so ensina a clicar a toa, e a pilha vazia deixa o
       // pano limpo pras cartas, que sao o assunto naquele instante.
-      m.caixote(FICHAS_MESA, apostando ? Math.max(0, bolso - aposta) : 0)
+      // Igual ao poker: o caixote fica. Durante a mao o 'bolso' ja e o que
+      // sobrou depois de a aposta ser cobrada, entao a pilha encolhe sozinha e
+      // conta a historia certa sem ninguem apagar nada.
+      m.caixote(contagemCaixote(bolso, empurradas, m.alturaCaixote()))
       setAposta(apostaNoFeltro(est, fase, 0) + (partido ? apostaNoFeltro(est, fase, 1) : 0))
 
       if (apostando && bolso < BJ_MIN) {
@@ -1860,18 +1891,27 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
           return
         }
         aposta += v
+        empurradas.push(v)
         renderMesa()
         return
       }
-      if (alvo.tipo === 'aposta') { aposta = tirarDeCima(aposta); renderMesa() }
+      if (alvo.tipo === 'aposta') {
+        // Desfaz o ultimo clique, e nao "tira a menor" — ver a nota gemea no
+        // poker.
+        if (empurradas.length) aposta -= empurradas.pop()
+        else aposta = 0
+        if (aposta < 0) aposta = 0
+        renderMesa()
+      }
     }
 
     M.aoEntrar = () => {
       M.mesa.montarAlvos(FICHAS_MESA)
       faixa.definirBotoes([
-        { id: 'limpar', txt: 'LIMPAR', cls: 'fantasma', ao: () => { aposta = 0; renderMesa() } },
+        { id: 'limpar', txt: 'LIMPAR', cls: 'fantasma', ao: () => { aposta = 0; empurradas = []; renderMesa() } },
         { id: 'tudo', txt: 'TUDO', cls: 'fantasma', ao: () => {
           aposta = Math.min(carteira ? carteira.fichas : 0, BJ_MAX)
+          empurradas = empurrarLote(aposta)
           renderMesa()
         } },
         { id: 'dar', txt: 'DISTRIBUIR', cls: 'ouro grande', ao: comecar },
@@ -1879,7 +1919,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         { id: 'parar', txt: 'PARAR', cls: '', ao: () => acao('parar') },
         { id: 'dobrar', txt: 'DOBRAR', cls: '', ao: () => acao('dobrar') },
         { id: 'dividir', txt: 'DIVIDIR', cls: '', ao: () => acao('dividir') },
-        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo fantasma', ao: () => fechar() },
+        { id: 'sair', txt: 'SAIR DA MESA', cls: 'sair fantasma', ao: () => fechar() },
       ])
       escondidaAntes = true
     }
@@ -1926,6 +1966,9 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     // em toda acao e em toda mao nova — ficha esquecida no pano de uma mao pra
     // outra seria dinheiro apostado sem ninguem ter mandado.
     let naMesa = 0
+    // As fichas que sairam do caixote, na ORDEM em que foram clicadas. E ela
+    // que faz o monte certo encolher — ver contagemCaixote().
+    let empurradas = []
     let fichasDele = 5000      // a banca dele atravessa as maos e e o teto do all-in
     let tPagar = 0
     let tMao = 0               // relogio da proxima mao (a mesa reparte sozinha)
@@ -1981,6 +2024,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (baralhoPk && baralhoPk.precisaEmbaralhar) chamar(baralhoPk, 'embaralhar')
       pago = false
       naMesa = 0
+      empurradas = []
       ultimaFala = ''
       if (M.mesa) { M.mesa.limparCartas(0); M.mesa.limparFichas() }
       jogo = criarPoker({ baralho: baralhoPk, aposta: v, fichasNpc: fichasDele })
@@ -2068,6 +2112,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // feltro e desenhada como 'minhaEntrada + naMesa'. Zerar so no fim
       // desenharia a aposta duas vezes no quadro do meio.
       naMesa = 0
+      empurradas = []
       if (aposta) chamar(jogo, nome, valor)
       else chamar(jogo, nome)
       // O NPC responde dentro da propria chamada; aqui so acertamos o caixa.
@@ -2184,6 +2229,17 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       for (let i = 0; i < minhas.length; i++) defsEu.push(def(minhas[i], false))
       m.cartas('eu', defsEu)
 
+      // --- a MESA COMUNITARIA: flop, turn, river ------------------------------
+      //
+      // Uma chamada so pras cinco. O diff de cartas() faz o resto: as tres do
+      // flop entram voando, e quando o turn chega ele reconhece as tres que ja
+      // estao la, entra so com a quarta e REACOMODA a fileira pra ela continuar
+      // centrada — que e exatamente o gesto do dealer espalhando o board.
+      const board = (est && Array.isArray(est.mesa)) ? est.mesa : []
+      const defsMesa = []
+      for (let i = 0; i < board.length; i++) defsMesa.push(def(board[i], false))
+      m.cartas('mesa', defsMesa)
+
       // --- as duas pilhas do pote, mais o que EU acabei de empurrar ----------
       //
       // 'naMesa' sao as fichas que o jogador tirou do caixote e ainda NAO
@@ -2229,7 +2285,10 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         if (semFichas) faixa.setRecado('Sem fichas pra entrar na mao. Passe no caixa.', 'ruim')
         else faixa.setRecado('Repartindo...', '')
       } else {
-        faixa.setValor('Pote', inteiro(est.pote),
+        // O ROTULO CARREGA A RUA. Ela precisa estar na tela o tempo todo e nao
+        // so no instante em que vira: quem volta o olho pro rodape no meio de
+        // uma decisao tem que saber se ainda vem carta ou se aquilo ali e tudo.
+        faixa.setValor('Pote no ' + (est.nomeRua || 'pre-flop'), inteiro(est.pote),
           est.paraPagar > 0 ? 'pra pagar ' + num(est.paraPagar) : ('ele tem ' + num(est.fichasNpc)))
         if (!fim && est.mensagem) faixa.setRecado(est.mensagem, '')
       }
@@ -2240,13 +2299,18 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // ficha apareceria duas vezes, uma na aposta e outra ainda no caixote.
       const minhaVez = emMao && fase === 'jogador'
       setAposta((est ? Math.max(0, inteiro(est.minhaEntrada)) : 0) + naMesa)
+      // O CAIXOTE NAO PISCA ENTRE AS RUAS. Ele so aparecia na minha vez, e com
+      // quatro ruas de Hold'em isso virou o dinheiro do jogador sumindo e
+      // voltando quatro vezes por mao — cada volta com a queda das 40 fichas de
+      // novo. Ele fica: e o dinheiro dele, e nao um painel de acao. Quem impede
+      // o clique fora de hora e aoTocar, que so aceita na fase 'jogador'.
       // O CAIXOTE MOSTRA TUDO QUE O JOGADOR TEM, e nao so o que cabe nesta
       // jogada. Cheguei a esconder as pilhas acima do teto da mao (a mesa
       // limita a aposta a quatro vezes o pote) e o resultado era um caixote de
       // duas pilhas num jogador com vinte mil em ficha — o oposto do pedido,
       // que e ver o proprio dinheiro na mesa. Clique acima do teto responde com
       // o numero exato, e isso ensina a regra sem esconder o dinheiro.
-      m.caixote(FICHAS_MESA, minhaVez ? Math.max(0, meuSaldo - naMesa) : 0)
+      m.caixote(contagemCaixote(meuSaldo, empurradas, m.alturaCaixote()))
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
       const tem = (n) => acoes.indexOf(n) >= 0
@@ -2311,10 +2375,10 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // Sem isto o jogador perde uma mao com dois reis e acha que a UI errou.
       let meu = ''
       if (minhas.length >= 2) {
-        try { meu = nomeMao(forcaDaMao(minhas[0], minhas[1])) } catch (err) { void err }
+        try { meu = descreverMao(minhas, board) } catch (err) { void err }
       }
       faixa.setDica((meu ? 'Sua mao: ' + meu + '  ·  ' : '') +
-        'Entrada ' + num(ante) + '  ·  PAR > SEQUENCIA > NAIPE > CARTA ALTA  ·  Esc sai da mesa')
+        'Entrada ' + num(ante) + '  ·  Esc sai da mesa')
 
       // A CHAMADA E A UNICA LINHA DO RODAPE QUE DA ORDEM, e por isso ela nao
       // divide espaco com o recado: recado e o que ACONTECEU ("ele aumentou
@@ -2348,7 +2412,16 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     M.aoTocar = (alvo) => {
       const est = jogo ? chamar(jogo, 'estado') : null
       if (!est || est.fase !== 'jogador') return
-      if (alvo.tipo === 'aposta') { naMesa = tirarDeCima(naMesa); renderMesa(); return }
+      if (alvo.tipo === 'aposta') {
+        // Clicar no monte desfaz o ULTIMO clique, e nao "tira a menor ficha":
+        // desfazer o proprio gesto e o que o jogador espera, e com a lista de
+        // empurradas isso e um pop.
+        if (empurradas.length) naMesa -= empurradas.pop()
+        else naMesa = 0
+        if (naMesa < 0) naMesa = 0
+        renderMesa()
+        return
+      }
       if (alvo.tipo !== 'caixote') return
       const v = Math.max(1, inteiro(alvo.v))
       const saldo = carteira ? carteira.fichas : 0
@@ -2366,6 +2439,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         return
       }
       naMesa += v
+      empurradas.push(v)
       renderMesa()
     }
 
@@ -2376,20 +2450,25 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       chamar(garantirRicaco(), 'entrar')
       M.mesa.montarAlvos(FICHAS_MESA)
       faixa.definirBotoes([
-        { id: 'devolver', txt: 'TIRAR', cls: 'fantasma', ao: () => { naMesa = 0; renderMesa() } },
-        { id: 'tudo', txt: 'TUDO', cls: 'fantasma', ao: () => { naMesa = tetoDaMesa(); renderMesa() } },
+        { id: 'devolver', txt: 'TIRAR', cls: 'fantasma', ao: () => { naMesa = 0; empurradas = []; renderMesa() } },
+        { id: 'tudo', txt: 'TUDO', cls: 'fantasma', ao: () => {
+          naMesa = tetoDaMesa()
+          empurradas = empurrarLote(naMesa)
+          renderMesa()
+        } },
         { id: 'passar', txt: 'PASSAR', cls: '', ao: () => acao('passar') },
         { id: 'apostar', txt: 'APOSTAR', cls: 'verde grande', ao: () => acao('apostar') },
         { id: 'pagar', txt: 'PAGAR', cls: 'verde grande', ao: () => acao('pagar') },
         { id: 'aumentar', txt: 'AUMENTAR', cls: 'ouro grande', ao: () => acao('aumentar') },
         { id: 'desistir', txt: 'DESISTIR', cls: 'bordo', ao: () => acao('desistir') },
         { id: 'denovo', txt: 'PROXIMA MAO', cls: 'fantasma', ao: novaMao },
-        // 'bordo fantasma': o BORDO e o que manda o botao pro grupo da direita
-        // (ver ladoDe em faixa-mesa.js) e o FANTASMA e quem pinta, porque a
-        // regra dele vem depois no CSS. Sem isso, DESISTIR e SAIR DA MESA
-        // ficavam dois blocos vermelhos identicos lado a lado — e sair da mesa
-        // nao e o mesmo tipo de decisao que correr de uma mao.
-        { id: 'sair', txt: 'SAIR DA MESA', cls: 'bordo fantasma', ao: () => fechar() },
+        // 'sair' e uma classe PROPRIA, e nao mais o 'bordo' emprestado do
+        // DESISTIR. Bordo quer dizer "isto tira voce da mao" e vem com o
+        // vermelho junto; sair da mesa nao e essa decisao, e a faixa tinha que
+        // desfazer o vermelho no hover pra os dois nao virarem o mesmo botao.
+        // Com a classe certa, ela ancora o botao no canto direito e pinta a
+        // portinha sem gambiarra nenhuma.
+        { id: 'sair', txt: 'SAIR DA MESA', cls: 'sair fantasma', ao: () => fechar() },
       ])
       // Sem isto, quem sai da mesa com uma mao paga e volta encontra a mesa
       // parada: quitarMao ja tinha agendado, aoSair limpou o relogio e ninguem
