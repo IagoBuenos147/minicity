@@ -1,6 +1,6 @@
 import { criarBaralho } from '../cassino/baralho.js'
 import { criarBlackjack } from '../cassino/blackjack.js'
-import { criarPoker, descreverMao } from '../cassino/poker.js'
+import { criarPoker, tituloMao } from '../cassino/poker.js'
 import { SIMBOLOS, PAGAMENTOS, criarSlots } from '../cassino/slots.js'
 import { criarCameraCena } from '../systems/camera-cena.js'
 import { criarMesa3D } from '../cassino/mesa-3d.js'
@@ -290,6 +290,75 @@ const CSS = `
   0%{ box-shadow:0 8px 22px rgba(0,0,0,.55), 0 0 0 0 rgba(255,223,158,.75); }
   35%{ box-shadow:0 8px 22px rgba(0,0,0,.55), 0 0 0 7px rgba(255,223,158,0); }
   100%{ box-shadow:0 8px 22px rgba(0,0,0,.55), 0 0 0 7px rgba(255,223,158,0); }
+}
+
+/* --- O BALAO DO RICACO ----------------------------------------------------
+   "tudo que ele fizer tem que falar aparecer". Ele agora ANUNCIA cada jogada,
+   e o balao nasce na frente do peito dele (a ancora 'fala' de mesa-3d.js).
+   Duas linhas: a JOGADA em caixa alta, que e o que precisa ser lido de
+   relance, e a FRASE dele embaixo, que e tempero. A frase e cortada em 22
+   caracteres e nunca cresce o balao — ele acompanha um ponto 3D, e um balao
+   que muda de largura escorrega pelo pano enquanto o texto entra.
+
+   SAO DOIS ELEMENTOS E NAO UM, e a razao e mecanica: a etiqueta de fora leva o
+   transform de POSICAO, reescrito todo quadro pela projecao, e a de dentro leva
+   o transform de ANIMACAO. Num elemento so, a animacao de entrada sobrescreve
+   o translate da projecao e o balao pula pro canto da tela durante os 340 ms
+   em que ela roda — que e exatamente o tipo de defeito que so aparece com o
+   jogo rodando. */
+.${P}marca.${P}fala{ font-weight:400; text-shadow:none; }
+.${P}falaCorpo{
+  position:relative; transform-origin:50% 100%;
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:7px 15px 8px; border-radius:12px;
+  background:linear-gradient(180deg, rgba(24,20,16,.93), rgba(10,8,7,.95));
+  border:1px solid rgba(233,196,106,.42);
+  box-shadow:0 12px 30px rgba(0,0,0,.62), inset 0 1px 0 rgba(255,255,255,.08);
+}
+/* o bico do balao: um losango girado, na cor da borda de baixo. Ele mora no
+   ::after pra nao entrar no fluxo e empurrar o texto. */
+.${P}falaCorpo::after{
+  content:''; position:absolute; left:50%; bottom:-5px; width:10px; height:10px;
+  transform:translateX(-50%) rotate(45deg);
+  background:rgba(10,8,7,.95);
+  border-right:1px solid rgba(233,196,106,.42);
+  border-bottom:1px solid rgba(233,196,106,.42);
+}
+.${P}falaJogada{
+  font-size:clamp(16px,1.7vw,23px); font-weight:800; letter-spacing:.10em;
+  line-height:1.05; color:#ffdf9e; text-shadow:0 2px 8px rgba(0,0,0,.85);
+}
+.${P}falaJogada b{
+  font-weight:800; margin-left:9px; color:#fff3d4; letter-spacing:.02em;
+  font-variant-numeric:tabular-nums;
+}
+.${P}falaFrase{
+  font-size:11.5px; font-weight:600; letter-spacing:.02em; color:#a79c88;
+  max-width:22ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.${P}falaFrase:empty{ display:none; }
+/* OS TOMS. Nao sao decoracao: sao a informacao que o jogador precisa antes de
+   ler a palavra. Fold apaga (ele saiu da mao), all-in queima (a mao virou
+   outra coisa), check fica neutro, aposta fica dourada. */
+.${P}falaCorpo.${P}tFold{ border-color:rgba(150,150,158,.42); }
+.${P}falaCorpo.${P}tFold .${P}falaJogada{ color:#b9b2a6; }
+.${P}falaCorpo.${P}tCheck .${P}falaJogada{ color:#cfe4d6; }
+.${P}falaCorpo.${P}tTudo{
+  border-color:rgba(255,138,74,.75);
+  box-shadow:0 12px 34px rgba(0,0,0,.62), 0 0 26px rgba(255,132,60,.30),
+    inset 0 1px 0 rgba(255,255,255,.10);
+}
+.${P}falaCorpo.${P}tTudo::after{ border-right-color:rgba(255,138,74,.75); border-bottom-color:rgba(255,138,74,.75); }
+.${P}falaCorpo.${P}tTudo .${P}falaJogada{ color:#ffb066; text-shadow:0 0 16px rgba(255,140,60,.6); }
+/* A ENTRADA. O balao nao aparece: ele SALTA. 0.34 s, com o pico de brilho no
+   comeco — e o mesmo gesto de todo balao de fala de jogo, e a razao dele e
+   sempre a mesma: um balao que so liga tem chance de nao ser visto por quem
+   estava olhando pro outro lado da mesa. */
+.${P}falaCorpo.${P}bate{ animation:${P}falaEntra .34s cubic-bezier(.2,.9,.3,1.5); }
+@keyframes ${P}falaEntra{
+  0%{ transform:scale(.62) translateY(9px); filter:brightness(1.8); }
+  58%{ transform:scale(1.06); filter:brightness(1.1); }
+  100%{ transform:none; filter:none; }
 }
 
 .${P}raiz, .${P}raiz *{ box-sizing:border-box; }
@@ -975,6 +1044,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
   let apostaVista = 0          // valor JA DESENHADO (anda ate o real)
   let apostaAlvo = 0
   let fichasDoNpc = 0          // quanto o ricaco tem, pro hover em cima do monte dele
+  // O BALAO DELE: { jogada, valor, frase, tom, ate } ou null. 'ate' e um
+  // instante de relogio e nao um contador de quadros — moverMarcas roda no
+  // loop de render, que nao tem passo fixo, e um contador ali daria uma
+  // duracao diferente em cada maquina.
+  let anuncio = null
 
   function garantirMarcas() {
     if (marcas || !faixa) return marcas
@@ -994,6 +1068,52 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       mk.mapa.set(chave, e)
     }
     return e
+  }
+
+  /**
+   * O RICACO ANUNCIA. `jogada` e a palavra grande ('CHECK', 'PAGOU'), `valor` o
+   * numero ao lado (0 esconde), `frase` a fala dele e `tom` o degrau de cor.
+   *
+   * Ele nao desenha nada aqui: so guarda. Quem poe na tela e moverMarcas, e por
+   * um motivo bom — a etiqueta acompanha um ponto do MUNDO (a ancora 'fala' de
+   * mesa-3d.js, na frente do peito dele), e esse ponto so tem lugar na tela
+   * depois de a camera do quadro existir.
+   */
+  function anunciarNpc(jogada, valor, frase, tom, dur) {
+    anuncio = {
+      jogada: String(jogada || '').toUpperCase(),
+      valor: Math.max(0, inteiro(valor)),
+      frase: String(frase || ''),
+      tom: tom || '',
+      ate: (typeof performance !== 'undefined' ? performance.now() : Date.now()) + (dur || 2300),
+      novo: true,
+    }
+  }
+
+  /** Monta (uma vez) e atualiza o conteudo do balao. */
+  function pintarFala(e, a) {
+    let corpo = e.firstChild
+    if (!corpo) {
+      corpo = el('div', 'falaCorpo')
+      corpo.append(el('div', 'falaJogada'), el('div', 'falaFrase'))
+      e.appendChild(corpo)
+    }
+    const jog = corpo.firstChild
+    const fr = corpo.lastChild
+    const txt = a.jogada + '|' + (a.valor > 0 ? num(a.valor) : '')
+    if (e._txt !== txt) {
+      e._txt = txt
+      jog.textContent = a.jogada
+      if (a.valor > 0) jog.appendChild(el('b', null, num(a.valor)))
+    }
+    if (fr.textContent !== a.frase) fr.textContent = a.frase
+    for (const t of ['tFold', 'tCheck', 'tTudo']) marca(corpo, t, a.tom === t)
+    if (a.novo) {
+      a.novo = false
+      marca(corpo, 'bate', false)
+      void corpo.offsetWidth
+      marca(corpo, 'bate', true)
+    }
   }
 
   /** O "+100" que sobe e apaga. Um elemento por clique, morto em 0,8 s. */
@@ -1031,11 +1151,19 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     apostaVista += (apostaAlvo - apostaVista) * k
     if (Math.abs(apostaAlvo - apostaVista) < 0.6) apostaVista = apostaAlvo
 
+    // O balao morre sozinho. Deixar a UI apagar por fora daria um caminho de
+    // volta a mais pra cada acao dele — e o dia em que um deles esquecesse, o
+    // 'FOLD' ficaria pendurado no peito do ricaco a mao inteira seguinte.
+    const agora = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    if (anuncio && agora > anuncio.ate) anuncio = null
+
     for (let i = 0; i < lista.length; i++) {
       const d = lista[i]
       const chave = d.tipo === 'caixote' ? 'cx' + d.v : d.tipo
       vistos.add(chave)
-      const cls = d.tipo === 'aposta' ? 'aposta' : d.tipo === 'dele' ? 'dele' : 'valor'
+      const cls = d.tipo === 'aposta' ? 'aposta'
+        : d.tipo === 'dele' ? 'dele'
+          : d.tipo === 'fala' ? 'fala' : 'valor'
       const e = marcaDe(chave, cls)
       if (!e) continue
       // Atras da lente ou fora do quadro: some em vez de aparecer espelhada.
@@ -1053,9 +1181,11 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       const some = fora ||
         (d.tipo === 'aposta' ? apostaAlvo <= 0
           : d.tipo === 'dele' ? !(sobreAlvo && sobreAlvo.tipo === 'dele')
-            : d.fichas <= 0)
+            : d.tipo === 'fala' ? !anuncio
+              : d.fichas <= 0)
       e.style.opacity = some ? '0' : '1'
       if (some) continue
+      if (d.tipo === 'fala') { pintarFala(e, anuncio); continue }
       const txt = d.tipo === 'aposta' ? num(Math.round(apostaVista))
         : d.tipo === 'dele' ? num(fichasDoNpc)
           : num(d.v)
@@ -1090,6 +1220,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     apostaAlvo = 0
     sobreAlvo = null
     fichasDoNpc = 0
+    anuncio = null
     if (!marcas) return
     for (const e of marcas.mapa.values()) e.style.opacity = '0'
   }
@@ -2003,6 +2134,21 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     let tPagar = 0
     let tMao = 0               // relogio da proxima mao (a mesa reparte sozinha)
     let ultimaFala = ''
+    // O COMPASSO DO RICACO.
+    //
+    // O modulo resolve a jogada dele DENTRO da minha chamada (ver acao()), o
+    // que e certo pra regra e errado pra tela: tudo — a decisao, o dinheiro
+    // saindo do monte dele e a ficha caindo no pote — acontecia no mesmo
+    // quadro em que EU clicava. O dono descreveu isso como "n quero que va
+    // direto, tem que ter uma animacao mostrando que ele pagou".
+    //
+    // A regra continua instantanea; o que ganhou compasso foi a APRESENTACAO.
+    // 'deleNoPano' e quanto da entrada dele ja esta DESENHADO; ele so alcanca o
+    // numero de verdade quando a mao dele chega no feltro, no meio do gesto.
+    // Ate la o pote dele fica como estava e o monte dele fica cheio.
+    let deleNoPano = 0
+    let tFichasNpc = 0
+    let ultimaAcao = -1        // 'seq' da ultima acao dele que ja foi encenada
 
     const M = {
       nome: 'poker',
@@ -2017,6 +2163,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
     function limparRelogios() {
       clearTimeout(tPagar); tPagar = 0
       clearTimeout(tMao); tMao = 0
+      clearTimeout(tFichasNpc); tFichasNpc = 0
     }
 
     /**
@@ -2067,6 +2214,12 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // debitado dali pra frente.
       const est = chamar(jogo, 'estado')
       entradaPaga = est ? Math.max(0, inteiro(est.minhaEntrada)) : v
+      // A ANTE DELE ENTRA SEM COMPASSO: nao e uma jogada, e o pedagio da mao —
+      // os dois pagam junto e ninguem decide nada. Atrasar ela daria meio
+      // segundo de mao aberta com o pote vazio de um lado so.
+      clearTimeout(tFichasNpc); tFichasNpc = 0
+      deleNoPano = est ? Math.max(0, inteiro(est.entradaDele)) : 0
+      ultimaAcao = est && est.acaoDele ? est.acaoDele.seq : -1
       faixa.setRecado('')
       renderMesa()
       // NAO HA MERGULHO DE LENTE AQUI, e a ausencia dele e a correcao.
@@ -2175,7 +2328,8 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       return String(t || '')
     }
 
-    /** O corpo do ricaco responde ao que acabou de acontecer na mesa. */
+    /** O corpo do ricaco responde ao CLIMA da mesa: como ele esta, nao o que
+     *  ele acabou de fazer. O que ele fez e encenar(), logo abaixo. */
     function reagir(est) {
       const r = garantirRicaco()
       if (!r || !r.disponivel) return
@@ -2188,11 +2342,68 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
         else r.gesto('olha')
         return
       }
-      const msg = String(est.mensagem || '')
-      if (msg.indexOf('aumentou') >= 0 || msg.indexOf('apostou') >= 0) r.gesto('aposta')
-      else if (msg.indexOf('passou') >= 0) r.gesto('apoia')
-      else if (est.fase === 'npc') r.gesto('pensa')
+      if (est.fase === 'npc') r.gesto('pensa')
       else r.gesto('olha')
+    }
+
+    /**
+     * O RICACO ENCENA A JOGADA: corpo, balao e o dinheiro saindo do monte.
+     *
+     * Quem manda aqui e `est.acaoDele`, que vem do modulo em DADO — nome, valor
+     * e um contador. Antes isto era feito lendo `est.mensagem` com indexOf
+     * ('apostou'), o que amarrava a animacao a uma frase em portugues: trocar
+     * "Ele apostou. Sua vez" por "Ele abriu" apagaria o gesto e nada quebraria
+     * em teste nenhum.
+     *
+     * O ATRASO DAS FICHAS e o marco do gesto em que a mao DELE chega no feltro
+     * (ver GESTOS em cassino/reacao-npc.js). Ele nao e um numero bonito: e o
+     * instante em que o empurrao acontece, e a ficha tem que sair de baixo da
+     * mao e nao antes dela.
+     */
+    function encenar(ac, est) {
+      const r = garantirRicaco()
+      const tudo = !!ac.tudo && ac.valor > 0
+      let gestoBraco = ''
+      let jogada = ''
+      let tom = ''
+      let atraso = 520
+      if (ac.nome === 'passou') {
+        // AS DUAS BATIDAS na mesa, por pedido: "se ele der mesa, check, quero
+        // que ele com a mao fechada bata na mesa e apareca check, duas batidas".
+        gestoBraco = 'bate'; jogada = 'CHECK'; tom = 'tCheck'; atraso = 0
+      } else if (ac.nome === 'desistiu') {
+        gestoBraco = 'fold'; jogada = 'FOLD'; tom = 'tFold'; atraso = 0
+      } else if (tudo) {
+        gestoBraco = 'tudo'; jogada = 'ALL IN'; tom = 'tTudo'; atraso = 620
+      } else if (ac.nome === 'pagou') {
+        gestoBraco = 'paga'; jogada = 'PAGOU'; atraso = 540
+      } else {
+        gestoBraco = 'aposta'
+        jogada = ac.nome === 'aumentou' ? 'AUMENTOU' : 'APOSTOU'
+        atraso = 460
+      }
+      if (r && r.disponivel) r.braco(gestoBraco)
+      // A FRASE DELE ENTRA NO BALAO. Ela ja existia no modulo desde sempre
+      // (FALAS, em cassino/poker.js) e nunca tinha chegado a tela — a UI so a
+      // usava pra saber se alguma coisa mudara. Era conteudo escrito e
+      // guardado numa gaveta.
+      anunciarNpc(jogada, ac.valor, est ? est.fala : '', tom, tudo ? 3600 : 2900)
+      if (tudo) somMesa.dourado(0)
+      // O DINHEIRO ANDA DEPOIS DA MAO. Sem valor nao ha o que atrasar — check e
+      // fold nao mexem em ficha nenhuma —, e nesse caso o acerto e imediato pra
+      // o pano nunca ficar devendo uma rua inteira.
+      clearTimeout(tFichasNpc)
+      if (ac.valor <= 0 || atraso <= 0) { acertarPanoDele(); return }
+      tFichasNpc = setTimeout(() => { tFichasNpc = 0; acertarPanoDele() }, atraso)
+    }
+
+    /** Poe no pano o que o modulo ja cobrou dele. Ver deleNoPano. */
+    function acertarPanoDele() {
+      const est = jogo ? chamar(jogo, 'estado') : null
+      const alvo = est ? Math.max(0, inteiro(est.entradaDele)) : deleNoPano
+      if (alvo === deleNoPano) return
+      deleNoPano = alvo
+      renderMesa()
     }
 
     function quitarMao() {
@@ -2201,6 +2412,23 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       pendente = null
       clearTimeout(tPagar); tPagar = 0
       const m = M.mesa
+      // A ULTIMA FICHA DELE PRECISA ESTAR NO PANO ANTES DA VARRIDA. varrer()
+      // leva o que a pilha TEM, entao um pagamento ainda em compasso viraria um
+      // pote que some com menos ficha do que foi apostado — e o jogador contou
+      // aquelas fichas. Na pratica o compasso (620 ms no pior caso) ja acabou
+      // quando esta funcao roda (1600 ms), mas depender disso e depender de
+      // dois relogios nao se cruzarem nunca.
+      clearTimeout(tFichasNpc); tFichasNpc = 0
+      const eFim = jogo ? chamar(jogo, 'estado') : null
+      const alvoDele = eFim ? Math.max(0, inteiro(eFim.entradaDele)) : deleNoPano
+      if (m && alvoDele !== deleNoPano) {
+        deleNoPano = alvoDele
+        m.fichas('dele', deleNoPano, { de: 'casa' })
+      }
+      // AS DUAS MAOS VOLTAM PRO ARO no fim da mao. Nao e uma acao, e uma pausa
+      // — e uma pausa com o corpo em outro lugar le como o fim de alguma coisa.
+      const rc = garantirRicaco()
+      if (rc && rc.disponivel) rc.braco('mesa')
       const ganho = inteiro(chamar(carteira, 'ganharFichas', r.retorno))
       if (m) {
         const destino = ganho > 0 ? 'jogador' : 'casa'
@@ -2267,7 +2495,10 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // pilha de "quase aposta" ao lado seria uma invencao de interface. O
       // numero do botao (APOSTAR 150) e quem diz que ainda da pra voltar atras.
       m.fichas('minha', (est ? Math.max(0, inteiro(est.minhaEntrada)) : 0) + naMesa, { de: 'jogador' })
-      m.fichas('dele', est ? Math.max(0, inteiro(est.entradaDele)) : 0, { de: 'casa' })
+      // O POTE DELE ANDA PELO COMPASSO e nao pelo estado (ver deleNoPano). Sem
+      // 'est' nao ha mao: zera, senao a pilha da mao anterior fica no pano.
+      if (!est) deleNoPano = 0
+      m.fichas('dele', deleNoPano, { de: 'casa' })
 
       // O SHOWDOWN NAO MEXE A CAMERA. Quem mostra a mao dele e a propria mesa:
       // as duas cartas viram e ESCORAM (LAYOUT.poker.filas.ele tem 'inclina' e
@@ -2294,6 +2525,13 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       }
 
       // --- o ricaco -----------------------------------------------------------
+      // Duas leituras diferentes, e elas nao se substituem: 'encenar' e a JOGADA
+      // (uma vez, quando ela acontece) e 'reagir' e o CLIMA (a cada mudanca de
+      // estado). Quem so tivesse a primeira teria um ricaco de pedra entre as
+      // jogadas; quem so tivesse a segunda teria o de antes, adivinhando a
+      // jogada pela frase.
+      const ac = est ? est.acaoDele : null
+      if (ac && ac.seq !== ultimaAcao) { ultimaAcao = ac.seq; encenar(ac, est) }
       const fala = est ? String(est.mensagem || '') + '|' + String(est.fala || '') : ''
       if (fala !== ultimaFala) { ultimaFala = fala; reagir(est) }
 
@@ -2310,16 +2548,30 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       if (!est && !tMao && !semFichas) agendarMao(600)
 
       faixa.setBolso(carteira ? carteira.ouro : 0, meuSaldo, 'ficha')
+      // A PONTA ESQUERDA MOSTRA O MEU JOGO, e nao mais o pote.
+      //
+      // O pedido: "retire no canto inferior esquerdo o pote no preflop, esse
+      // valor tb, vamos deixar ali o jogo que tenho atualmente formado, por
+      // exemplo para de reis, flush, full house, bem destacado".
+      //
+      // A troca fecha uma conta que estava errada. O POTE ja esta na mesa, em
+      // ficha, em duas pilhas que crescem — e ficha se le melhor que numero,
+      // que foi o motivo de elas irem pro pano. O JOGO FORMADO nao estava em
+      // lugar nenhum: ele mora espalhado em sete cartas e o jogador tinha que
+      // remontar a mao de cabeca a cada rua. Era a unica coisa da tela que dava
+      // trabalho pra existir, e estava numa linha de dica de 11 px.
+      //
+      // O numero do pote nao sumiu: desceu pra linha de referencia da direita,
+      // junto com a rua — ver a dica, mais abaixo.
       if (!est) {
         faixa.setValor('Entrada da mesa', ante, 'em fichas')
         if (semFichas) faixa.setRecado('Sem fichas pra entrar na mao. Passe no caixa.', 'ruim')
         else faixa.setRecado('Repartindo...', '')
       } else {
-        // O ROTULO CARREGA A RUA. Ela precisa estar na tela o tempo todo e nao
-        // so no instante em que vira: quem volta o olho pro rodape no meio de
-        // uma decisao tem que saber se ainda vem carta ou se aquilo ali e tudo.
-        faixa.setValor('Pote no ' + (est.nomeRua || 'pre-flop'), inteiro(est.pote),
-          est.paraPagar > 0 ? 'pra pagar ' + num(est.paraPagar) : ('ele tem ' + num(est.fichasNpc)))
+        let meuJogo = null
+        try { meuJogo = tituloMao(minhas, board) } catch (err) { void err }
+        if (meuJogo && meuJogo.texto) faixa.setMao(meuJogo.texto, meuJogo.categoria)
+        else faixa.setValor('Pote no ' + (est.nomeRua || 'pre-flop'), inteiro(est.pote), '')
         if (!fim && est.mensagem) faixa.setRecado(est.mensagem, '')
       }
 
@@ -2329,9 +2581,19 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // ficha apareceria duas vezes, uma na aposta e outra ainda no caixote.
       const minhaVez = emMao && fase === 'jogador'
       const jaNoPote = est ? Math.max(0, inteiro(est.minhaEntrada)) : 0
-      const deleNoPote = est ? Math.max(0, inteiro(est.entradaDele)) : 0
+      // O MONTE DELE ENCOLHE NO MESMO RELOGIO DO POTE DELE. Contando pelo
+      // estado, o monte cairia no quadro em que eu clico e a ficha so chegaria
+      // no pote meio segundo depois — meio segundo em que o dinheiro dele nao
+      // esta em lugar nenhum da mesa. Contando pelo pano, o que sai do monte
+      // e o que entra no pote sao o mesmo gesto.
+      const deleNoPote = deleNoPano
+      // O TOTAL DELE (o que o hover mostra) sai da MESMA conta: o que ele tinha
+      // quando a mao comecou, menos o que ja foi pro pano.
+      const deleBase = est
+        ? Math.max(0, inteiro(est.fichasNpc)) + Math.max(0, inteiro(est.entradaDele))
+        : fichasDele
       setAposta(jaNoPote + naMesa)
-      fichasDoNpc = est ? Math.max(0, inteiro(est.fichasNpc)) : fichasDele
+      fichasDoNpc = Math.max(0, deleBase - deleNoPote)
       // O CAIXOTE NAO PISCA ENTRE AS RUAS. Ele so aparecia na minha vez, e com
       // quatro ruas de Hold'em isso virou o dinheiro do jogador sumindo e
       // voltando quatro vezes por mao — cada volta com a queda das 40 fichas de
@@ -2352,8 +2614,7 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       const alt = m.alturaCaixote()
       m.caixote(contagemCaixote(meuSaldo + jaNoPote,
         empurrarLote(jaNoPote).concat(empurradas), alt))
-      m.caixote(contagemCaixote(fichasDoNpc + deleNoPote,
-        empurrarLote(deleNoPote), alt), 'ele')
+      m.caixote(contagemCaixote(deleBase, empurrarLote(deleNoPote), alt), 'ele')
 
       const acoes = (est && Array.isArray(est.acoes)) ? est.acoes : []
       const tem = (n) => acoes.indexOf(n) >= 0
@@ -2420,14 +2681,25 @@ export function criarCassinoUI({ game, carteira, mundo } = {}) {
       // que so adianta em dois segundos o que ia acontecer de qualquer jeito e
       // uma decisao falsa no lugar mais movimentado da tela.
 
-      // Tabela de maos na dica: e um jogo inventado, entao a regra fica na tela.
-      // Sem isto o jogador perde uma mao com dois reis e acha que a UI errou.
-      let meu = ''
-      if (minhas.length >= 2) {
-        try { meu = descreverMao(minhas, board) } catch (err) { void err }
+      // A DICA VIROU A LINHA DE REFERENCIA DA MAO. Ela perdeu o nome do meu
+      // jogo (que subiu pra plaqueta da esquerda, onde ele e lido de verdade) e
+      // ganhou o que a plaqueta tirou do lugar: a RUA e o POTE.
+      //
+      // A rua tem que estar na tela o tempo todo e nao so no instante em que
+      // vira — quem volta o olho pro rodape no meio de uma decisao precisa
+      // saber se ainda vem carta ou se aquilo ali e tudo. E o que falta pagar e
+      // a unica conta que o jogador nao consegue fazer olhando o pano, porque
+      // ela e a diferenca entre duas pilhas.
+      const partes = []
+      if (est) {
+        partes.push(String(est.nomeRua || 'pre-flop').toUpperCase())
+        partes.push('Pote ' + num(inteiro(est.pote)))
+        if (est.paraPagar > 0) partes.push('Pagar ' + num(inteiro(est.paraPagar)))
+      } else {
+        partes.push('Entrada ' + num(ante))
       }
-      faixa.setDica((meu ? 'Sua mao: ' + meu + '  ·  ' : '') +
-        'Entrada ' + num(ante) + '  ·  Esc sai da mesa')
+      partes.push('Esc sai da mesa')
+      faixa.setDica(partes.join('  ·  '))
 
       // A CHAMADA E A UNICA LINHA DO RODAPE QUE DA ORDEM, e por isso ela nao
       // divide espaco com o recado: recado e o que ACONTECEU ("ele aumentou

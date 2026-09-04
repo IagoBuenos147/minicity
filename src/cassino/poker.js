@@ -204,6 +204,99 @@ export function descreverMao(minhas, mesa) {
   return nomeValor(paraRank(alto)) + '-' + nomeValor(paraRank(baixo)) + juntas
 }
 
+// --- o nome da mao POR EXTENSO ---------------------------------------------
+//
+// 'par de K' serve pra uma linha de dica; nao serve pro lugar mais visivel do
+// rodape. O pedido foi literal — "vamos deixar ali o jogo que tenho atualmente
+// formado, por exemplo para de reis, flush, full house, vamos deixar bem
+// destacado" — e "PAR DE REIS" e outra coisa de "PAR DE K": a letra e um
+// simbolo pra ler NA CARTA, onde ela esta ao lado do naipe e do desenho; solta
+// num rodape ela vira sigla.
+//
+// Duas listas porque o portugues plural aqui nao e regular o bastante pra uma
+// regra ('as' -> 'ases', 'dez' -> 'dezes', 'seis' -> 'seis'), e uma tabela de
+// treze palavras e mais curta que a excecao que a regra precisaria.
+const EXTENSO = ['', 'as', 'dois', 'tres', 'quatro', 'cinco', 'seis', 'sete',
+  'oito', 'nove', 'dez', 'valete', 'dama', 'rei']
+const EXTENSO_PL = ['', 'ases', 'dois', 'tres', 'quatros', 'cincos', 'seis',
+  'setes', 'oitos', 'noves', 'dezes', 'valetes', 'damas', 'reis']
+
+/** Nome da carta por extenso. `pl` pede o plural. */
+function porExtenso(v, pl) {
+  const r = paraRank(v)
+  const t = (pl ? EXTENSO_PL : EXTENSO)[r]
+  return t || '?'
+}
+
+/**
+ * O TITULO da mao: o texto grande do rodape, ja em prosa e sem sigla.
+ *
+ * Difere de nomeDe() em tres coisas, e todas as tres sao do lugar em que ele
+ * aparece e nao de gosto: usa a carta por extenso, concorda o plural, e o
+ * ROYAL FLUSH ganha nome proprio. Esse ultimo importa: um straight flush ate o
+ * as e a melhor mao do poker e chama-lo de "straight flush ate as" seria
+ * enterrar a unica mao que o jogador vai querer contar pra alguem.
+ */
+function tituloDe(categoria, ordem) {
+  const s = (v) => porExtenso(v, false)
+  const p = (v) => porExtenso(v, true)
+  switch (categoria) {
+    case 8: return ordem[0] === 14 ? 'royal flush'
+      : ordem[0] === 5 ? 'straight flush ate o cinco'
+        : 'straight flush ate o ' + s(ordem[0])
+    case 7: return 'quadra de ' + p(ordem[0])
+    case 6: return 'full house, ' + p(ordem[0]) + ' com ' + p(ordem[1])
+    case 5: return 'flush de ' + s(ordem[0])
+    case 4: return ordem[0] === 5 ? 'sequencia ate o cinco' : 'sequencia ate o ' + s(ordem[0])
+    case 3: return 'trinca de ' + p(ordem[0])
+    case 2: return 'dois pares, ' + p(ordem[0]) + ' e ' + p(ordem[1])
+    case 1: return 'par de ' + p(ordem[0])
+    default: return s(ordem[0]) + ' alto'
+  }
+}
+
+/**
+ * O que o rodape mostra como "meu jogo agora". Devolve texto E categoria,
+ * porque quem desenha precisa das duas: o texto pra escrever e a categoria pra
+ * decidir o quanto aquilo brilha.
+ *
+ * No PRE-FLOP nao ha cinco cartas e melhorMao devolve null. Ali o "jogo
+ * formado" honesto e o par na mao, quando ha um, e senao as duas cartas com a
+ * unica coisa que vale dizer sobre elas antes do flop: se sao do mesmo naipe.
+ * Devolver vazio seria pior — a plaqueta piscaria pra dentro e pra fora do
+ * rodape a cada mao.
+ */
+export function tituloMao(minhas, mesa) {
+  const mao = Array.isArray(minhas) ? minhas.filter((c) => c && c.r) : []
+  const board = Array.isArray(mesa) ? mesa.filter((c) => c && c.r) : []
+  if (!mao.length) return { texto: '', categoria: -1 }
+  const cinco = mao.concat(board)
+  if (cinco.length >= 5) {
+    const f = melhorMao(cinco)
+    if (f) {
+      // melhorMao guarda a chave, e a chave CARREGA a ordem de desempate: os
+      // cinco digitos de base 15 sao exatamente o `ordem` que a avaliacao usou.
+      // Desempacotar aqui evita que melhorMao passe a alocar um array a mais em
+      // cada uma das 21 combinacoes que ela testa por mao.
+      const ordem = []
+      let k = f.chave
+      for (let i = 0; i < 5; i++) { ordem.unshift(k % 15); k = Math.floor(k / 15) }
+      return { texto: tituloDe(f.categoria, ordem), categoria: f.categoria }
+    }
+  }
+  if (mao.length < 2) return { texto: porExtenso(alto14(mao[0].r), false), categoria: 0 }
+  const a = alto14(mao[0].r)
+  const b = alto14(mao[1].r)
+  if (a === b) return { texto: 'par de ' + porExtenso(a, true), categoria: 1 }
+  const alto = Math.max(a, b)
+  const baixo = Math.min(a, b)
+  const juntas = mao[0].n === mao[1].n ? ' do mesmo naipe' : ''
+  return {
+    texto: porExtenso(alto, false) + ' e ' + porExtenso(baixo, false) + juntas,
+    categoria: 0,
+  }
+}
+
 /** Nome da categoria pura, pra tabela de maos da UI. */
 export function nomeCategoria(i) {
   return CATEGORIAS[i] || '?'
@@ -264,6 +357,37 @@ export function criarPoker(opts = {}) {
   let fala = ''
   let resultado = null
   let mensagem = 'Pague a ante pra ver as cartas'
+
+  // A ULTIMA COISA QUE O RICACO FEZ, em dado e nao em prosa.
+  //
+  // Existe porque a UI precisa REAGIR a acao dele — corpo, etiqueta e as fichas
+  // saindo do monte — e ate agora ela descobria o que tinha acontecido lendo a
+  // frase de `mensagem` com indexOf('apostou'). Isso e fragil de um jeito que
+  // nao aparece em teste nenhum: mudar 'Ele apostou. Sua vez' pra 'Ele abriu'
+  // apagaria a animacao de aposta e nada quebraria.
+  //
+  // 'seq' e o que faz a UI conseguir distinguir DUAS acoes iguais em sequencia
+  // (ele passa no flop e passa no turn). Comparar o objeto nao serve, comparar
+  // {nome,valor} da igual — o contador nao.
+  //
+  // 'valor' e o que ele acabou de por no pote NESTA acao, nao o total: e o
+  // numero que a etiqueta mostra e a altura que a pilha dele cresce.
+  let acaoDele = null
+  let seqAcao = 0
+
+  /** Registra o que ele fez. Chamada SO de dentro do bloco da IA. */
+  function marcarAcao(nome, valor, tudo) {
+    seqAcao++
+    acaoDele = {
+      nome,
+      valor: Math.max(0, Math.round(valor || 0)),
+      // 'tudo' e all-in: o cofre dele zerou nesta acao. E uma informacao que a
+      // UI nao consegue deduzir depois, porque no quadro seguinte ele ja pode
+      // ter sido recomposto pela regra do "manda buscar mais".
+      tudo: !!tudo,
+      seq: seqAcao,
+    }
+  }
 
   function frase(tipo) {
     const lista = FALAS[tipo] || FALAS.passa
@@ -426,6 +550,7 @@ export function criarPoker(opts = {}) {
   function eleDesiste() {
     fase = 'fim'
     fala = frase('desiste')
+    marcarAcao('desistiu', 0)
     resultado = {
       tipo: 'ele-desistiu',
       retorno: pote,
@@ -508,16 +633,18 @@ export function criarPoker(opts = {}) {
       // outra conversa que apostar 75% no pre-flop.
       const podeAbrir = aumentos < TETO_AUMENTOS && npcFichas > 0
       if (podeAbrir && (forca >= 0.62 || blefe)) {
-        poe(Math.max(ante, Math.round(pote * (blefe ? 0.5 : 0.75))))
+        const posto = poe(Math.max(ante, Math.round(pote * (blefe ? 0.5 : 0.75))))
         aumentos++
         eleAgiu = true
         euAgi = false
         fala = frase(blefe ? 'blefe' : 'aposta')
+        marcarAcao('apostou', posto, npcFichas <= 0)
         fase = 'jogador'
         mensagem = 'Ele apostou. Sua vez'
       } else {
         eleAgiu = true
         fala = frase('passa')
+        marcarAcao('passou', 0)
         if (ruaFechada()) avancarRua()
         else { fase = 'jogador'; mensagem = 'Ele passou. Sua vez' }
       }
@@ -530,20 +657,22 @@ export function criarPoker(opts = {}) {
     const odds = falta / (pote + falta)
 
     if (forca >= 0.82 && aumentos < TETO_AUMENTOS && npcFichas > falta) {
-      poe(falta + Math.max(ante, Math.round(pote * 0.6)))
+      const posto = poe(falta + Math.max(ante, Math.round(pote * 0.6)))
       aumentos++
       eleAgiu = true
       euAgi = false
       fala = frase('aumenta')
+      marcarAcao('aumentou', posto, npcFichas <= 0)
       fase = 'jogador'
       mensagem = 'Ele aumentou. Sua vez'
       return true
     }
 
     if (forca >= odds + 0.12 || (blefe && falta <= pote * 0.5)) {
-      poe(falta)
+      const posto = poe(falta)
       eleAgiu = true
       fala = frase('paga')
+      marcarAcao('pagou', posto, npcFichas <= 0)
       // Pagar iguala a rua. Se eu ja agi, a rua fecha e a proxima carta vem —
       // no river isso e o showdown.
       if (ruaFechada()) avancarRua()
@@ -582,6 +711,7 @@ export function criarPoker(opts = {}) {
         aumentos,
         acoes: acoesLegais(),
         fala,
+        acaoDele,
         resultado,
         mensagem,
       }
@@ -625,6 +755,10 @@ export function criarPoker(opts = {}) {
       euAgi = false
       eleAgiu = false
       resultado = null
+      // A mao nova nasce sem acao dele. Deixar a ultima acao da mao anterior
+      // aqui faria a UI, que reage a mudanca de `seq`, nao repetir a animacao
+      // — mas faria a etiqueta "ELE PAGOU 200" nascer junto com as cartas.
+      acaoDele = null
       fala = frase('inicio')
       fase = 'jogador'
       mensagem = ''

@@ -344,6 +344,69 @@ const CSS = `
   color:#ffe1a4; line-height:1.05; text-shadow:0 2px 10px rgba(0,0,0,.85); flex:0 0 auto;
 }
 .${P}valor small{ font-size:12px; color:#939ba6; letter-spacing:.06em; margin-left:8px; font-weight:600; }
+/* --- A PLAQUETA DO JOGO FORMADO ------------------------------------------
+   Ela tomou o lugar do "Pote no pre-flop" na ponta esquerda por pedido direto:
+   "retire no canto inferior esquerdo o pote no preflop, esse valor tb, vamos
+   deixar ali o jogo que tenho atualmente formado ... bem destacado".
+   A troca faz sentido alem do pedido. O POTE ja esta na mesa em ficha, e em
+   ficha ele e lido melhor do que em numero; o JOGO FORMADO nao esta em lugar
+   nenhum — ele mora nas sete cartas espalhadas pelo pano e o jogador tem que
+   montar a mao de cabeca a cada rua. Era a unica informacao da tela que exigia
+   trabalho pra existir.
+   ELA E UM DEGRAU, E NAO UM TEXTO: a barra dourada da esquerda cresce com a
+   forca da mao (2 px em carta alta, 5 px em flush pra cima) e a cor do texto
+   sobe junto. Duas leituras pelo preco de uma — quem le a palavra sabe o que
+   tem, quem so ve de canto de olho sabe se melhorou. */
+.${P}mao{
+  display:none; flex-direction:column; gap:1px; min-width:0;
+  padding:3px 11px 3px 10px; border-radius:4px;
+  border-left:2px solid rgba(255,225,164,.55);
+  background:linear-gradient(90deg, rgba(255,225,164,.10), rgba(255,225,164,0) 76%);
+}
+.${P}mao.${P}on{ display:flex; }
+.${P}maoRot{
+  font-size:9.5px; letter-spacing:.24em; text-transform:uppercase; color:#8a939f;
+  font-weight:700; text-shadow:0 1px 6px rgba(0,0,0,.95);
+}
+/* O texto e CONDENSADO por transformacao e nao por fonte estreita: "full house,
+   noves com cincos" tem 30 caracteres e a ponta esquerda tem 1fr de uma grade
+   de tres colunas. Sem o teto de largura ele empurraria o eixo do recado, que e
+   o unico elemento do rodape que NAO pode sair do meio. */
+.${P}maoTxt{
+  font-size:clamp(16px,1.42vw,21px); font-weight:800; line-height:1.12;
+  letter-spacing:.03em; text-transform:uppercase; color:#cfc6b0;
+  text-shadow:0 2px 10px rgba(0,0,0,.9);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:min(34vw,420px);
+}
+.${P}mao.${P}f1{ border-left-color:rgba(255,225,164,.85); }
+.${P}mao.${P}f1 .${P}maoTxt{ color:#ffe1a4; }
+.${P}mao.${P}f2{
+  border-left-width:4px; border-left-color:#ffcf6b;
+  background:linear-gradient(90deg, rgba(255,207,107,.18), rgba(255,207,107,0) 78%);
+}
+.${P}mao.${P}f2 .${P}maoTxt{ color:#ffd47a; text-shadow:0 0 14px rgba(255,196,84,.42), 0 2px 10px rgba(0,0,0,.9); }
+/* Flush pra cima: a plaqueta inteira acende e ganha um passe de luz lento. Nao
+   e enfeite — e a faixa dizendo "isto aqui e raro". Da trinca pra baixo o
+   mesmo efeito viraria papel de parede, porque par acontece em 44% das maos. */
+.${P}mao.${P}f3{
+  border-left-width:5px; border-left-color:#ffe6a8;
+  background:linear-gradient(90deg, rgba(255,214,120,.30), rgba(255,214,120,.02) 82%);
+  box-shadow:inset 0 0 22px rgba(255,206,110,.16);
+}
+.${P}mao.${P}f3 .${P}maoTxt{
+  color:#ffeec2; text-shadow:0 0 18px rgba(255,206,110,.68), 0 2px 10px rgba(0,0,0,.9);
+}
+.${P}mao.${P}f3 .${P}maoRot{ color:#d8bb84; }
+/* O ESTALO DA MAO NOVA. Ele so dispara quando o TEXTO muda (ver setMao) — a UI
+   reescreve a mesma mao a cada quadro, e sem a guarda a plaqueta tremeria sem
+   parar. 420 ms: dura mais que o estalo da chamada (380) de proposito, porque
+   aqui o que mudou foi o JOGO e nao o rotulo da rua. */
+.${P}mao.${P}pula{ animation:${P}maopula .42s cubic-bezier(.2,.9,.3,1.4); }
+@keyframes ${P}maopula{
+  0%{ transform:translateX(-6px) scale(.94); filter:brightness(1.9); opacity:.45; }
+  55%{ transform:none; scale:1.03; filter:brightness(1.18); opacity:1; }
+  100%{ transform:none; filter:none; }
+}
 /* O HALO DO MEIO DA LINHA. As pilhas de ficha do jogador ficam no meio da
    largura e, na mesa de blackjack, descem ate uns 90% da altura — ou seja,
    passam por baixo da linha de informacao. A pastilha da vez e o recado caem
@@ -970,16 +1033,28 @@ export function criarFaixaMesa() {
 
   // andar de cima: numero na beirada esquerda, estado no eixo, regra na direita
   const linha = el('div', 'linha')
+  // A PONTA ESQUERDA tem DOIS moradores que nunca aparecem juntos: o numero
+  // (blackjack: "Sua aposta 200") e a plaqueta do jogo formado (poker: "PAR DE
+  // REIS"). Sao duas gramaticas diferentes — uma e um valor com rotulo, a
+  // outra e um nome — e tentar servir as duas com o mesmo par rotulo/numero foi
+  // o que produzia "Pote no pre-flop 50" no lugar mais visivel do rodape do
+  // poker: tres palavras pra dizer um numero que ja estava em ficha na mesa.
+  const ladoEsq = el('div', 'lado')
   const ladoValor = el('div', 'lado')
   const rotValor = el('div', 'rot', 'Aposta')
   const valorTxt = el('div', 'valor', '0')
   ladoValor.append(rotValor, valorTxt)
+  const maoBox = el('div', 'mao')
+  const maoRot = el('div', 'maoRot', 'Meu jogo')
+  const maoTxt = el('div', 'maoTxt', '')
+  maoBox.append(maoRot, maoTxt)
+  ladoEsq.append(ladoValor, maoBox)
   const aviso = el('div', 'aviso')
   const chamada = el('div', 'chamada', '')
   const recado = el('div', 'recado', '')
   aviso.append(chamada, recado)
   const dica = el('div', 'dica', '')
-  linha.append(ladoValor, aviso, dica)
+  linha.append(ladoEsq, aviso, dica)
 
   // andar de baixo: os grupos da fileira. Eles sao PERMANENTES — quem troca e
   // o conteudo dentro deles — porque e a ORDEM deles (ajuste, acao, correr)
@@ -1051,11 +1126,46 @@ export function criarFaixaMesa() {
     marca(moedaFicha, 'ativa', destaque === 'ficha')
   }
 
+  let maoLigada = false
+  let maoAtual = ''
+
   function setValor(rotulo, valor, sufixo) {
     rotValor.textContent = rotulo || ''
     valorTxt.textContent = ''
     valorTxt.appendChild(document.createTextNode(num(valor)))
     if (sufixo) valorTxt.appendChild(el('small', null, sufixo))
+    // Chamar setValor DESLIGA a plaqueta. As duas dividem a mesma celula da
+    // grade e quem fala por ultimo manda — assim nenhuma mesa precisa lembrar
+    // de apagar a outra ao trocar de fase.
+    if (maoLigada) setMao('')
+  }
+
+  /**
+   * A PLAQUETA DO JOGO FORMADO. Texto vazio apaga e devolve a celula ao numero.
+   *
+   * `forca` e a categoria do poker (0 carta alta ... 8 straight flush) e ela so
+   * escolhe o degrau visual. Passar -1 (ou nada) trata como o degrau mais
+   * baixo: e o que acontece na mesa que nao tem categoria nenhuma pra dar.
+   */
+  function setMao(texto, forca) {
+    const t = texto ? String(texto).toUpperCase() : ''
+    const on = !!t
+    if (on !== maoLigada) {
+      maoLigada = on
+      marca(maoBox, 'on', on)
+      ladoValor.style.display = on ? 'none' : ''
+    }
+    if (!on) { maoAtual = ''; return }
+    const f = Number.isFinite(forca) ? forca : -1
+    marca(maoBox, 'f1', f >= 1 && f <= 2)
+    marca(maoBox, 'f2', f >= 3 && f <= 4)
+    marca(maoBox, 'f3', f >= 5)
+    if (t === maoAtual) return
+    maoAtual = t
+    maoTxt.textContent = t
+    marca(maoBox, 'pula', false)
+    void maoBox.offsetWidth      // reflow: sem ele a segunda troca nao anima
+    marca(maoBox, 'pula', true)
   }
 
   function setRecado(txt, tom) {
@@ -1359,6 +1469,7 @@ export function criarFaixaMesa() {
     setRecado,
     setChamada,
     setDica,
+    setMao,
     definirBotoes,
     botao,
     ajustar,

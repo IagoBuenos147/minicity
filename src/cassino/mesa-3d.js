@@ -174,6 +174,14 @@ const REALCE_ALTURA = 0.045
 // Quanto o clarao do feltro pode somar, no maximo. Ver acender().
 const BRILHO_PICO = 0.42
 
+// Opacidade de PICO da moldura da mao vencedora. Nao e 1 por dois motivos que
+// se somam: o material e ADITIVO (entao 1 ja e "some a cor inteira por cima do
+// que estiver atras") e o bloom do engine corta em luminancia 0.85, o que
+// significa que o anel passa do corte e ganha um segundo halo de graca no
+// pos-processamento. 0.80 ainda estoura o corte no fio forte — a moldura
+// continua acesa e florescendo — sem transformar o entorno da carta num borrao.
+const AURA_PICO = 0.80
+
 // --- layouts ---------------------------------------------------------------
 //
 // Todo numero abaixo esta no espaco da mesa (origem no centro, no chao) e foi
@@ -307,9 +315,22 @@ const LAYOUT = {
     // ricaco: carta virada pra baixo levantada nao le como carta escondida, le
     // como bug. Ele so levanta as dele no showdown — quando ganham face — e
     // essa e a virada de mesa que antes exigia a camera atravessar o feltro.
+    // 'escala' e 'escalaAberta' sao o mesmo par que 'inclina'/'inclinaVerso':
+    // o primeiro vale com a fila tapada, o segundo com ela mostrando face.
+    // Existem por dois relatos do dono na mesma frase — "o flop ta muito
+    // pequeno" e "quando o inimigo mostra as cartas tb ta muito pequeno" — e
+    // sao dois problemas diferentes com a mesma causa: DISTANCIA. A lente ficou
+    // parada (que era o pedido anterior) e o board esta a 1,9 m dela contra os
+    // 1,1 m da minha mao, entao a mesma carta rende quase metade da altura de
+    // tela la no meio. Crescer a carta e o unico ajuste que conserta isso sem
+    // a lente voltar a viajar.
     filas: {
       eu: { x: 0.00, z: -0.58, passo: 0.122, leque: -0.040, inclina: 0.87, inclinaVerso: 0.87 },
-      ele: { x: 0.00, z: 0.62, passo: 0.116, leque: 0.055, inclina: 0.95 },
+      // O RICACO CRESCE SO NO SHOWDOWN. Tapada ela continua pequena, que e o
+      // certo: carta escondida grande chama atencao pra uma informacao que nao
+      // existe. Quando ela vira, e a hora em que ela E a informacao — 1.34 poe
+      // ela quase do tamanho da minha, e a minha esta 70 cm mais perto.
+      ele: { x: 0.00, z: 0.62, passo: 0.108, leque: 0.055, inclina: 0.95, escala: 1, escalaAberta: 1.45 },
       // A MESA COMUNITARIA: flop, turn e river. Ela nasceu quando o jogo virou
       // Texas Hold'em e e a fila mais importante do feltro — os dois jogadores
       // leem ela, e ela decide a mao.
@@ -326,7 +347,33 @@ const LAYOUT = {
       // esconde 25 cm de pano atras dela, e ai comeca a comer as fichas do
       // ricaco. Medido na foto: comecou em 35 graus e 6,7%, e os 0,6 ponto que
       // faltavam vieram de graca.
-      mesa: { x: 0.00, z: 0.02, passo: 0.122, leque: 0, inclina: 0.78, inclinaVerso: 0.78 },
+      //
+      // 1.40 no board, com o PASSO ENCOLHIDO pra compensar. Foi medido em duas
+      // rodadas: com 1.22 e o passo antigo a carta do meio ainda rendia 4,0% da
+      // altura da tela contra 11,4% da minha mao — quase tres vezes menor — e a
+      // razao e distancia pura (1,9 m contra 1,1 m da lente).
+      //
+      // O teto e a COLUNA DO POTE em x=0.46, cuja primeira ficha comeca em
+      // 0.46 - 0.0315 = 0.428. Escalar so a carta esbarraria nela: o passo anda
+      // junto com a escala (ver lugarNaFila), entao 0.122 x 1.40 abriria 17 cm
+      // entre cartas e o board inteiro passaria de 0.83 m. Baixando o passo pra
+      // 0.108, o intervalo final e 0.151 contra 0.147 de carta — as cinco quase
+      // se tocam, que e como um dealer espalha um board de verdade — e o
+      // conjunto para em +-0.375. Sobram 5,3 cm ate o dinheiro.
+      //
+      // 0.90 rad de inclinacao (52 graus) contra os 0.78 de antes: e a segunda
+      // metade do ganho, e ela e de graca em largura — carta mais de pe rende
+      // altura de tela sem ocupar um milimetro a mais de x. Medido: a carta do
+      // board saiu de 4,0% pra 10,7% da altura da tela, contra 11,3% da minha
+      // mao, que fica a 80 cm menos da lente. As tres filas passaram a ler no
+      // mesmo tamanho, que era o pedido.
+      //
+      // 0.116 de passo e nao 0.108: com o realce do showdown levantando so
+      // TRES das cinco, as duas que ficam no pano sumiam atras das levantadas.
+      // 0.116 x 1.40 da 16,2 cm de intervalo contra 14,7 de carta — 1,5 cm de
+      // rua, que e o bastante pra a carta de baixo mostrar o indice do canto
+      // mesmo com a vizinha erguida.
+      mesa: { x: 0.00, z: 0.02, passo: 0.116, leque: 0, inclina: 0.90, inclinaVerso: 0.90, escala: 1.40 },
     },
     // AS DUAS ENTRADAS DO POTE SAIRAM DO EIXO DO MEIO, e o motivo e oclusao.
     //
@@ -341,9 +388,14 @@ const LAYOUT = {
     // pilhas do pote estavam justamente na ponta dele. Empurradas pra 0.46 elas
     // viram uma coluna livre a esquerda da tela — a minha embaixo, perto de mim,
     // a dele em cima, perto dele — e o meio do pano fica so pras cinco cartas.
+    // 0.56 e nao 0.46: o board cresceu (ver 'mesa' em filas) e passou a ocupar
+    // de -0.40 a +0.40 em x, encostando na primeira ficha do pote, que comecava
+    // em 0.46 - 0.0315 = 0.428. Empurradas 10 cm pra fora elas voltam a ter 13
+    // cm de pano entre o dinheiro e a carta. Cabe: o tampo e uma elipse de
+    // rx 1.55 e rz 1.05, e em z=-0.30 o pano vai ate x=1.49.
     pilhas: {
-      minha: { x: 0.46, z: -0.30 },
-      dele: { x: 0.46, z: 0.28 },
+      minha: { x: 0.56, z: -0.30 },
+      dele: { x: 0.56, z: 0.28 },
     },
     // O CAIXOTE: as MINHAS fichas em cima do pano, uma pilha por valor, na
     // beirada do oval do meu lado. Em z=-0.93 com x ate 0.35 a elipse do tampo
@@ -364,7 +416,24 @@ const LAYOUT = {
     // z=+0.86 e a beirada do lado dele, entre as cartas dele (z=0.62) e a
     // cadeira. Mesmo passo do meu: as duas pilhas tem que ler como a mesma
     // coisa vista dos dois lados da mesa.
-    caixoteDele: { z: 0.86, passo: 0.115, altura: 8 },
+    // z=+0.94 e nao 0.86: o board de pe passou a tapar as pilhas dele. Uma
+    // carta a 52 graus com 14,7 cm esconde 12 cm de pano atras dela, e na tela
+    // isso subia ate a altura em que o caixote do ricaco estava desenhado —
+    // justo no showdown, quando as cartas ainda LEVANTAM mais 4,5 cm. Oito
+    // centimetros pra tras poem o dinheiro dele acima da linha do board sem
+    // sair do tampo (em z=0.94 a elipse ainda da x ate 0.69, e o caixote ocupa
+    // 0.23 de cada lado).
+    caixoteDele: { z: 0.94, passo: 0.115, altura: 8 },
+    // ANCORAS DE ETIQUETA: pontos do espaco da mesa que a UI projeta pra
+    // pendurar texto em DOM. NAO sao alvos de ponteiro (esses estao em
+    // montarAlvos) — sao so lugares, e por isso vivem no layout e nao numa
+    // malha invisivel: uma malha a mais no raycast faria o hover em cima dela
+    // roubar o hover do caixote do ricaco, que esta logo atras.
+    //
+    // 'fala' fica na frente do peito do ricaco, 34 cm acima do pano e 14 cm
+    // atras do caixote dele. E onde o balao de uma pessoa sentada nasceria, e
+    // e alto o bastante pra nao brigar com as cartas dele (z=0.62).
+    ancoras: [{ tipo: 'fala', x: 0.00, y: 0.34, z: 1.00 }],
     casa: { x: 0.00, z: 0.90 },
     eu: { x: 0.00, z: -0.96 },
     brilho: { x: 0.00, z: 0.00, r: 0.85 },
@@ -473,10 +542,22 @@ function posicaoNaPilha(i) {
  * A MOLDURA DE LUZ que envolve a carta da mao vencedora.
  *
  * E um retangulo arredondado desenhado com sombra propria (shadowBlur) e mais
- * nada: o miolo fica transparente pra a carta continuar legivel por cima, e o
- * brilho vaza pra fora da borda. Tres passadas da mesma forma com raios
+ * nada: o brilho vaza pra fora da borda. Tres passadas da mesma forma com raios
  * diferentes fazem o degrade sem gradiente — gradiente radial num retangulo
  * sai como bola e denuncia a gambiarra nos cantos.
+ *
+ * O MIOLO E VAZADO A FACA, e essa e a correcao do defeito que o dono relatou:
+ * "o brilho quando ganha o jogo ta demais nas cartas, ate ofusca as cartas".
+ * A causa nao era a intensidade — era GEOMETRIA DE DESENHO. O shadowBlur de um
+ * traco espalha pros DOIS lados da linha, entao metade de cada halo caia pra
+ * DENTRO do retangulo, em cima da face da carta. E como o material e aditivo e
+ * roda depois do opaco (o three desenha opaco antes de transparente, e nenhum
+ * renderOrder muda isso), aquele meio-halo somava direto no papel e lavava o
+ * naipe justamente no quadro em que se quer LER a mao.
+ *
+ * Vazar com 'destination-out' depois das tres passadas resolve na raiz: o que
+ * sobra na textura e so o anel e o que escapou pra fora. O brilho continua
+ * inteiro; ele so nao entra mais na carta.
  */
 let _texAura = null
 function texAura() {
@@ -506,17 +587,39 @@ function texAura() {
   // alfas subiram de 0.30/0.55/0.95 depois da primeira foto: o pedido e que a
   // moldura DIGA qual foi a jogada, e na mesa, a 1,9 m da lente, o desenho
   // anterior lia como carta um pouco mais clara em vez de carta marcada.
-  const passadas = [[28, 0.42], [15, 0.72], [5, 1.00]]
+  const passadas = [[26, 0.40], [13, 0.70], [4, 1.00]]
   for (const [blur, alfa] of passadas) {
     g.save()
     g.shadowColor = 'rgba(255,225,160,' + alfa + ')'
     g.shadowBlur = blur
     g.strokeStyle = 'rgba(255,236,190,' + alfa + ')'
-    g.lineWidth = 3.5
+    g.lineWidth = 3.0
     forma()
     g.stroke()
     g.restore()
   }
+  // A FACA. Recorta o miolo do retangulo, deixando so o anel e o halo de fora.
+  // O 'inset' de 2 px preserva o fio forte da terceira passada — vazar pela
+  // linha exata do retangulo comeria metade da espessura dele e a moldura
+  // ficaria fina de um lado so, que le como erro de alinhamento.
+  const inset = 2
+  g.save()
+  g.globalCompositeOperation = 'destination-out'
+  g.fillStyle = '#000'
+  const wi = w - inset * 2
+  const hi = h - inset * 2
+  const xi = x + inset
+  const yi = y + inset
+  const ri = Math.max(1, r - inset)
+  g.beginPath()
+  g.moveTo(xi + ri, yi)
+  g.lineTo(xi + wi - ri, yi); g.quadraticCurveTo(xi + wi, yi, xi + wi, yi + ri)
+  g.lineTo(xi + wi, yi + hi - ri); g.quadraticCurveTo(xi + wi, yi + hi, xi + wi - ri, yi + hi)
+  g.lineTo(xi + ri, yi + hi); g.quadraticCurveTo(xi, yi + hi, xi, yi + hi - ri)
+  g.lineTo(xi, yi + ri); g.quadraticCurveTo(xi, yi, xi + ri, yi)
+  g.closePath()
+  g.fill()
+  g.restore()
   _texAura = new THREE.CanvasTexture(c)
   _texAura.colorSpace = THREE.SRGBColorSpace
   return _texAura
@@ -909,7 +1012,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     aura.visible = false
     pivo.add(aura)
     const c = {
-      pivo, mesh, sombra, aura, usada: true,
+      pivo, mesh, sombra, aura, usada: true, esc: 1,
       chave: '~', virada: true, alvo: { x: 0, z: 0, ry: 0, y: 0 },
     }
     pool.push(c)
@@ -918,6 +1021,8 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
 
   function devolverCarta(c) {
     c.usada = false
+    c.esc = 1
+    c.pivo.scale.setScalar(1)
     c.pivo.visible = false
     c.sombra.visible = false
     c.aura.visible = false
@@ -930,16 +1035,22 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
    * `rx` e a INCLINACAO: quanto a borda de tras da carta levanta, em radianos.
    * O sinal e negativo no pivo porque girar +X joga a normal pro +Z (o lado da
    * casa) e o que se quer e a face virada pro -Z, que e onde a lente esta.
+   *
+   * A ESCALA MORA NO PIVO (c.esc), e nao numa geometria por tamanho: a aura da
+   * mao vencedora e filha do pivo e cresce de graca junto, e continuam existindo
+   * uma geometria e um material pra todas as cartas da mesa.
    */
   function pousar(c, x, y, z, ry, rx) {
     const inc = rx || 0
+    const esc = c.esc || 1
     c.pivo.position.set(x, y, z)
     c.pivo.rotation.y = ry
     c.pivo.rotation.x = -inc
+    c.pivo.scale.setScalar(esc)
     // Altura pro desenho da sombra. Carta inclinada esta ALTA pelo proprio
     // levante da borda, e nao por estar voando: descontar isso e o que evita a
     // carta escorada nascer com a sombra enorme de carta em pleno arco.
-    const alt = Math.max(0, y - Y_CARTA - Math.sin(inc) * CARTA_C * 0.5)
+    const alt = Math.max(0, y - Y_CARTA - Math.sin(inc) * CARTA_C * 0.5 * esc)
     // sombra: cresce e clareia com a altura. Ela tambem ESCORREGA um pouco em
     // +x e +z conforme a carta sobe, porque a luz do salao vem de cima e de
     // tras — sombra que so cresce no lugar le como halo, nao como sombra.
@@ -947,12 +1058,12 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     // A carta de pe toca o feltro so pela borda da FRENTE, e a sombra tem que
     // sair dali: ancorada no centro ela ficaria metade pra tras da carta, e o
     // par lia como carta flutuando um palmo acima da mesa.
-    const recuo = Math.sin(inc) * CARTA_C * 0.5
+    const recuo = Math.sin(inc) * CARTA_C * 0.5 * esc
     c.sombra.position.set(x + alt * 0.10, Y_SOMBRA, z + alt * 0.16 - recuo)
     c.sombra.rotation.z = -ry
     c.sombra.scale.set(
-      CARTA_L * 1.9 * k,
-      CARTA_C * 1.55 * k * Math.max(0.34, Math.cos(inc)),
+      CARTA_L * 1.9 * k * esc,
+      CARTA_C * 1.55 * k * esc * Math.max(0.34, Math.cos(inc)),
       1)
     c.sombra.material.opacity = 0.52 / (1 + alt * 6.5)
   }
@@ -970,6 +1081,13 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     return f
   }
 
+  /** Quanto esta fila aumenta a carta AGORA. 1 = tamanho de fabrica. */
+  function escalaDaFila(f) {
+    const cfg = f.cfg
+    const v = f.aberta ? (cfg.escalaAberta || cfg.escala) : cfg.escala
+    return Number.isFinite(v) && v > 0 ? v : 1
+  }
+
   /** Onde a i-esima carta de uma fila de n cartas pousa. O leque e CENTRADO:
    *  cada carta nova empurra as anteriores, como a mao de um dealer. */
   function lugarNaFila(f, i, n) {
@@ -979,6 +1097,12 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     // aberta (mostrando face) ou tapada, porque sao dois gestos diferentes:
     // carta na mesa virada pra baixo fica deitada, carta com face fica de pe.
     const inc = (f.aberta ? cfg.inclina : cfg.inclinaVerso) || 0
+    // TAMANHO DA CARTA NESTA FILA. Mesmo par de campos que a inclinacao, e pelo
+    // mesmo motivo: carta tapada e carta aberta sao dois momentos diferentes.
+    // A do ricaco vive pequena e SO cresce no showdown, que e quando ela vira
+    // informacao; a do meio da mesa e grande o tempo todo, porque e a fila mais
+    // longe da lente e a que os dois jogadores leem.
+    const esc = escalaDaFila(f)
     // REALCE: a carta que entrou na mao vencedora sobe. O levante mora AQUI, no
     // lugar onde a fila calcula posicao, e nao numa animacao a parte — senao o
     // primeiro reacomodar() que a UI disparasse (e ela dispara a cada render)
@@ -987,16 +1111,21 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
     // Levantar a carta em torno do CENTRO enfia a borda da frente no feltro.
     // Subir metade do comprimento vezes o seno devolve a borda pro tampo — sem
     // isto a carta de pe atravessa a mesa e some pela metade.
-    const sobe = Math.sin(inc) * CARTA_C * 0.5
+    const sobe = Math.sin(inc) * CARTA_C * 0.5 * esc
     // O passo e NEGATIVO em x porque a tela desta camera tem o +X a esquerda:
     // carta nova entra pela DIREITA da tela e cobre a anterior pela metade,
     // deixando o indice do canto da anterior sempre a vista.
+    // O PASSO ANDA COM A ESCALA. Crescer a carta sem abrir a fila na mesma
+    // proporcao faz a carta nova cobrir mais da anterior a cada aumento — o
+    // board de cinco viraria um bloco e o indice do canto, que e o que se le de
+    // longe, sumia debaixo da vizinha.
     return {
-      x: f.deslocX - (i - meio) * cfg.passo,
+      x: f.deslocX - (i - meio) * cfg.passo * esc,
       z: cfg.z + Math.abs(i - meio) * 0.006,
-      y: Y_CARTA + i * 0.0018 + CARTA_E / 2 + sobe + acima,
+      y: Y_CARTA + i * 0.0018 + (CARTA_E / 2) * esc + sobe + acima,
       ry: (i - meio) * cfg.leque,
       rx: inc,
+      esc,
     }
   }
 
@@ -1014,6 +1143,11 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       const c = f.itens[i]
       const alvo = lugarNaFila(f, i, n)
       c.alvo = alvo
+      // A escala e um CORTE e nao uma interpolacao, e de proposito: quem muda
+      // ela e o showdown do ricaco, e nesse instante a carta ja esta virando e
+      // subindo. Interpolar o tamanho junto viraria um terceiro movimento
+      // simultaneo no mesmo quadro, e o olho perde os tres.
+      c.esc = alvo.esc || 1
       if (c.voando && !atrasar) continue
       let de = null
       anima({
@@ -1225,6 +1359,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
       f.itens.push(c)
       const idx = f.itens.length - 1
       const alvo = lugarNaFila(f, idx, Math.max(lista.length, f.itens.length))
+      c.esc = alvo.esc || 1
       const def = lista[i]
       const ultima = i === lista.length - 1
       const vaiVirar = !(def.verso || !def.carta || !def.carta.r)
@@ -1314,7 +1449,7 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
 
   /** Acende (ou apaga) o halo das cartas ja marcadas por realcar(). */
   function acenderRealce(ligado, dur) {
-    const alvo = ligado ? 1 : 0
+    const alvo = ligado ? AURA_PICO : 0
     const de = matAura.opacity
     if (de === alvo) return
     anima({
@@ -1795,6 +1930,20 @@ export function criarMesa3D({ scene, ancora, tipo } = {}) {
         valor: p ? p.valor : 0,
         nx: _mv.x, ny: _mv.y,
         atras: _mv.z > 1,
+      })
+    }
+    // As ancoras entram na MESMA lista de proposito: quem chama ja tem um laco
+    // que projeta e posiciona etiqueta por tipo, e uma segunda lista obrigaria
+    // um segundo laco identico do outro lado.
+    const anc = L.ancoras || []
+    for (let i = 0; i < anc.length; i++) {
+      const a = anc[i]
+      _mv.set(a.x, Y_CHAO + a.y, a.z)
+      grupo.localToWorld(_mv)
+      _mv.project(cam)
+      lista.push({
+        tipo: a.tipo, v: 0, fichas: 0, valor: 0,
+        nx: _mv.x, ny: _mv.y, atras: _mv.z > 1,
       })
     }
     return lista

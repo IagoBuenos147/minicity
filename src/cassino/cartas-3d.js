@@ -635,7 +635,14 @@ const FIG_MANTO_PRETO = tinta(0x263548)
  * Existe porque foi ele que fez a figura parar de ser um boneco. A silhueta de
  * um busto com cabeca redonda e ombros e a mesma pra J, Q e K — so o chapeu
  * mudava, e chapeu tem 8 px na tela. Uma diagonal comprida saindo do ombro,
- * essa o olho pega de longe: espada e rei, flor e dama, alabarda e valete.
+ * essa o olho pega de longe: cetro e rei, flor e dama, alabarda e valete.
+ *
+ * ELES ENGROSSARAM. O relato foi "as figuras tao muito feinhas", e a espada do
+ * rei era parte do problema: uma lamina de 0.11 s de largura, o que na tela do
+ * jogo da MENOS DE UM PIXEL de traco. Um risco de meio pixel nao le como
+ * espada, le como sujeira no atlas. O cetro que entrou no lugar tem haste de
+ * 0.10 s e uma cabeca redonda de 0.19 s: a cabeca sozinha ja e uma FORMA, e
+ * forma sobrevive a minificacao. Um fio, nao.
  */
 function adereco(g, letra, s, corNaipe) {
   const traco = Math.max(1.1, s * 0.036)
@@ -645,32 +652,49 @@ function adereco(g, letra, s, corNaipe) {
   g.lineWidth = traco
 
   if (letra === 'K') {
-    // espada: lamina reta com ponta, guarda dourada e punho curto
+    // CETRO. Trocou a espada pela razao da nota acima, e ele diz 'rei' melhor
+    // que ela de quebra: espada e do soldado, cetro e de quem manda.
     g.save()
     g.translate(s * 0.70, s * 0.10)
-    g.rotate(0.16)
-    const lam = new Path2D()
-    lam.moveTo(0, -s * 1.00)
-    lam.lineTo(s * 0.055, -s * 0.88)
-    lam.lineTo(s * 0.055, s * 0.16)
-    lam.lineTo(-s * 0.055, s * 0.16)
-    lam.lineTo(-s * 0.055, -s * 0.88)
-    lam.closePath()
-    g.fillStyle = FIG_ACO
-    g.fill(lam); g.stroke(lam)
-    const guarda = new Path2D()
-    guarda.rect(-s * 0.20, s * 0.16, s * 0.40, s * 0.085)
+    g.rotate(0.13)
+    const haste = new Path2D()
+    haste.rect(-s * 0.050, -s * 0.50, s * 0.10, s * 0.94)
     g.fillStyle = FIG_OURO
-    g.fill(guarda); g.stroke(guarda)
-    const punho = new Path2D()
-    punho.rect(-s * 0.055, s * 0.245, s * 0.11, s * 0.24)
-    g.fill(punho); g.stroke(punho)
+    g.fill(haste); g.stroke(haste)
+    // tres aneis na haste: e o que separa 'cetro' de 'cabo de vassoura'
+    g.fillStyle = '#8d6a20'
+    for (const ay of [-0.24, 0.06, 0.36]) {
+      const a = new Path2D()
+      a.rect(-s * 0.086, ay * s, s * 0.172, s * 0.052)
+      g.fill(a); g.stroke(a)
+    }
+    const bola = new Path2D()
+    bola.arc(0, -s * 0.62, s * 0.175, 0, TAU)
+    g.fillStyle = FIG_OURO
+    g.fill(bola); g.stroke(bola)
+    // a pedra da bola, na cor do naipe: e o unico ponto do adereco que amarra
+    // a figura ao naipe dela
+    const pedra = new Path2D()
+    pedra.arc(0, -s * 0.62, s * 0.072, 0, TAU)
+    g.fillStyle = corNaipe === TINTA_VERMELHA ? corNaipe : '#8d6a20'
+    g.fill(pedra); g.stroke(pedra)
+    // cruz no topo
+    const cruz = new Path2D()
+    cruz.rect(-s * 0.030, -s * 0.95, s * 0.060, s * 0.20)
+    cruz.rect(-s * 0.098, -s * 0.895, s * 0.196, s * 0.058)
+    g.fillStyle = FIG_OURO
+    g.fill(cruz); g.stroke(cruz)
     g.restore()
     return
   }
 
   if (letra === 'Q') {
-    // flor: haste curva e uma roseta de cinco petalas.
+    // FLOR: haste curva e uma roseta de cinco petalas.
+    //
+    // A roseta ENCOSTOU no ombro e cresceu de 0.155 pra 0.175 de raio. Antes
+    // ela ficava sozinha no canto do painel, com um palmo de vazio entre ela e
+    // a dama, e o par lia como dois desenhos e nao como uma pessoa segurando
+    // uma flor.
     //
     // A petala e VERMELHA so nos naipes vermelhos. Nos pretos ela sai dourada,
     // e nao preta: uma roseta de tinta preta no canto do painel virava um borrao
@@ -678,56 +702,95 @@ function adereco(g, letra, s, corNaipe) {
     // como se ela tivesse duas cabecas.
     const petala = corNaipe === TINTA_VERMELHA ? corNaipe : FIG_OURO
     g.strokeStyle = '#4d6b3c'
-    g.lineWidth = traco * 1.1
+    g.lineWidth = traco * 1.5
     g.beginPath()
-    g.moveTo(s * 0.46, s * 0.54)
-    g.quadraticCurveTo(s * 0.76, s * 0.04, s * 0.62, -s * 0.44)
+    g.moveTo(s * 0.46, s * 0.58)
+    g.quadraticCurveTo(s * 0.76, s * 0.14, s * 0.62, -s * 0.30)
     g.stroke()
-    // uma folha na haste: sem ela a haste le como arame
+    // duas folhas na haste: sem elas a haste le como arame
     g.fillStyle = '#4d6b3c'
-    g.beginPath()
-    g.moveTo(s * 0.62, s * 0.08)
-    g.quadraticCurveTo(s * 0.88, s * 0.00, s * 0.84, -s * 0.18)
-    g.quadraticCurveTo(s * 0.68, -s * 0.14, s * 0.62, s * 0.08)
-    g.fill()
+    for (const [lx, ly, ex, ey] of [[0.65, 0.14, 0.95, -0.08], [0.70, 0.36, 0.42, 0.34]]) {
+      g.beginPath()
+      g.moveTo(s * lx, s * ly)
+      g.quadraticCurveTo(s * ex, s * (ly - 0.10), s * ex, s * ey)
+      g.quadraticCurveTo(s * (lx + (ex - lx) * 0.3), s * (ly - 0.02), s * lx, s * ly)
+      g.fill()
+    }
     g.strokeStyle = FIG_TINTA
     g.lineWidth = traco
     g.fillStyle = petala
     for (let i = 0; i < 5; i++) {
       const a = -Math.PI / 2 + (i * TAU) / 5
       const p = new Path2D()
-      p.ellipse(s * 0.62 + Math.cos(a) * s * 0.155, -s * 0.50 + Math.sin(a) * s * 0.155,
-        s * 0.12, s * 0.092, a, 0, TAU)
+      p.ellipse(s * 0.62 + Math.cos(a) * s * 0.170, -s * 0.48 + Math.sin(a) * s * 0.170,
+        s * 0.132, s * 0.102, a, 0, TAU)
       g.fill(p); g.stroke(p)
     }
     const miolo = new Path2D()
-    miolo.arc(s * 0.62, -s * 0.50, s * 0.088, 0, TAU)
+    miolo.arc(s * 0.62, -s * 0.48, s * 0.098, 0, TAU)
     g.fillStyle = petala === FIG_OURO ? '#8d6a20' : FIG_OURO
     g.fill(miolo); g.stroke(miolo)
     return
   }
 
-  // J: alabarda — haste comprida e uma lamina em folha na ponta. Ela fica toda
+  // J: ALABARDA — haste comprida e uma lamina em folha na ponta. Ela fica toda
   // DENTRO do painel: a primeira versao punha a lamina em s*1.06 e o clip do
   // painel cortava a ponta, o que lia como um risco solto no canto e nao como
-  // uma arma.
+  // uma arma. A haste dobrou de espessura pelo motivo da nota do cabecalho.
   g.strokeStyle = FIG_HASTE
-  g.lineWidth = s * 0.072
+  g.lineWidth = s * 0.100
   g.beginPath()
-  g.moveTo(s * 0.42, s * 0.74)
-  g.lineTo(s * 0.70, -s * 0.56)
+  g.moveTo(s * 0.44, s * 0.82)
+  g.lineTo(s * 0.70, -s * 0.42)
   g.stroke()
   g.strokeStyle = FIG_TINTA
   g.lineWidth = traco
+  // A LAMINA E UMA FOLHA COM PONTA, e nao uma meia-lua. A primeira versao
+  // abria ate 1.00 s com a base larga e o resultado lia como CONCHA — na foto
+  // do atlas a alabarda do valete parecia uma colher. Estreitando a barriga
+  // (0.94 em vez de 1.00) e fechando a base num angulo, a silhueta volta a ser
+  // uma ponta, que e o que uma arma precisa ter.
   const folha = new Path2D()
-  folha.moveTo(s * 0.74, -s * 0.94)
-  folha.quadraticCurveTo(s * 0.92, -s * 0.72, s * 0.77, -s * 0.46)
-  folha.quadraticCurveTo(s * 0.60, -s * 0.66, s * 0.74, -s * 0.94)
+  folha.moveTo(s * 0.76, -s * 0.96)
+  folha.quadraticCurveTo(s * 0.94, -s * 0.68, s * 0.77, -s * 0.36)
+  folha.quadraticCurveTo(s * 0.62, -s * 0.66, s * 0.76, -s * 0.96)
   g.fillStyle = FIG_ACO
   g.fill(folha); g.stroke(folha)
+  // gume: um fio claro colado no dorso da lamina. Ele e FINO — na versao
+  // anterior ocupava a barriga inteira e a folha ficava oca, o que ajudava a
+  // colher a parecer colher.
+  g.fillStyle = 'rgba(255,255,255,0.42)'
+  g.beginPath()
+  g.moveTo(s * 0.765, -s * 0.92)
+  g.quadraticCurveTo(s * 0.885, -s * 0.68, s * 0.772, -s * 0.41)
+  g.quadraticCurveTo(s * 0.825, -s * 0.68, s * 0.765, -s * 0.92)
+  g.fill()
+  // bico curto no lado oposto: a silhueta de alabarda, e nao de lanca
+  g.strokeStyle = FIG_TINTA
+  const bico = new Path2D()
+  bico.moveTo(s * 0.70, -s * 0.70)
+  bico.lineTo(s * 0.46, -s * 0.55)
+  bico.lineTo(s * 0.695, -s * 0.49)
+  bico.closePath()
+  g.fillStyle = FIG_ACO
+  g.fill(bico); g.stroke(bico)
 }
 
-/** O adorno de cabeca, por posto. Vai por ULTIMO, por cima do cabelo. */
+/**
+ * O ADORNO DE CABECA, por posto. Vai por ULTIMO, por cima do cabelo.
+ *
+ * ELE COUBE, e essa foi a correcao maior desta revisao — maior que qualquer
+ * redesenho. Na versao anterior a coroa do rei ia a 1.13 s acima da ancora do
+ * busto, e a ancora estava a 0.46 da meia-altura do painel: com s valendo 0.52
+ * da largura, o pico da coroa caia 35 px ACIMA da borda do painel e o clip
+ * comia ele. O que sobrava na carta era um aro dourado com dois dentes
+ * cortados no meio — e como o diadema da dama e a aba do valete sofriam o
+ * mesmo corte, os tres postos acabavam com a MESMA faixa dourada na testa.
+ * "Feinhas" ali era literalmente "sem coroa".
+ *
+ * Agora a conta e explicita e esta na nota de figura(): o busto inteiro cabe
+ * entre -1.04 s e +0.88 s da ancora, e nenhum adorno passa disso.
+ */
 function coroa(g, letra, s) {
   const traco = Math.max(1.1, s * 0.036)
   g.strokeStyle = FIG_TINTA
@@ -735,76 +798,222 @@ function coroa(g, letra, s) {
   g.fillStyle = FIG_OURO
 
   if (letra === 'K') {
+    // O VELUDO PRIMEIRO: o miolo da coroa e um chapeu de tecido, e sem ele os
+    // dentes dourados ficam pendurados no ar em cima do cabelo. Ele e o que faz
+    // a coroa ter volume em vez de ser uma serra.
+    const veludo = new Path2D()
+    veludo.moveTo(-s * 0.42, -s * 0.58)
+    veludo.quadraticCurveTo(0, -s * 0.99, s * 0.42, -s * 0.58)
+    veludo.closePath()
+    g.fillStyle = '#8a2135'
+    g.fill(veludo); g.stroke(veludo)
+
     const c = new Path2D()
-    c.moveTo(-s * 0.42, -s * 0.50)
-    c.lineTo(-s * 0.46, -s * 0.92)
-    c.lineTo(-s * 0.22, -s * 0.68)
-    c.lineTo(0, -s * 1.06)
-    c.lineTo(s * 0.22, -s * 0.68)
-    c.lineTo(s * 0.46, -s * 0.92)
-    c.lineTo(s * 0.42, -s * 0.50)
+    c.moveTo(-s * 0.44, -s * 0.56)
+    c.lineTo(-s * 0.47, -s * 0.80)
+    c.lineTo(-s * 0.23, -s * 0.64)
+    c.lineTo(0, -s * 0.92)
+    c.lineTo(s * 0.23, -s * 0.64)
+    c.lineTo(s * 0.47, -s * 0.80)
+    c.lineTo(s * 0.44, -s * 0.56)
     c.closePath()
+    g.fillStyle = FIG_OURO
     g.fill(c); g.stroke(c)
-    // as tres perolas das pontas: e o que faz a coroa nao virar uma serra.
-    // Ficam em 0.42 e nao 0.46 porque na foto, mais abertas, elas caiam na
-    // altura da tempora e liam como ORELHA.
+    // as tres perolas das pontas: e o que faz a coroa nao virar uma serra
     g.fillStyle = FIG_CLARO
-    for (const px of [-0.44, 0, 0.44]) {
+    for (const px of [-0.47, 0, 0.47]) {
       const p = new Path2D()
-      p.arc(px * s, (px === 0 ? -1.13 : -0.98) * s, s * 0.062, 0, TAU)
+      p.arc(px * s, (px === 0 ? -0.975 : -0.855) * s, s * 0.058, 0, TAU)
       g.fill(p); g.stroke(p)
     }
-    // aro da base, com uma pedra no meio
+    // aro da base, com tres pedras
     const aro = new Path2D()
-    aro.rect(-s * 0.44, -s * 0.54, s * 0.88, s * 0.13)
+    aro.rect(-s * 0.46, -s * 0.61, s * 0.92, s * 0.145)
     g.fillStyle = FIG_OURO
     g.fill(aro); g.stroke(aro)
-    const pedra = new Path2D()
-    pedra.ellipse(0, -s * 0.475, s * 0.075, s * 0.055, 0, 0, TAU)
-    g.fillStyle = '#a83a4c'
-    g.fill(pedra); g.stroke(pedra)
+    for (const px of [-0.25, 0, 0.25]) {
+      const pedra = new Path2D()
+      pedra.ellipse(px * s, -s * 0.538, s * 0.058, s * 0.045, 0, 0, TAU)
+      g.fillStyle = px === 0 ? '#a83a4c' : '#2f5d7a'
+      g.fill(pedra); g.stroke(pedra)
+    }
     return
   }
 
   if (letra === 'Q') {
-    // diadema: um arco baixo com tres pontas curtas, mais leve que a coroa do
-    // rei — a diferenca entre os dois tem que ler no contorno, nao no detalhe
+    // DIADEMA: um arco baixo com tres pontas e uma gema em cada. Mais leve que
+    // a coroa do rei — a diferenca entre os dois tem que ler no CONTORNO, e por
+    // isso ele nao tem veludo: e metal vazado, o oposto da massa da coroa.
     const d = new Path2D()
-    d.moveTo(-s * 0.40, -s * 0.48)
-    d.quadraticCurveTo(-s * 0.30, -s * 0.80, -s * 0.20, -s * 0.58)
-    d.quadraticCurveTo(-s * 0.10, -s * 0.92, 0, -s * 0.90)
-    d.quadraticCurveTo(s * 0.10, -s * 0.92, s * 0.20, -s * 0.58)
-    d.quadraticCurveTo(s * 0.30, -s * 0.80, s * 0.40, -s * 0.48)
+    d.moveTo(-s * 0.42, -s * 0.54)
+    d.quadraticCurveTo(-s * 0.33, -s * 0.80, -s * 0.21, -s * 0.62)
+    d.quadraticCurveTo(-s * 0.10, -s * 0.88, 0, -s * 0.86)
+    d.quadraticCurveTo(s * 0.10, -s * 0.88, s * 0.21, -s * 0.62)
+    d.quadraticCurveTo(s * 0.33, -s * 0.80, s * 0.42, -s * 0.54)
     d.closePath()
+    g.fillStyle = FIG_OURO
     g.fill(d); g.stroke(d)
-    const p = new Path2D()
-    p.arc(0, -s * 0.94, s * 0.085, 0, TAU)
     g.fillStyle = FIG_CLARO
-    g.fill(p); g.stroke(p)
+    for (const [px, py, r] of [[0, -0.915, 0.072], [-0.295, -0.78, 0.046], [0.295, -0.78, 0.046]]) {
+      const p = new Path2D()
+      p.arc(px * s, py * s, s * r, 0, TAU)
+      g.fill(p); g.stroke(p)
+    }
+    // fio de perolas na testa: e ele que assenta o diadema na cabeca em vez de
+    // deixar o arco flutuando acima do cabelo
+    g.fillStyle = '#e8d9ae'
+    for (let i = -3; i <= 3; i++) {
+      const p = new Path2D()
+      p.arc(i * s * 0.108, -s * 0.552, s * 0.037, 0, TAU)
+      g.fill(p); g.stroke(p)
+    }
     return
   }
 
-  // J: barrete com aba e uma pena. A pena e o unico traco solto da figura e
-  // por isso ela e comprida: e ela que da assimetria ao valete e o separa da
-  // dama no canto do olho.
+  // J: BARRETE de tecido com aba CURVA e uma pena atravessada.
+  //
+  // A aba era um retangulo reto de ponta a ponta e lia como uma tabua pregada
+  // na testa — a cabeca ficava com cara de mesa. Curvada, ela acompanha o
+  // craneo e o barrete vira roupa.
+  //
+  // A pena cruza a cabeca DA DIREITA PRA ESQUERDA e termina dentro do painel.
+  // Antes ela saia reto pro lado em -0.92 s e o clip a cortava no meio: o que
+  // aparecia na carta era um chifre branco.
   const gorro = new Path2D()
-  gorro.moveTo(-s * 0.38, -s * 0.50)
-  gorro.quadraticCurveTo(-s * 0.36, -s * 0.90, 0, -s * 0.88)
-  gorro.quadraticCurveTo(s * 0.36, -s * 0.90, s * 0.38, -s * 0.50)
+  gorro.moveTo(-s * 0.40, -s * 0.54)
+  gorro.bezierCurveTo(-s * 0.44, -s * 0.92, s * 0.28, -s * 0.96, s * 0.40, -s * 0.66)
+  gorro.lineTo(s * 0.40, -s * 0.54)
   gorro.closePath()
   g.fillStyle = FIG_MANTO_PRETO
   g.fill(gorro); g.stroke(gorro)
+  // vinco do tecido: duas linhas que seguem a curva do barrete
+  g.strokeStyle = 'rgba(255,255,255,0.16)'
+  g.lineWidth = traco * 0.9
+  for (const k of [0.0, 0.16]) {
+    g.beginPath()
+    g.moveTo(-s * 0.32, -s * (0.64 + k))
+    g.quadraticCurveTo(0, -s * (0.86 + k), s * 0.30, -s * (0.66 + k))
+    g.stroke()
+  }
+  g.strokeStyle = FIG_TINTA
+  g.lineWidth = traco
   const aba = new Path2D()
-  aba.rect(-s * 0.44, -s * 0.54, s * 0.88, s * 0.11)
+  aba.moveTo(-s * 0.45, -s * 0.545)
+  aba.quadraticCurveTo(0, -s * 0.685, s * 0.45, -s * 0.545)
+  aba.quadraticCurveTo(0, -s * 0.575, -s * 0.45, -s * 0.545)
+  aba.closePath()
   g.fillStyle = FIG_OURO
   g.fill(aba); g.stroke(aba)
   const pena = new Path2D()
-  pena.moveTo(-s * 0.24, -s * 0.76)
-  pena.quadraticCurveTo(-s * 0.92, -s * 1.08, -s * 0.82, -s * 0.42)
-  pena.quadraticCurveTo(-s * 0.56, -s * 0.70, -s * 0.24, -s * 0.62)
+  pena.moveTo(s * 0.20, -s * 0.76)
+  pena.bezierCurveTo(-s * 0.16, -s * 1.02, -s * 0.58, -s * 0.94, -s * 0.62, -s * 0.60)
+  pena.bezierCurveTo(-s * 0.40, -s * 0.80, -s * 0.10, -s * 0.74, s * 0.20, -s * 0.68)
   pena.closePath()
   g.fillStyle = FIG_CLARO
   g.fill(pena); g.stroke(pena)
+  // a raque da pena: sem ela a forma le como uma nuvem branca
+  g.strokeStyle = 'rgba(60,52,40,0.55)'
+  g.lineWidth = traco * 0.8
+  g.beginPath()
+  g.moveTo(s * 0.18, -s * 0.72)
+  g.bezierCurveTo(-s * 0.14, -s * 0.88, -s * 0.46, -s * 0.85, -s * 0.60, -s * 0.63)
+  g.stroke()
+  g.strokeStyle = FIG_TINTA
+  g.lineWidth = traco
+}
+
+/**
+ * O ROSTO. Separado do busto porque as tres figuras dividem tudo dele menos
+ * duas coisas: a barba do rei e as mechas da dama.
+ *
+ * A EXPRESSAO MUDOU, e essa e a metade do "tao muito feinhas" que nao estava no
+ * tamanho. A versao anterior tinha sobrancelhas em diagonal descendente pro
+ * meio — a forma universal de "bravo" — e as tres figuras usavam a MESMA, o que
+ * dava um baralho inteiro de gente irritada e identica. As de agora sao arcos
+ * levemente abaulados: a 12 px elas leem como sombra da testa, que e o que
+ * sobrancelha faz num rosto pequeno, e param de dar carater.
+ */
+function rosto(g, letra, s, traco) {
+  // pescoco, por tras de tudo: sem ele a cabeca nasce colada na gola e a
+  // figura parece um busto de gesso em cima de uma caixa
+  const pesc = new Path2D()
+  pesc.rect(-s * 0.105, -s * 0.12, s * 0.21, s * 0.26)
+  g.fillStyle = FIG_PELE
+  g.fill(pesc); g.stroke(pesc)
+
+  // cabelo por tras, rosto por cima: a massa escura em volta e o que da
+  // contraste pro rosto num campo de marfim
+  const cabelo = new Path2D()
+  cabelo.ellipse(0, -s * 0.30, s * 0.335, s * 0.375, 0, 0, TAU)
+  g.fillStyle = FIG_CABELO
+  g.fill(cabelo); g.stroke(cabelo)
+
+  const face = new Path2D()
+  face.ellipse(0, -s * 0.265, s * 0.232, s * 0.288, 0, 0, TAU)
+  g.fillStyle = FIG_PELE
+  g.fill(face); g.stroke(face)
+
+  // olhos
+  g.fillStyle = FIG_TINTA
+  for (const ox of [-0.092, 0.092]) {
+    g.beginPath()
+    g.ellipse(ox * s, -s * 0.310, s * 0.030, s * 0.039, 0, 0, TAU)
+    g.fill()
+  }
+  // sobrancelhas: arcos, nao diagonais (ver a nota da funcao)
+  g.lineWidth = traco * 0.8
+  for (const lado of [-1, 1]) {
+    g.beginPath()
+    g.moveTo(lado * s * 0.030, -s * 0.380)
+    g.quadraticCurveTo(lado * s * 0.096, -s * 0.418, lado * s * 0.158, -s * 0.373)
+    g.stroke()
+  }
+  // nariz: uma linha curta com a asa marcada de um lado so, que e como um
+  // nariz de tres quartos aparece
+  g.beginPath()
+  g.moveTo(0, -s * 0.290)
+  g.lineTo(-s * 0.018, -s * 0.196)
+  g.lineTo(s * 0.042, -s * 0.183)
+  g.stroke()
+  // boca
+  g.beginPath()
+  g.moveTo(-s * 0.070, -s * 0.120)
+  g.quadraticCurveTo(0, -s * 0.100, s * 0.070, -s * 0.120)
+  g.stroke()
+  g.lineWidth = traco
+
+  if (letra === 'K') {
+    // BARBA: cobre a boca e desce ate a gola. E o unico jeito de o rei ler como
+    // rei num rosto de 12 px — coroa sozinha se confunde com o diadema.
+    const barba = new Path2D()
+    barba.moveTo(-s * 0.228, -s * 0.212)
+    barba.quadraticCurveTo(-s * 0.228, s * 0.14, 0, s * 0.18)
+    barba.quadraticCurveTo(s * 0.228, s * 0.14, s * 0.228, -s * 0.212)
+    barba.quadraticCurveTo(0, -s * 0.030, -s * 0.228, -s * 0.212)
+    barba.closePath()
+    g.fillStyle = FIG_CABELO
+    g.fill(barba); g.stroke(barba)
+    // bigode por cima da barba, tapando a boca: dois arcos que saem do nariz
+    const big = new Path2D()
+    big.moveTo(-s * 0.020, -s * 0.166)
+    big.quadraticCurveTo(-s * 0.146, -s * 0.186, -s * 0.184, -s * 0.082)
+    big.quadraticCurveTo(-s * 0.088, -s * 0.112, 0, -s * 0.107)
+    big.quadraticCurveTo(s * 0.088, -s * 0.112, s * 0.184, -s * 0.082)
+    big.quadraticCurveTo(s * 0.146, -s * 0.186, s * 0.020, -s * 0.166)
+    big.closePath()
+    g.fill(big); g.stroke(big)
+  } else if (letra === 'Q') {
+    // duas mechas caindo dos lados: silhueta de dama
+    for (const lado of [-1, 1]) {
+      const m = new Path2D()
+      m.moveTo(lado * s * 0.305, -s * 0.36)
+      m.quadraticCurveTo(lado * s * 0.460, -s * 0.04, lado * s * 0.315, s * 0.14)
+      m.quadraticCurveTo(lado * s * 0.238, -s * 0.06, lado * s * 0.238, -s * 0.32)
+      m.closePath()
+      g.fillStyle = FIG_CABELO
+      g.fill(m); g.stroke(m)
+    }
+  }
 }
 
 /**
@@ -813,24 +1022,57 @@ function coroa(g, letra, s) {
  * Nao ha ilustracao de corte francesa aqui, e nem podia haver: as figuras dos
  * baralhos de banca sao desenho de fabricante. O que se desenha e um painel
  * espelhado — a metade de cima e a de baixo iguais e viradas, como na carta de
- * verdade — com um busto: manto com trama, gola de rufo, cabelo, rosto com
- * sobrancelha e nariz, adorno por posto e um adereco na mao.
+ * verdade — com um busto: manto, gola de arminho, cabelo, rosto, adorno por
+ * posto e um adereco na mao.
  *
- * O QUE MUDOU E POR QUE. A versao anterior era cabeca-ovo com dois pontos de
- * olho, gola em V e um chapeu; a 90 px de carta na tela ela lia como boneco de
- * neve. Tres coisas consertaram, em ordem de quanto renderam:
- *   1) o ADERECO (diagonal comprida saindo do ombro) — silhueta, que e a unica
- *      coisa que sobrevive a minificacao;
- *   2) o CABELO como massa escura em volta do rosto — sem ele o rosto era um
- *      oval claro no meio de marfim, sem contraste nenhum;
- *   3) a TRAMA do manto — bloco de cor chapado vira mancha quando encolhe.
- * Sobrancelha, nariz e boca so aparecem no zoom, e e por isso que eles vem por
- * ultimo na lista: sao o premio de quem chega perto, nao o que faz a carta ler.
+ * ===========================================================================
+ * A CONTA VERTICAL, que e o que faltava antes
+ * ===========================================================================
+ *
+ * O painel mede w x h (hoje 0.62 x 0.60 da celula, ou 158 x 215 px). O busto e
+ * desenhado num sistema de unidades 's', ancorado a `-meia * ANCORA` do centro
+ * do painel, e ele vai de -1.04 s (a perola da coroa) a +0.88 s (a barra do
+ * manto). Pra o desenho INTEIRO caber e os dois bustos ainda se cruzarem no
+ * meio — que e o que faz uma carta de corte parecer uma carta de corte — as
+ * duas pontas tem que cair assim:
+ *
+ *     topo   = -meia*ANCORA - 1.04 s  >=  -meia + margem
+ *     fundo  = -meia*ANCORA + 0.88 s  ~=  +meia * 0.25
+ *
+ * Com meia = 107 px, s = 0.43 w = 68 px e ANCORA = 0.31, isso da topo em -104
+ * (3 px dentro da moldura) e fundo em +27, ou seja os dois bustos se cobrem por
+ * 54 px — um quarto do painel. Foi assim que os numeros abaixo sairam.
+ *
+ * ===========================================================================
+ * O QUE MUDOU NESTA REVISAO, e por que
+ * ===========================================================================
+ *
+ * O relato foi curto e direto: "quero que melhore e de juice nas figuras rei,
+ * valete e rainha, tao muito feinhas". Olhando o atlas ampliado, "feinha" tinha
+ * quatro causas separadas, e nenhuma delas era 'falta de detalhe':
+ *
+ *   1. O ADORNO NAO CABIA NO PAINEL. Ver a nota de coroa(): a coroa, o diadema
+ *      e o barrete eram todos cortados pelo clip na mesma altura, e os tres
+ *      postos acabavam com a mesma faixa dourada na testa. Esta e a causa
+ *      numero um, e ela nao se resolve desenhando melhor — se resolve com a
+ *      conta acima.
+ *   2. A GOLA DE RUFO. Cinco discos claros encostados embaixo do queixo liam
+ *      como BARBA BRANCA nas tres figuras, inclusive na dama. Ela saiu e entrou
+ *      uma gola de ARMINHO: uma faixa sobre os ombros com tres caudas pretas.
+ *      Faixa nao vira barba, e de quebra diz 'realeza' sem custar detalhe.
+ *   3. A CARA DE BRAVO. Ver a nota de rosto().
+ *   4. O ADERECO FINO. Ver a nota de adereco().
+ *
+ * O que NAO mudou e a arquitetura: painel espelhado, clip no painel, adereco
+ * antes do manto. Ela estava certa e e o que faz a carta ler como carta.
  *
  * Tudo dentro do painel e RECORTADO nele: o busto e maior que a metade que ele
  * ocupa (e assim que corte francesa funciona, os dois se interpenetram no
  * meio), e sem o clip o manto vazava por cima do indice do canto.
  */
+const FIG_S = 0.43        // tamanho do busto, em fracao da largura do painel
+const FIG_ANCORA = 0.31   // altura da ancora, em fracao da meia-altura
+
 function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
   const meia = h / 2
   const painel = caminhoArredondado(x - w / 2, y - meia, w, h, w * 0.05)
@@ -855,8 +1097,8 @@ function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
   g.globalAlpha = 1
 
   // a diagonal que separa as duas metades — e ela que faz a carta "virar"
-  g.strokeStyle = 'rgba(32,36,44,0.40)'
-  g.lineWidth = Math.max(1.2, w * 0.011)
+  g.strokeStyle = 'rgba(32,36,44,0.34)'
+  g.lineWidth = Math.max(1, w * 0.009)
   g.beginPath()
   g.moveTo(x - w / 2, y + meia)
   g.lineTo(x + w / 2, y - meia)
@@ -866,14 +1108,8 @@ function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
     g.save()
     g.translate(x, y)
     g.scale(1, dir)
-    // O busto ancora a 46% da meia-altura pra cima. Mais alto e a cabeca bate
-    // na moldura; mais baixo e os dois mantos se cobrem no meio e o painel vira
-    // uma faixa de cor so.
-    g.translate(0, -meia * 0.46)
-    // 0.52 e nao 0.50: o busto tem que ENCOSTAR na moldura pelos ombros. Com
-    // 0.50 sobrava uma faixa de painel vazia dos dois lados e a figura lia como
-    // um selo pequeno no meio de um quadro grande.
-    const s = w * 0.52
+    g.translate(0, -meia * FIG_ANCORA)
+    const s = w * FIG_S
     const traco = Math.max(1.1, s * 0.036)
     g.lineJoin = 'round'
     g.lineCap = 'round'
@@ -883,12 +1119,16 @@ function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
     g.strokeStyle = FIG_TINTA
     g.lineWidth = traco
 
-    // manto
+    // --- manto ---------------------------------------------------------
+    // Ele abre ate 1.16 s na barra e nao 1.00: com s menor (ver a conta
+    // vertical), 1.00 deixava uma tira de painel vazia dos dois lados e a
+    // figura voltava a ler como selo pequeno num quadro grande. 1.16 s e
+    // exatamente a meia-largura do painel — o ombro ENCOSTA na moldura.
     const manto = new Path2D()
-    manto.moveTo(-s * 1.00, s * 1.02)
-    manto.bezierCurveTo(-s * 0.88, s * 0.32, -s * 0.54, s * 0.10, -s * 0.28, s * 0.08)
-    manto.lineTo(s * 0.28, s * 0.08)
-    manto.bezierCurveTo(s * 0.54, s * 0.10, s * 0.88, s * 0.32, s * 1.00, s * 1.02)
+    manto.moveTo(-s * 1.16, s * 0.88)
+    manto.bezierCurveTo(-s * 1.02, s * 0.34, -s * 0.60, s * 0.13, -s * 0.30, s * 0.10)
+    manto.lineTo(s * 0.30, s * 0.10)
+    manto.bezierCurveTo(s * 0.60, s * 0.13, s * 1.02, s * 0.34, s * 1.16, s * 0.88)
     manto.closePath()
     g.fillStyle = corManto
     g.fill(manto)
@@ -896,9 +1136,9 @@ function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
     g.clip(manto)
     g.strokeStyle = 'rgba(0,0,0,0.24)'
     g.lineWidth = Math.max(1, s * 0.030)
-    for (let i = -1.6; i <= 2.4; i += 0.155) {
+    for (let i = -1.8; i <= 2.6; i += 0.150) {
       g.beginPath()
-      g.moveTo(i * s, s * 1.2)
+      g.moveTo(i * s, s * 1.1)
       g.lineTo(i * s + s * 1.3, -s * 0.2)
       g.stroke()
     }
@@ -907,85 +1147,72 @@ function figura(g, letra, n, x, y, w, h, corManto, corNaipe) {
     g.lineWidth = traco
     g.stroke(manto)
 
-    // peitilho claro em V + o naipe no peito: e o que amarra a figura ao naipe
-    // sem pintar a figura inteira de vermelho
+    // --- peitilho, com o naipe no peito --------------------------------
+    // Ele encolheu (0.32 -> 0.19 de meia-largura) e DESCEU pra comecar embaixo
+    // da gola. As duas coisas pelo mesmo motivo: sao as duas unicas pecas
+    // claras do busto, e encostadas elas viravam uma mancha branca so — o V
+    // deixava de ler como abertura de gola e o conjunto ficava com cara de
+    // babador. Separados por um dedo de manto colorido, cada um volta a ser
+    // uma peca de roupa.
     const peito = new Path2D()
-    peito.moveTo(-s * 0.32, s * 0.10)
-    peito.lineTo(0, s * 0.76)
-    peito.lineTo(s * 0.32, s * 0.10)
+    peito.moveTo(-s * 0.19, s * 0.30)
+    peito.lineTo(0, s * 0.82)
+    peito.lineTo(s * 0.19, s * 0.30)
     peito.closePath()
     g.fillStyle = FIG_CLARO
     g.fill(peito); g.stroke(peito)
-    // o naipe do peito tem 0.30 de 's', ou seja ~25 px na celula: e do tamanho
-    // do naipe do canto e some pelo mesmo motivo. Engrossa junto, mas so 0.35 do
-    // traco — com 0.8 os tres lobos do TREVO se fundiam num bloco e a dama de
-    // paus ficava com uma cruz no peito em vez de um trevo.
     g.fillStyle = corNaipe
-    naipe(g, n, 0, s * 0.36, s * 0.30, traco * 0.35)
+    naipe(g, n, 0, s * 0.50, s * 0.24, traco * 0.35)
 
-    // gola de rufo: cinco discos encostados na linha do ombro. Discos com
-    // contorno se cruzando SAO o rufo — nao ha desenho especial pra isso.
+    // --- gola de arminho ------------------------------------------------
+    // A faixa sobre os ombros que substituiu o rufo (causa 2 da nota da
+    // funcao). Ela e desenhada DEPOIS do manto e ANTES da cabeca, que e a
+    // ordem em que as tres camadas se encaixam num retrato.
+    //
+    // Ela e uma FAIXA e nao um capote, e passou por DUAS correcoes ate chegar
+    // nisto. Na primeira ela ia do ombro ate 0.86 s: uma tigela branca ocupando
+    // metade do painel, e trocar uma barba por uma tigela nao e progresso. Na
+    // segunda ela ainda abria ate 0.98 s de largura, e o problema mudou de
+    // forma sem sumir — as golas dos DOIS bustos espelhados encostavam uma na
+    // outra no meio do painel e o par lia como uma faixa branca atravessando a
+    // carta inteira. Uma peca que so fica errada quando espelhada e o tipo de
+    // coisa que so a foto do atlas mostra.
+    //
+    // Agora ela para em 0.76 s — dentro da linha do ombro do manto, que vai a
+    // 1.16 — entao sobra pano COLORIDO dos dois lados dela. E o colorido dos
+    // ombros que separa as duas metades no meio do painel.
+    const gola = new Path2D()
+    gola.moveTo(-s * 0.76, s * 0.34)
+    gola.bezierCurveTo(-s * 0.68, s * 0.22, -s * 0.50, s * 0.12, -s * 0.28, s * 0.10)
+    gola.lineTo(s * 0.28, s * 0.10)
+    gola.bezierCurveTo(s * 0.50, s * 0.12, s * 0.68, s * 0.22, s * 0.76, s * 0.34)
+    gola.bezierCurveTo(s * 0.44, s * 0.22, -s * 0.44, s * 0.22, -s * 0.76, s * 0.34)
+    gola.closePath()
     g.fillStyle = FIG_CLARO
-    for (let i = -2; i <= 2; i++) {
-      const d = new Path2D()
-      d.arc(i * s * 0.165, s * 0.11, s * 0.118, 0, TAU)
-      g.fill(d); g.stroke(d)
-    }
-
-    // cabelo por tras, rosto por cima: a massa escura em volta e o que da
-    // contraste pro rosto num campo de marfim
-    const cabelo = new Path2D()
-    cabelo.ellipse(0, -s * 0.24, s * 0.375, s * 0.415, 0, 0, TAU)
-    g.fillStyle = FIG_CABELO
-    g.fill(cabelo); g.stroke(cabelo)
-
-    const rosto = new Path2D()
-    rosto.ellipse(0, -s * 0.19, s * 0.265, s * 0.325, 0, 0, TAU)
-    g.fillStyle = FIG_PELE
-    g.fill(rosto); g.stroke(rosto)
-
-    // olhos, sobrancelha, nariz, boca
+    g.fill(gola)
+    g.save()
+    g.clip(gola)
+    // as caudas pretas do arminho: dois tracinhos com um ponto embaixo. E o
+    // desenho que faz um retalho branco virar pele, e ele funciona em 8 px
+    // porque sao so quatro manchas escuras contra um campo claro.
     g.fillStyle = FIG_TINTA
-    for (const ox of [-0.105, 0.105]) {
-      g.beginPath()
-      g.ellipse(ox * s, -s * 0.245, s * 0.032, s * 0.042, 0, 0, TAU)
-      g.fill()
+    for (const [cx, cy] of [[-0.50, 0.155], [0.50, 0.155]]) {
+      const t = new Path2D()
+      t.moveTo(cx * s - s * 0.024, cy * s)
+      t.lineTo(cx * s + s * 0.024, cy * s)
+      t.lineTo(cx * s, cy * s + s * 0.075)
+      t.closePath()
+      g.fill(t)
+      const d = new Path2D()
+      d.arc(cx * s, cy * s + s * 0.112, s * 0.022, 0, TAU)
+      g.fill(d)
     }
-    g.lineWidth = traco * 0.85
-    g.beginPath(); g.moveTo(-s * 0.175, -s * 0.335); g.lineTo(-s * 0.045, -s * 0.305); g.stroke()
-    g.beginPath(); g.moveTo(s * 0.175, -s * 0.335); g.lineTo(s * 0.045, -s * 0.305); g.stroke()
-    g.beginPath()
-    g.moveTo(0, -s * 0.215)
-    g.lineTo(-s * 0.02, -s * 0.115)
-    g.lineTo(s * 0.045, -s * 0.100)
-    g.stroke()
-    g.beginPath(); g.moveTo(-s * 0.075, -s * 0.030); g.lineTo(s * 0.075, -s * 0.030); g.stroke()
+    g.restore()
+    g.strokeStyle = FIG_TINTA
     g.lineWidth = traco
+    g.stroke(gola)
 
-    if (letra === 'K') {
-      // barba: cobre a boca e desce ate a gola. E o unico jeito de o rei ler
-      // como rei num rosto de 12 px — coroa sozinha se confunde com o diadema.
-      const barba = new Path2D()
-      barba.moveTo(-s * 0.255, -s * 0.155)
-      barba.quadraticCurveTo(-s * 0.245, s * 0.20, 0, s * 0.24)
-      barba.quadraticCurveTo(s * 0.245, s * 0.20, s * 0.255, -s * 0.155)
-      barba.quadraticCurveTo(0, s * 0.03, -s * 0.255, -s * 0.155)
-      barba.closePath()
-      g.fillStyle = FIG_CABELO
-      g.fill(barba); g.stroke(barba)
-    } else if (letra === 'Q') {
-      // duas mechas caindo dos lados: silhueta de dama
-      for (const lado of [-1, 1]) {
-        const m = new Path2D()
-        m.moveTo(lado * s * 0.34, -s * 0.30)
-        m.quadraticCurveTo(lado * s * 0.50, s * 0.02, lado * s * 0.34, s * 0.20)
-        m.quadraticCurveTo(lado * s * 0.26, s * 0.00, lado * s * 0.26, -s * 0.26)
-        m.closePath()
-        g.fillStyle = FIG_CABELO
-        g.fill(m); g.stroke(m)
-      }
-    }
-
+    rosto(g, letra, s, traco)
     coroa(g, letra, s)
     g.restore()
   }
